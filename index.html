@@ -1,0 +1,169 @@
+<html lang="ru" class="wf-neucha-n4-active wf-active"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>RMP</title>
+
+
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="/icons/favicon-32x32.png" sizes="32x32">
+    <link rel="icon" type="image/png" href="/icons/favicon-16x16.png" sizes="16x16">
+    <link rel="manifest" href="/icons/manifest.json">
+    <link rel="mask-icon" href="/icons/safari-pinned-tab.svg">
+    <meta name="apple-mobile-web-app-title" content="Yohoho">
+    <meta name="application-name" content="Yohoho">
+    <meta name="theme-color" content="#2a3440">
+
+<link rel="stylesheet" href="./css/bootstrap.min.css" />
+
+    <style>
+        .index,.contact,.webmaster,body{background:#000000;font-family:Neucha,sans-serif;color:#fff;margin:50px auto 60px;font-size:14px}.index,.play{overflow:hidden}.online{overflow-x:hidden}.play,.play iframe,.play .col-xs-12{width:100%}.play,.play iframe,.play .col-xs-12,.online,.online iframe,.online .col-xs-12,.online .col-sm-6,.online .col-lg-4,.torrent{margin:0;padding:0;border:0}a{text-decoration:none;outline:none}a .disabled{pointer-events:none;cursor:default}.navbar{z-index:3;border:0}.navbar-inverse{background:#27313e}.navbar-inverse .navbar-brand{font-weight:700;text-shadow:1px 1px 2px #000,0 0 1em #5bb8cc;font-size:20px}.navbar-inverse .navbar-brand:first-letter{text-transform:uppercase}.navbar-inverse .navbar-toggle:focus,.navbar-inverse .navbar-toggle:hover{background-color:#232c36}.footer{z-index:3;position:absolute;bottom:0;width:100%;height:50px;background-color:#000000}.container .text-muted{margin:15px 0}.container .text-muted span{color:#ccc}.index-background{position:absolute;z-index:2;top:0;left:0;width:100%;height:100%;background:#2A3440;opacity:.6}.index-seo{color:#999;text-align:justify}.search-line{z-index:3;position:absolute!important;left:50%;top:40%;margin-left:-325px!important;margin-top:-100px!important;width:650px}.search-line .brand{color:#fff;font-size:70px;font-weight:700;margin:0 auto;text-align:center;text-shadow:1px 1px 2px #000,0 0 1em #5bb8cc}.search-line .brand:first-letter{text-transform:uppercase}.search-line .form{margin:20px auto;width:100%;text-align:center}.search-line .form input,.moderator input,.moderator textarea,.movie-soc textarea{color:#fff;background:#27313e;border:2px #2f3a46 solid;border-radius:5px;padding:15px;margin:30px auto 0;font-size:16px}.search-line input:hover,.moderator input:hover,.moderator textarea:hover,.movie-soc textarea:hover{border:2px #27313e solid;background:#2f3a46}a{color:#fff}a:hover{color:#fff;text-decoration:none;outline:none}a:focus{color:#ccc;text-decoration:none;outline:none}.player .buttons{position:absolute;bottom:0;left:0;margin:0 8px 8px;z-index:1;opacity:.6}.player .buttons:hover{opacity:.9}.player .title{margin:7px 10px 0}.player .translate,.player .seasons{margin:0 10px}.btn{border-radius:0!important;background:rgba(0,0,0,0.4)!important;padding:6px 0!important;overflow:hidden}.btn-group-justified .btn-group{padding:2px!important}@media only screen and (max-width: 768px){.footer,.navbar,.index-seo{display:none}.search-line{left:0;top:0;margin:0!important;width:100%}}::-webkit-input-placeholder{color:#999}::-moz-placeholder{color:#999}:-ms-input-placeholder{color:#999}:-moz-placeholder{color:#999}
+    </style><link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Neucha" media="all">
+</head>
+<body class="index">
+
+
+
+<div class="index-background"></div>
+
+<div class="search-line">
+    <div data-resize="1" data-tv="1" id="yohoho">
+        <div class="brand">Rider's Movie Player</div>
+<div class="brand" style="font-size:160%;">Watch movies and series without ads and donation blocks!</div>
+        <div class="form">
+            <input type="text" placeholder="Movie Title / Kinopoisk ID" id="search-title" name="title" style="width: 250px">
+            <input type="button" id="search" value="Search!">
+        </div>
+    </div>
+</div>
+
+<script src="yo.js"></script>
+
+<div class="index-seo"></div>
+
+<footer class="footer">
+    <div class="container">
+        <p class="text-muted" style="float: left;">Online <span id="count">114 6755</span> movies and series.</p>
+        <p class="text-muted" style="float: right;">Based on yohoho.cc</p>
+    </div>
+</footer>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.16/webfont.js"></script>
+<script>
+    WebFont.load({
+        google: {
+            families: ['Neucha']
+        }
+    });
+</script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var seo = document.querySelector('.index-seo').innerText;
+        var items = seo.split(' ');
+
+        (function flashWord() {
+            var i = 0;
+            function run(item) {
+                var t = setTimeout(function () {
+                    clearTimeout(t);
+                    document.querySelector('.index-seo').innerHTML = seo.replace(new RegExp(' ' + item + ' ', 'g'), ' <span style="color: #fff">' + item + '</span> ');
+                    if (items.length) {
+                        i = getRandom(0, items.length - 1);
+                        run(items[i].replace(/[^A-Za-zА-Яа-яёЁ0-9]/gim, ''));
+                    }
+                }, 100);
+            }
+            function getRandom(min, max) {
+                min = Math.ceil(min);
+                max = Math.floor(max);
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+            run(items[i]);
+        })();
+
+        (function countMovies() {
+            var date = new Date();
+            var year = date.getUTCFullYear();
+            var month = date.getUTCMonth() + 1;
+            var day = date.getUTCDate();
+            var hours = date.getUTCHours();
+            var minutes = date.getUTCMinutes();
+            var seconds = date.getUTCSeconds();
+            var total = ((year - 2014) * 121680) + (month * 10140) + (day * 338) + (hours * 14) + minutes + seconds;
+            document.querySelector('#count').innerHTML = (total + '').replace(/([0-9]{3})([0-9]{3})/, '$1 $2');
+            setInterval(function () {
+                total += Math.floor(Math.random() * 3);
+                document.querySelector('#count').innerHTML = (total + '').replace(/([0-9]{3})([0-9]{3})/, '$1 $2');
+            }, 1000);
+        })();
+
+        var search = document.querySelector('#search');
+        var title = document.querySelector('#search-title');
+
+        if (window.location.hash) {
+            var hash = window.location.hash.substring(1);
+            if (title && hash) {
+                title.value = decodeURIComponent(hash);
+                parse();
+            }
+        }
+
+        if (search) {
+            search.addEventListener('click', function () {
+                return parse();
+            });
+        }
+
+        if (title) {
+            title.addEventListener('keyup', function (event) {
+                event.preventDefault();
+                if (event.keyCode === 13) {
+                    return parse();
+                }
+            });
+        }
+
+        function parse() {
+            var yohoho = document.querySelector('#yohoho');
+            if (title && title.value && yohoho) {
+                if (/kinopoisk\.ru/i.test(title.value)) {
+                    var exec = /(film\/|movie\/).*?([0-9]{3,7})\//gi.exec(title.value);
+                    if (exec && exec[2]) {
+                        yohoho.dataset.kinopoisk = exec[2];
+                        if (window.location.hostname === 'yohoho.cc') {
+                            window.location.href = 'https://4h0y.gitlab.io/#' + yohoho.dataset.kinopoisk;
+                            return;
+                        }
+                        window.location.hash = '#' + yohoho.dataset.kinopoisk;
+                        document.title = 'KinoPoisk: ' + yohoho.dataset.kinopoisk;
+                    }
+                } else if (/^\d+$/.test(title.value)) {
+                    yohoho.dataset.kinopoisk = title.value;
+                    if (window.location.hostname === 'yohoho.cc') {
+                        window.location.href = 'https://4h0y.gitlab.io/#' + yohoho.dataset.kinopoisk;
+                        return;
+                    }
+                    window.location.hash = '#' + yohoho.dataset.kinopoisk;
+                    document.title = 'KinoPoisk: ' + yohoho.dataset.kinopoisk;
+                } else {
+                    yohoho.dataset.title = encodeURIComponent(title.value);
+                    if (window.location.hostname === 'yohoho.cc') {
+                        window.location.href = 'https://4h0y.bitbucket.io/#' + yohoho.dataset.title;
+                        return;
+                    }
+                    window.location.hash = '#' + yohoho.dataset.title;
+                    document.title = title.value;
+                }
+                items = [];
+                return yo();
+            }
+        }
+    });
+</script>
+
+
+
+</body></html>
