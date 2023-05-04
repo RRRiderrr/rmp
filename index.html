@@ -64,7 +64,7 @@
 
 <footer class="footer">
     <div class="container">
-        <p class="text-muted" style="float: left;">Online <span id="count">114 6755</span> movies and series.</p>
+        <p class="text-muted" style="float: left;">Online <span id="count">335 201</span> movies and series.</p>
         <p class="text-muted" style="float: right;">Based on yohoho.cc</p>
     </div>
 </footer>
@@ -113,10 +113,10 @@
             var minutes = date.getUTCMinutes();
             var seconds = date.getUTCSeconds();
             var total = ((year - 2014) * 121680) + (month * 10140) + (day * 338) + (hours * 14) + minutes + seconds;
-            document.querySelector('#count').innerHTML = (total + '').replace(/([0-9]{3})([0-9]{3})/, '$1 $2');
+            document.querySelector('#count').innerHTML = (total + '').replace(/([0-9]{1})([0-9]{3})([0-9]{3})/, '$1 $2 $3');
             setInterval(function () {
                 total += Math.floor(Math.random() * 3);
-                document.querySelector('#count').innerHTML = (total + '').replace(/([0-9]{3})([0-9]{3})/, '$1 $2');
+                document.querySelector('#count').innerHTML = (total + '').replace(/([0-9]{1})([0-9]{3})([0-9]{3})/, '$1 $2 $3');
             }, 1000);
         })();
 
