@@ -63,3 +63,4 @@
     const observer = new MutationObserver(checkForMovieId);
     observer.observe(document.body, { childList: true, subtree: true });
 })();
+init();
