@@ -7,6 +7,7 @@
 // @author       Rider
 // @match        https://www.kinopoisk.ru/*
 // @grant        GM_addStyle
+// @run-at		document-end
 // ==/UserScript==
 
 (function() {
