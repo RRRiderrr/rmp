@@ -11,8 +11,8 @@
     <link rel="icon" type="image/png" href="/icons/favicon-16x16.png" sizes="16x16">
     <link rel="manifest" href="/icons/manifest.json">
     <link rel="mask-icon" href="/icons/safari-pinned-tab.svg">
-    <meta name="apple-mobile-web-app-title" content="Yohoho">
-    <meta name="application-name" content="Yohoho">
+    <meta name="apple-mobile-web-app-title" content="RMP">
+    <meta name="application-name" content="RMP">
     <meta name="theme-color" content="#2a3440">
 
 <link rel="stylesheet" href="./css/bootstrap.min.css" />
@@ -81,6 +81,24 @@
     });
 </script>
 <script>
+
+(function() {
+    function removeAds() {
+      var ads = document.querySelectorAll('.ad');
+      ads.forEach(function(ad) {
+        ad.style.display = 'none';
+      });
+    }
+
+    window.addEventListener('load', removeAds);
+  })();
+
+
+
+
+
+
+
     document.addEventListener('DOMContentLoaded', function () {
         var seo = document.querySelector('.index-seo').innerText;
         var items = seo.split(' ');
