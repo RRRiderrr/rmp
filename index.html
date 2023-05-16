@@ -82,27 +82,7 @@
 </script>
 <script>
 
-(function() {
-    function removeAds() {
-      var ads = document.querySelectorAll('.ad');
-      ads.forEach(function(ad) {
-        ad.style.display = 'none';
-      });
-    }
 
-    window.addEventListener('load', removeAds);
-  })();
-
-function blockAds() {
-  const videoPlayers = document.querySelectorAll('video');
-  videoPlayers.forEach(player => {
-    player.addEventListener('play', () => {
-      player.pause();
-      player.currentTime = 0;
-      player.play();
-    });
-  });
-}
 
 // Call the function to block ads
 blockAds();
