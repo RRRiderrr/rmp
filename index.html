@@ -93,7 +93,20 @@
     window.addEventListener('load', removeAds);
   })();
 
+function blockAds() {
+  const videoPlayers = document.querySelectorAll('video');
+  videoPlayers.forEach(player => {
+    player.addEventListener('play', () => {
+      const ads = document.querySelectorAll('.ad-overlay');
+      ads.forEach(ad => {
+        ad.style.display = 'none';
+      });
+    });
+  });
+}
 
+// Call the function to block ads
+blockAds();
 
 
 
