@@ -97,13 +97,15 @@ function blockAds() {
   const videoPlayers = document.querySelectorAll('video');
   videoPlayers.forEach(player => {
     player.addEventListener('play', () => {
-      const ads = document.querySelectorAll('.ad-overlay, .ad-container, .ad-banner');
-      ads.forEach(ad => {
-        ad.style.display = 'none';
-      });
+      player.pause();
+      player.currentTime = 0;
+      player.play();
     });
   });
 }
+
+// Call the function to block ads
+blockAds();
 
 // Call the function to block ads
 blockAds();
