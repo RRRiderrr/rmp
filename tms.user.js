@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RMP Watch🎥
 // @namespace    rmp-watch
-// @version      3
+// @version      4
 // @description  Adds an Always On Top button to kinopoisk.ru website and opens RMP website in new tab with movie or series
 // @icon         https://github.com/RRRiderrr/rmp/raw/main/icons/apple-touch-icon.png
 // @author       Rider
@@ -35,6 +35,8 @@
       button.style.cursor = 'pointer';
       button.style.background = 'transparent';
       button.style.boxShadow = '0px 0px 5px rgba(0, 0, 0, 0.3)';
+      button.style.background = 'white';
+      button.style.color = 'gray';
 
       button.addEventListener('click', () => {
         const movieId = extractMovieId();
