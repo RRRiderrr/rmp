@@ -118,57 +118,63 @@
     </div>
     <script src="https://kinobox.tv/kinobox.min.js"></script>
     <script>
-        const searchBar = document.getElementById('search-bar');
-        const searchButton = document.getElementById('search-button');
-        const kinoboxPlayer = document.querySelector('.kinobox_player');
-        const header = document.getElementById('header');
-        const links = document.querySelectorAll('.link'); // Select all links with the 'link' class
-        const bottomText = document.getElementById('bottom-text');
-        const homeButton = document.getElementById('home-button');
+    const searchBar = document.getElementById('search-bar');
+    const searchButton = document.getElementById('search-button');
+    const kinoboxPlayer = document.querySelector('.kinobox_player');
+    const header = document.getElementById('header');
+    const links = document.querySelectorAll('.link');
+    const bottomText = document.getElementById('bottom-text');
+    const homeButton = document.getElementById('home-button');
 
-        function hideLinks() {
-            for (const link of links) {
-                link.classList.add('hidden');
-            }
+    function hideLinks() {
+        for (const link of links) {
+            link.classList.add('hidden');
         }
+    }
 
-        function performSearch() {
+    function performSearch(query) {
+        if (query) {
+            kinoboxPlayer.style.display = 'block';
+            searchBar.style.display = 'none';
+            searchButton.style.display = 'none';
+            header.classList.add('hidden');
+            hideLinks();
+            bottomText.classList.add('hidden');
+            homeButton.classList.remove('hidden');
+            new Kinobox('.kinobox_player', { search: { query } }).init();
+        }
+    }
+
+    // Handle search when the button is clicked
+    searchButton.addEventListener('click', () => {
+        const query = searchBar.value.trim();
+        performSearch(query);
+    });
+
+    // Handle search on Enter key press
+    searchBar.addEventListener('keyup', (event) => {
+        if (event.key === 'Enter') {
             const query = searchBar.value.trim();
-            if (query) {
-                kinoboxPlayer.style.display = 'block';
-                searchBar.style.display = 'none';
-                searchButton.style.display = 'none';
-                header.classList.add('hidden');
-                hideLinks(); // Call the hideLinks function to hide the links
-                bottomText.classList.add('hidden');
-                homeButton.classList.remove('hidden'); // Show the Home button
-                new Kinobox('.kinobox_player', { search: { query } }).init();
-            }
+            performSearch(query);
         }
+    });
 
-        // Handle search when the button is clicked
-        searchButton.addEventListener('click', performSearch);
+    // Check for hash or query parameter on page load and perform search if found
+    window.addEventListener('load', () => {
+        const hash = window.location.hash.substr(1);
+        const searchParam = new URLSearchParams(window.location.search).get('search');
+        const query = hash || searchParam;
+        if (query && query.match(/^\w+$/)) { // Adjust the regex pattern as needed
+            searchBar.value = query;
+            performSearch(query);
+        }
+    });
 
-        // Handle search on Enter key press
-        searchBar.addEventListener('keyup', (event) => {
-            if (event.key === 'Enter') {
-                performSearch();
-            }
-        });
+    // Handle Home button click
+    homeButton.addEventListener('click', () => {
+        window.location.href = 'index.html';
+    });
+</script>
 
-        // Check for hash on page load and perform search if found
-        window.addEventListener('load', () => {
-            const hash = window.location.hash.substr(1);
-            if (hash.match(/^\d+$/)) {
-                searchBar.value = hash;
-                performSearch();
-            }
-        });
-
-        // Handle Home button click
-        homeButton.addEventListener('click', () => {
-            window.location.href = 'index.html'; // Redirect to index.html
-        });
-    </script>
 </body>
 </html>
