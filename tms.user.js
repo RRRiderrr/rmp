@@ -3,7 +3,7 @@
 // @namespace    rmp-watch-imdb-kinopoisk
 // @version      6
 // @description  Opens RMP website in a new tab with movie or series on IMDb and Kinopoisk
-// @icon         https://github.com/RRRiderrr/rmp/raw/main/icons/apple-touch-icon.png
+// @icon         https://github.com/RRRiderrr/rmp/raw/main/icons/favicon-32x32.png
 // @author       Rider
 // @updateURL    https://raw.githubusercontent.com/RRRiderrr/rmp/master/tms.user.js
 // @downloadURL  https://raw.githubusercontent.com/RRRiderrr/rmp/master/tms.user.js
