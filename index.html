@@ -117,10 +117,11 @@
         Based on KinoBox
     </div>
     <script src="https://kinobox.tv/kinobox.min.js"></script>
-    <script>
+<script>
     const searchBar = document.getElementById('search-bar');
     const searchButton = document.getElementById('search-button');
     const kinoboxPlayer = document.querySelector('.kinobox_player');
+    const ambientPlayer = document.getElementById('ambient-player');
     const header = document.getElementById('header');
     const links = document.querySelectorAll('.link');
     const bottomText = document.getElementById('bottom-text');
@@ -132,6 +133,11 @@
         }
     }
 
+    function showAmbientPlayer() {
+        kinoboxPlayer.style.display = 'none';
+        ambientPlayer.style.display = 'block';
+    }
+
     function performSearch(query) {
         if (query) {
             kinoboxPlayer.style.display = 'block';
@@ -141,17 +147,27 @@
             hideLinks();
             bottomText.classList.add('hidden');
             homeButton.classList.remove('hidden');
-            new Kinobox('.kinobox_player', { search: { query } }).init();
+            
+            // Configure menu parameter
+            const menuConfig = {
+                default: 'menuList',
+                mobile: 'menuButton',
+            };
+
+            new Kinobox('.kinobox_player', { 
+                search: { query },
+                menu: menuConfig, // Pass the menu configuration here
+            }).init();
+            
+            showAmbientPlayer();
         }
     }
 
-    // Handle search when the button is clicked
     searchButton.addEventListener('click', () => {
         const query = searchBar.value.trim();
         performSearch(query);
     });
 
-    // Handle search on Enter key press
     searchBar.addEventListener('keyup', (event) => {
         if (event.key === 'Enter') {
             const query = searchBar.value.trim();
@@ -159,18 +175,16 @@
         }
     });
 
-    // Check for hash or query parameter on page load and perform search if found
     window.addEventListener('load', () => {
         const hash = window.location.hash.substr(1);
         const searchParam = new URLSearchParams(window.location.search).get('search');
         const query = hash || searchParam;
-        if (query && query.match(/^\w+$/)) { // Adjust the regex pattern as needed
+        if (query && query.match(/^\w+$/)) {
             searchBar.value = query;
             performSearch(query);
         }
     });
 
-    // Handle Home button click
     homeButton.addEventListener('click', () => {
         window.location.href = 'index.html';
     });
