@@ -141,7 +141,11 @@
             hideLinks();
             bottomText.classList.add('hidden');
             homeButton.classList.remove('hidden');
-            new Kinobox('.kinobox_player', { search: { query } }).init();
+            
+            // Specify the menu options based on the device (desktop or mobile)
+            const menu = window.innerWidth < 768 ? { default: 'menuButton', mobile: 'menuButton' } : { default: 'menuList', mobile: 'menuButton' };
+
+            new Kinobox('.kinobox_player', { search: { query }, menu }).init();
         }
     }
 
@@ -164,7 +168,7 @@
         const hash = window.location.hash.substr(1);
         const searchParam = new URLSearchParams(window.location.search).get('search');
         const query = hash || searchParam;
-        if (query && query.match(/^\w+$/)) { // Adjust the regex pattern as needed
+        if (query && query.match(/^\w+$/)) {
             searchBar.value = query;
             performSearch(query);
         }
@@ -174,7 +178,6 @@
     homeButton.addEventListener('click', () => {
         window.location.href = 'index.html';
     });
-        
 </script>
 
 </body>
