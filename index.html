@@ -23,14 +23,9 @@
         max-width: 50%; /* Adjusted max-width to make it half the size */
     }
         #top-links {
-		@font-face {
-  font-family: 'Inter';
-  src: url('fonts/Inter-Regular.ttf') format('truetype');
-		}
             margin-top: 20px;
             display: flex;
             align-items: center;
-		color:#A4A4A4;
         }
         #top-links a {
             color: #fff !important; /* Set link text color to white and make it important */
@@ -53,22 +48,18 @@
         }
         #search-container {
             text-align: center;
-            
+            display: flex;
+            flex-direction: column; /* Stack search bar and button vertically */
+            align-items: center; /* Center horizontally */
         }
         #search-bar {
-		width: 400px;
+            width: 400px;
             padding: 12px;
             font-size: 16px;
             background-color: #333;
+            border: none;
             color: #fff;
-            margin-bottom: 20px;
-            
-	-ms-border-radius: 20px;
-	-o-border-radius: 20px;
-	-moz-border-radius: 20px;
-	-webkit-border-radius: 20px;
-	border-radius: 10px;
-	background:rgba(52.06,52.06,52.06,1);
+            margin-bottom: 20px; /* Adjusted margin to move the search bar further from the button */
         }
         #search-button {
             padding: 10px 20px;
@@ -114,32 +105,9 @@
         <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2" target="_blank" class="link">PayPal</a>
         <a href="https://github.com/RRRiderrr/rmp/raw/main/tms.user.js" target="_blank" class="link">Install TamperMonkey Script for Kinopoisk and IMDb</a>
     </div>
-
-
-<style type="text/css">
-@font-face {
-  font-family: 'Misto';
-  src: url('fonts/Misto.ttf') format('truetype');
-}
-
-#__p__riders_movie_player {
-  top: 118px;
-  left: 361px;
-  overflow: hidden;
-  font-family: 'Misto', sans-serif; /* Use the font-family name defined above */
-  font-size: 96px;
-  text-align: center;
-  color: #FFFFFF;
-}
-</style>
-<div id="__p__riders_movie_player">
-  Riders Movie Player
-</div>
-
-
-
-
-    
+    <div id="header">
+        <h1>Rider's Movie Player</h1>
+    </div>
     <div id="search-container">
         <input type="text" id="search-bar" placeholder="Kinopoisk ID/IMDb ID/Title/Kinopoisk link/IMDb link">
         <button id="search-button">Search</button>
