@@ -178,6 +178,86 @@
     homeButton.addEventListener('click', () => {
         window.location.href = 'index.html';
     });
+
+
+
+
+
+
+
+
+
+
+
+document.addEventListener("DOMContentLoaded", function() {
+        const canvas = document.createElement("canvas");
+        canvas.id = "popcornCanvas";
+        canvas.style.position = "fixed";
+        canvas.style.top = "0";
+        canvas.style.left = "0";
+        canvas.style.pointerEvents = "none";
+        canvas.style.zIndex = "9999"; // Set a high z-index to appear on top
+        document.body.appendChild(canvas);
+
+        const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const popcornImages = ["popcorn.png", "popcorn2.png", "popcorn3.png", "popcorn4.png", "popcorn5.png"];
+
+        const popcornParticles = [];
+
+        function spawnPopcorn(amount) {
+            for (let i = 0; i < amount; i++) {
+                const randomImage = popcornImages[Math.floor(Math.random() * popcornImages.length)];
+                const popcorn = {
+                    x: Math.random() * canvas.width,
+                    y: canvas.height,
+                    size: Math.floor(Math.random() * (80 - 40 + 1)) + 40,
+                    image: new Image()
+                };
+
+                popcorn.image.src = randomImage;
+
+                popcorn.velocity = {
+                    x: (Math.random() - 0.5) * 5,
+                    y: -(Math.random() * 8 + 5)
+                };
+
+                popcornParticles.push(popcorn);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < popcornParticles.length; i++) {
+                const popcorn = popcornParticles[i];
+
+                popcorn.velocity.y += 0.2;
+
+                popcorn.x += popcorn.velocity.x;
+                popcorn.y += popcorn.velocity.y;
+
+                ctx.drawImage(popcorn.image, popcorn.x, popcorn.y, popcorn.size, popcorn.size);
+
+                if (popcorn.y > canvas.height + popcorn.size) {
+                    popcornParticles.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        document.addEventListener("keydown", function(event) {
+            if (event.key === "p" || event.key === "P") {
+                spawnPopcorn(50);  // Spawn 50 particles at once
+            }
+        });
+
+        animate();
+    });
 </script>
+
 </body>
 </html>
