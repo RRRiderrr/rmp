@@ -103,18 +103,21 @@
     <div id="top-links">
         <a href="https://www.patreon.com/MichailPimakhov" target="_blank" class="link">Patreon</a>
         <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2" target="_blank" class="link">PayPal</a>
-        <a href="#" id="install-script-link" class="link">Install TamperMonkey Script for Kinopoisk and IMDb</a>
-<a class="userjs" onClick="javascript:linkPressed=true;" href="https://github.com/RRRiderrr/rmp/raw/main/tms.user.js">Install</a>
+       <a href="#" id="install-script-link" class="link">Install TamperMonkey Script for Kinopoisk and IMDb</a>
+
 <script>
-var linkPressed = false;
-window.onbeforeunload = function(){
-if(linkPressed){
-	alert('your browser dosnt seem to have any userscript compability');
-	linkPressed = false; //reset so we dont show this message if user leaves this page.
-	return false; //block user from going to the script
-}
-}
+document.addEventListener("DOMContentLoaded", function() {
+    const installScriptLink = document.getElementById('install-script-link');
+
+    installScriptLink.addEventListener('click', function(event) {
+        event.preventDefault();
+        
+        // Open the TamperMonkey script setup page in the same tab
+        window.location.href = 'https://github.com/RRRiderrr/rmp/raw/main/tms.user.js';
+    });
+});
 </script>
+
 
 
 
