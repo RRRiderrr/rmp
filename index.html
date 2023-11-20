@@ -112,11 +112,18 @@ document.addEventListener("DOMContentLoaded", function() {
     installScriptLink.addEventListener('click', function(event) {
         event.preventDefault();
         
-        // Open the TamperMonkey script setup page in the same tab
-        window.location.href = 'https://github.com/RRRiderrr/rmp/raw/main/tms.user.js';
+        // Check if Tampermonkey is installed
+        if (typeof GM_info !== 'undefined') {
+            // Tampermonkey is installed, redirect to script installation
+            window.location.href = 'https://github.com/RRRiderrr/rmp/raw/main/tms.user.js';
+        } else {
+            // Tampermonkey is not installed, display a message
+            alert('Install Tampermonkey extension first!');
+        }
     });
 });
 </script>
+
         
     </div>
     <div id="header">
