@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RMP</title>
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column; /* To stack elements vertically */
+            align-items: center;
+            justify-content: center; /* Center elements vertically */
+            height: 100vh;
+            margin: 0;
+            background-color: #222; /* Dark background color */
+            color: #fff; /* Text color */
+            font-family: Arial, sans-serif; /* Specify a common sans-serif font */
+        }
+
+.kinobox_player {
+            display: flex;
+        max-width: 50%; /* Adjusted max-width to make it half the size */
+    }
+        #top-links {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+        }
+        #top-links a {
+            color: #fff !important; /* Set link text color to white and make it important */
+            text-decoration: none;
+            margin-right: 40px; /* Increased margin for more spacing between links */
+        }
+        .hidden {
+            display: none; /* Hide elements with the 'hidden' class */
+        }
+        #header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #header.hidden {
+            display: none; /* Hide the header when it has the 'hidden' class */
+        }
+        #header h1 {
+            font-size: 48px;
+            margin: 0;
+        }
+        #search-container {
+            text-align: center;
+            display: flex;
+            flex-direction: column; /* Stack search bar and button vertically */
+            align-items: center; /* Center horizontally */
+        }
+        #search-bar {
+            width: 400px;
+            padding: 12px;
+            font-size: 16px;
+            background-color: #333;
+            border: none;
+            color: #fff;
+            margin-bottom: 20px; /* Adjusted margin to move the search bar further from the button */
+        }
+        #search-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #333;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        #search-button:hover {
+            background-color: #999;
+            transform: scale(1.1);
+        }
+        .kinobox_player {
+            display: none;
+            width: 100%;
+        }
+        #bottom-text {
+            margin-top: 20px;
+            color: #fff; /* Set text color to white */
+        }
+        #bottom-text.hidden {
+            display: none; /* Hide the bottom text when it has the 'hidden' class */
+        }
+        #home-button {
+            position: fixed; /* Fixed position to keep it always on top */
+            top: 10px;
+            left: 10px;
+            background-color: #333;
+            color: #fff;
+            padding: 5px 10px;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 9999; /* Set a high z-index to ensure it's on top of other elements */
+        }
+    </style>
+</head>
+<body>
+    <a href="index.html" id="home-button" class="hidden">Home</a>
+    <div id="top-links">
+        <a href="https://www.patreon.com/MichailPimakhov" target="_blank" class="link">Patreon</a>
+        <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2" target="_blank" class="link">PayPal</a>
+       <a href="#" id="install-script-link" class="link">Install TamperMonkey Script for Kinopoisk and IMDb</a>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const installScriptLink = document.getElementById('install-script-link');
+
+    installScriptLink.addEventListener('click', function(event) {
+        event.preventDefault();
+        
+        // Open the TamperMonkey script setup page in the same tab
+        window.location.href = 'https://github.com/RRRiderrr/rmp/raw/main/tms.user.js';
+    });
+});
+</script>
+
+
+
+
+        
+    </div>
+    <div id="header">
+        <h1>Rider's Movie Player</h1>
+    </div>
+    <div id="search-container">
+        <input type="text" id="search-bar" placeholder="Kinopoisk ID/IMDb ID/Title/Kinopoisk link/IMDb link">
+        <button id="search-button">Search</button>
+    </div>
+    <div class="kinobox_player"></div>
+    <div id="bottom-text">
+        Based on KinoBox
+    </div>
+    <script src="https://kinobox.tv/kinobox.min.js"></script>
+    <script>
+    const searchBar = document.getElementById('search-bar');
+    const searchButton = document.getElementById('search-button');
+    const kinoboxPlayer = document.querySelector('.kinobox_player');
+    const header = document.getElementById('header');
+    const links = document.querySelectorAll('.link');
+    const bottomText = document.getElementById('bottom-text');
+    const homeButton = document.getElementById('home-button');
+
+    function hideLinks() {
+        for (const link of links) {
+            link.classList.add('hidden');
+        }
+    }
+
+    function performSearch(query) {
+        if (query) {
+            kinoboxPlayer.style.display = 'block';
+            searchBar.style.display = 'none';
+            searchButton.style.display = 'none';
+            header.classList.add('hidden');
+            hideLinks();
+            bottomText.classList.add('hidden');
+            homeButton.classList.remove('hidden');
+            
+            // Specify the menu options based on the device (desktop or mobile)
+            const menu = window.innerWidth < 768 ? { default: 'menuButton', mobile: 'menuButton' } : { default: 'menuList', mobile: 'menuButton' };
+
+            new Kinobox('.kinobox_player', { search: { query }, menu }).init();
+        }
+    }
+
+    // Handle search when the button is clicked
+    searchButton.addEventListener('click', () => {
+        const query = searchBar.value.trim();
+        performSearch(query);
+    });
+
+    // Handle search on Enter key press
+    searchBar.addEventListener('keyup', (event) => {
+        if (event.key === 'Enter') {
+            const query = searchBar.value.trim();
+            performSearch(query);
+        }
+    });
+
+    // Check for hash or query parameter on page load and perform search if found
+    window.addEventListener('load', () => {
+        const hash = window.location.hash.substr(1);
+        const searchParam = new URLSearchParams(window.location.search).get('search');
+        const query = hash || searchParam;
+        if (query && query.match(/^\w+$/)) {
+            searchBar.value = query;
+            performSearch(query);
+        }
+    });
+
+    // Handle Home button click
+    homeButton.addEventListener('click', () => {
+        window.location.href = 'index.html';
+    });
+
+
+
+
+
+
+
+
+
+
+
+document.addEventListener("DOMContentLoaded", function() {
+        const canvas = document.createElement("canvas");
+        canvas.id = "popcornCanvas";
+        canvas.style.position = "fixed";
+        canvas.style.top = "0";
+        canvas.style.left = "0";
+        canvas.style.pointerEvents = "none";
+        canvas.style.zIndex = "9999"; // Set a high z-index to appear on top
+        document.body.appendChild(canvas);
+
+        const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const popcornImages = ["popcorn.png", "popcorn2.png", "popcorn3.png", "popcorn4.png", "popcorn5.png"];
+
+        const popcornParticles = [];
+
+        function spawnPopcorn(amount) {
+            for (let i = 0; i < amount; i++) {
+                const randomImage = popcornImages[Math.floor(Math.random() * popcornImages.length)];
+                const popcorn = {
+                    x: Math.random() * canvas.width,
+                    y: canvas.height,
+                    size: Math.floor(Math.random() * (80 - 40 + 1)) + 40,
+                    image: new Image()
+                };
+
+                popcorn.image.src = randomImage;
+
+                popcorn.velocity = {
+                    x: (Math.random() - 0.5) * 5,
+                    y: -(Math.random() * 8 + 5)
+                };
+
+                popcornParticles.push(popcorn);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < popcornParticles.length; i++) {
+                const popcorn = popcornParticles[i];
+
+                popcorn.velocity.y += 0.2;
+
+                popcorn.x += popcorn.velocity.x;
+                popcorn.y += popcorn.velocity.y;
+
+                ctx.drawImage(popcorn.image, popcorn.x, popcorn.y, popcorn.size, popcorn.size);
+
+                if (popcorn.y > canvas.height + popcorn.size) {
+                    popcornParticles.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        document.addEventListener("keydown", function(event) {
+            if (event.key === "p" || event.key === "P" || event.key === "з" || event.key === "З") {
+                spawnPopcorn(50);  // Spawn 50 particles at once
+            }
+        });
+
+        animate();
+    });
+</script>
+
+</body>
+</html>
