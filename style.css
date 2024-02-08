@@ -43,7 +43,7 @@ header a:hover {
 
 .search{
     background-color: transparent;
-    border: 2px solid #252629;
+    border: 2px solid #9a9b9c;
     padding:0.5rem 1rem;
     border-radius: 50px;
     font-size: 1rem;
@@ -67,7 +67,7 @@ header a:hover {
 }
 
 .search::placeholder{
-    color: #373f4a;
+    color: #626f82;
 }
 
 main{
