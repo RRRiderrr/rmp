@@ -475,7 +475,7 @@ function centerKinobox() {
 // Function to add a home button
 function addHomeButton() {
   const homeButton = document.createElement('button');
-  homeButton.textContent = 'Home';
+  homeButton.textContent = '← На главную';
   homeButton.style.position = 'fixed';
   homeButton.style.top = '20px';
   homeButton.style.left = '20px';
