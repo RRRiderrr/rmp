@@ -51,24 +51,29 @@
     <script>
         
         function redirectToOldPage() {
-            
-            fetch('https://ipapi.co/json/')
-                .then(response => response.json())
-                .then(data => {
-                    const country = data.country;
-                    
-                    if (country === 'RU') {
-                        
-                        window.location.href = 'old.html';
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching user location:', error);
-                });
-        }
+    // Check if there is a hash in the URL
+    if (window.location.hash) {
+        // If there is a hash, do not redirect
+        return;
+    }
 
-        // Call the function when the page loads
-        window.onload = redirectToOldPage;
+    fetch('https://ipapi.co/json/')
+        .then(response => response.json())
+        .then(data => {
+            const country = data.country;
+            
+            if (country === 'RU') {
+                window.location.href = 'old.html';
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching user location:', error);
+        });
+}
+
+// Call the function when the page loads
+window.onload = redirectToOldPage;
+
     </script>
 
 
