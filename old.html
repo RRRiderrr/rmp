@@ -6,97 +6,124 @@
     <title>RMP (Old)</title>
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
     <style>
-        body {
-            display: flex;
-            flex-direction: column; /* To stack elements vertically */
-            align-items: center;
-            justify-content: center; /* Center elements vertically */
-            height: 100vh;
-            margin: 0;
-            background-color: #222; /* Dark background color */
-            color: #fff; /* Text color */
-            font-family: Arial, sans-serif; /* Specify a common sans-serif font */
+    body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #222;
+        color: #fff;
+        font-family: Arial, sans-serif;
+    }
+
+    .kinobox_player {
+        display: flex;
+        max-width: 50%;
+    }
+
+    #top-links {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+    }
+
+    #top-links a {
+        color: #fff !important;
+        text-decoration: none;
+        margin-right: 40px;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    #header {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    #header.hidden {
+        display: none;
+    }
+
+    #header h1 {
+        font-size: 48px;
+        margin: 0;
+    }
+
+    #search-container {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    #search-bar {
+        width: 90%; /* Изменено с 400px на проценты для лучшей адаптации */
+        max-width: 400px; /* Максимальная ширина ограничена для больших экранов */
+        padding: 12px;
+        font-size: 16px;
+        background-color: #333;
+        border: none;
+        color: #fff;
+        margin-bottom: 20px;
+    }
+
+    #search-button {
+        padding: 10px 20px;
+        font-size: 16px;
+        background-color: #333;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.3s, transform 0.2s;
+    }
+
+    #search-button:hover {
+        background-color: #999;
+        transform: scale(1.1);
+    }
+
+    .kinobox_player {
+        display: none;
+        width: 100%;
+    }
+
+    #bottom-text {
+        margin-top: 20px;
+        color: #fff;
+    }
+
+    #bottom-text.hidden {
+        display: none;
+    }
+
+    #home-button {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        background-color: #333;
+        color: #fff;
+        padding: 5px 10px;
+        font-size: 14px;
+        cursor: pointer;
+        z-index: 9999;
+    }
+
+    /* Медиазапросы для мобильных устройств */
+    @media (max-width: 768px) {
+        #header h1 {
+            font-size: 24px; /* Уменьшение размера заголовка */
         }
 
-.kinobox_player {
-            display: flex;
-        max-width: 50%; /* Adjusted max-width to make it half the size */
-    }
-        #top-links {
-            margin-top: 20px;
-            display: flex;
-            align-items: center;
-        }
         #top-links a {
-            color: #fff !important; /* Set link text color to white and make it important */
-            text-decoration: none;
-            margin-right: 40px; /* Increased margin for more spacing between links */
+            margin-right: 20px; /* Уменьшение расстояния между ссылками */
         }
-        .hidden {
-            display: none; /* Hide elements with the 'hidden' class */
-        }
-        #header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        #header.hidden {
-            display: none; /* Hide the header when it has the 'hidden' class */
-        }
-        #header h1 {
-            font-size: 48px;
-            margin: 0;
-        }
-        #search-container {
-            text-align: center;
-            display: flex;
-            flex-direction: column; /* Stack search bar and button vertically */
-            align-items: center; /* Center horizontally */
-        }
-        #search-bar {
-            width: 400px;
-            padding: 12px;
-            font-size: 16px;
-            background-color: #333;
-            border: none;
-            color: #fff;
-            margin-bottom: 20px; /* Adjusted margin to move the search bar further from the button */
-        }
-        #search-button {
-            padding: 10px 20px;
-            font-size: 16px;
-            background-color: #333;
-            color: #fff;
-            border: none;
-            cursor: pointer;
-            transition: background-color 0.3s, transform 0.2s;
-        }
-        #search-button:hover {
-            background-color: #999;
-            transform: scale(1.1);
-        }
-        .kinobox_player {
-            display: none;
-            width: 100%;
-        }
-        #bottom-text {
-            margin-top: 20px;
-            color: #fff; /* Set text color to white */
-        }
-        #bottom-text.hidden {
-            display: none; /* Hide the bottom text when it has the 'hidden' class */
-        }
-        #home-button {
-            position: fixed; /* Fixed position to keep it always on top */
-            top: 10px;
-            left: 10px;
-            background-color: #333;
-            color: #fff;
-            padding: 5px 10px;
-            font-size: 14px;
-            cursor: pointer;
-            z-index: 9999; /* Set a high z-index to ensure it's on top of other elements */
-        }
-    </style>
+    }
+</style>
+
 </head>
 <body>
     <a href="index.html" id="home-button" class="hidden">Home</a>
