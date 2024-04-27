@@ -613,12 +613,12 @@ document.addEventListener("DOMContentLoaded", function() {
 
     if (window.location.hash) {
         const movieId = window.location.hash.substring(1);
-        fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=ВАШ_API_KEY`)
+        fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=3b68a0041f64019817b5a6a12fcfc882`)
           .then(response => response.json())
           .then(data => {
             metaTitle.content = data.title;
             metaDescription.content = "Смотреть на RMP";
-            document.title = data.title;  // Изменение заголовка вкладки
+            document.title = data.title;  
           })
           .catch(error => console.log('Ошибка при получении данных фильма:', error));
     }
