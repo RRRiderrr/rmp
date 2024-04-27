@@ -546,24 +546,13 @@ document.addEventListener("DOMContentLoaded", function() {
   canvas.style.pointerEvents = "none";
   canvas.style.zIndex = "9999"; // Set a high z-index to appear on top
   document.body.appendChild(canvas);
-    var metaTitle = document.querySelector('meta[property="og:title"]');
-    var metaDescription = document.querySelector('meta[property="og:description"]');
+    
 
   const ctx = canvas.getContext("2d");
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-if (window.location.hash) {
-        const movieId = window.location.hash.substring(1);
-        fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=ВАШ_API_KEY`)
-          .then(response => response.json())
-          .then(data => {
-            metaTitle.content = data.title;
-            metaDescription.content = "Смотреть на RMP";
-            document.title = data.title;  // Изменение заголовка вкладки
-          })
-          .catch(error => console.log('Ошибка при получении данных фильма:', error));
-    }
+
     
   const popcornImages = ["popcorn.png", "popcorn2.png", "popcorn3.png", "popcorn4.png", "popcorn5.png"];
 
@@ -618,5 +607,20 @@ if (window.location.hash) {
   });
 
   animate();
+
+    var metaTitle = document.querySelector('meta[property="og:title"]');
+    var metaDescription = document.querySelector('meta[property="og:description"]');
+
+    if (window.location.hash) {
+        const movieId = window.location.hash.substring(1);
+        fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=ВАШ_API_KEY`)
+          .then(response => response.json())
+          .then(data => {
+            metaTitle.content = data.title;
+            metaDescription.content = "Смотреть на RMP";
+            document.title = data.title;  // Изменение заголовка вкладки
+          })
+          .catch(error => console.log('Ошибка при получении данных фильма:', error));
+    }
 });
 
