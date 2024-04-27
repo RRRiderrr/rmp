@@ -417,6 +417,7 @@ document.addEventListener('click', function(event) {
           })
           .then(data => {
               console.log('Response data:', data);
+              const movieTitle = data.title || data.original_title;
               const imdbId = data.imdb_id;
               if (imdbId) {
                   console.log('IMDb ID found:', imdbId);
@@ -425,6 +426,17 @@ document.addEventListener('click', function(event) {
               } else {
                   throw new Error('IMDb ID not found for this movie.');
               }
+
+              
+              if (movieTitle) {
+          document.title = movieTitle; 
+          updateOpenGraphTags(movieTitle, 'Смотреть на RMP');
+          
+        } else {
+          throw new Error('Movie title not found.');
+        }
+
+              
           })
           .catch(error => {
               console.error('Error fetching IMDb ID:', error);
@@ -432,6 +444,13 @@ document.addEventListener('click', function(event) {
           });
   }
 });
+
+function updateOpenGraphTags(title, description) {
+  const metaTitle = document.querySelector('meta[property="og:title"]');
+  const metaDescription = document.querySelector('meta[property="og:description"]');
+  metaTitle.content = title;
+  metaDescription.content = description;
+}
 
 function updateUrlWithImdbId(imdbId) {
   window.location.hash = imdbId;
