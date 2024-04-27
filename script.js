@@ -408,7 +408,7 @@ document.addEventListener('click', function(event) {
       const movieId = event.target.getAttribute('data-id');
       console.log('Fetching IMDb ID for movie:', movieId);
       
-      fetch(`https://api.themoviedb.org/3/movie/${movieId}/external_ids?${API_KEY}`)
+      fetch(`https://api.themoviedb.org/3/movie/${movieId}?'+API_KEY+'&language=ru-RU`)
           .then(response => {
               if (!response.ok) {
                   throw new Error('Failed to fetch IMDb ID');
