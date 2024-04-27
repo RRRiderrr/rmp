@@ -423,6 +423,8 @@ document.addEventListener('click', function(event) {
                   console.log('IMDb ID found:', imdbId);
                   initializeKinobox(imdbId);
                   updateUrlWithImdbId(imdbId);
+                  centerKinobox();
+        addHomeButton();
               } else {
                   throw new Error('IMDb ID not found for this movie.');
               }
@@ -458,11 +460,19 @@ function updateUrlWithImdbId(imdbId) {
 
 // Function to initialize Kinobox player with IMDb ID
 function initializeKinobox(imdbId) {
-  // Hide everything except Kinobox player
-  document.body.innerHTML = `<div class="kinobox_player"></div>`;
-  
-  // Initialize Kinobox player with IMDb ID
+  document.body.innerHTML = `<div class="kinobox_player" style="width: 80%; height: 80%;"></div>`;
   new Kinobox('.kinobox_player', {search: {query: imdbId}}).init();
+  centerKinobox();
+}
+
+
+function centerKinobox() {
+  const kinoboxPlayer = document.querySelector('.kinobox_player');
+  kinoboxPlayer.style.position = 'fixed';
+  kinoboxPlayer.style.top = '50%';
+  kinoboxPlayer.style.left = '50%';
+  kinoboxPlayer.style.transform = 'translate(-50%, -50%)';
+  kinoboxPlayer.style.zIndex = '9999';
 }
 
 
