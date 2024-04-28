@@ -96,6 +96,24 @@ const prev = document.getElementById('prev')
 const next = document.getElementById('next')
 const current = document.getElementById('current')
 
+
+
+const nextPageButton = document.getElementById('next'); // Получаем кнопку "След. стр."
+
+nextPageButton.addEventListener('click', function() {
+    if (nextPage <= totalPages) {
+        pageCall(nextPage);
+    }
+});
+
+function pageCall(page) {
+    let url = lastUrl.split('?')[0] + '?page=' + page + '&' + lastUrl.split('?')[1].split('&').slice(1).join('&');
+    getMovies(url);
+}
+
+
+
+
 var currentPage = 1;
 var nextPage = 2;
 var prevPage = 3;
