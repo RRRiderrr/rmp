@@ -458,7 +458,7 @@ document.addEventListener('click', function(event) {
           })
           .catch(error => {
               console.error('Error fetching IMDb ID:', error);
-              alert('Failed to fetch IMDb ID. Please try again later.');
+              alert('Не удалось получить IMDb ID. Пожалуйста, попробуйте позже, или используйте скрипт на странице фильма IMDb или Кинопоиск.');
           });
   }
 });
