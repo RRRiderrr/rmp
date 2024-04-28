@@ -16,17 +16,27 @@ body{
 }
 
 
-header{
-    padding:1rem;
-    display:flex;
-    justify-content: flex-end;
-    background-color: var(--secondary-color);
+header {
+    display: flex;
+    justify-content: space-between; /* Распределяет пространство между элементами */
+    align-items: center; /* Центрирует элементы по вертикали */
+    padding: 10px 20px; /* Добавляет отступы вокруг содержимого */
 }
 
 
+#logo {
+    height: 50px; /* Устанавливает высоту логотипа */
+    width: auto; /* Автоматически рассчитывает ширину */
+}
 
+.links-container {
+    display: flex; /* Делает контейнер флексбоксом */
+    align-items: center; /* Центрирует ссылки по вертикали */
+}
 
-
+.links-container a, .links-container input[type="text"] {
+    margin-left: 10px; /* Добавляет отступ слева для каждого элемента в контейнере */
+}
 
 
 
