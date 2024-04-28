@@ -16,28 +16,17 @@ body{
 }
 
 
-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 20px;
-    background-color: #20282f; /* Устанавливает цвет фона панели */
+header{
+    padding:1rem;
+    display:flex;
+    justify-content: flex-end;
+    background-color: var(--secondary-color);
 }
 
-#logo {
-    height: 50px;
-    width: auto;
-}
 
-.links-container {
-    display: flex;
-    align-items: center;
-}
 
-.links-container a, .links-container input[type="text"] {
-    margin-left: 10px;
-    color: #ffffff; /* Устанавливает цвет текста ссылок и поля поиска на белый */
-}
+
+
 
 
 
