@@ -261,53 +261,68 @@ function showMovies(data) {
 const overlayContent = document.getElementById('overlay-content');
 /* Open when someone clicks on the span element */
 function openNav(movie) {
-  let id = movie.id;
-  fetch(BASE_URL + '/movie/'+id+'/videos?'+API_KEY).then(res => res.json()).then(videoData => {
-      console.log(videoData);
-      if(videoData){
-          document.getElementById("myNav").style.width = "100%";
-          if(videoData.results.length > 0){
-              var embed = [];
-              var dots = [];
-              videoData.results.forEach((video, idx) => {
-                  let {name, key, site} = video;
-
-                  if(site == 'YouTube'){
-                      embed.push(`
-                          <iframe width="560" height="315" src="https://www.youtube.com/embed/${key}" title="${name}" class="embed hide" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-                      `);
-
-                      dots.push(`
-                          <span class="dot">${idx + 1}</span>
-                      `);
-                  }
-              });
-
-              const overview = `
-                  <div class="overview">
-                      <h3>Описание</h3>
-                      ${movie.overview}
-                  </div>
-              `;
-
-              var content = `
-                  <h1 class="no-results">${movie.original_title}</h1>
-                  <br/>
-                  ${embed.join('')}
-                  <br/>
-                  <div class="dots">${dots.join('')}</div>
-                  ${overview}
-              `;
+  const id = movie.id;
+  fetch(`${BASE_URL}/movie/${id}/videos?${API_KEY}`)
+      .then(res => res.json())
+      .then(videoData => {
+          console.log(videoData);
+          if (videoData) {
+              document.getElementById("myNav").style.width = "100%";
+              const overlayContent = document.getElementById('overlay-content');
               
-              overlayContent.innerHTML = content;
-              activeSlide=0;
-              showVideos();
-          } else {
-              overlayContent.innerHTML = `<h1 class="no-results">No Results Found</h1>`;
+              if (videoData.results.length > 0) {
+                  const embed = [];
+                  const dots = [];
+
+                  videoData.results.forEach((video, idx) => {
+                      const { name, key, site } = video;
+                      if (site === 'YouTube') {
+                          embed.push(`
+                              <iframe width="560" height="315" src="https://www.youtube.com/embed/${key}" title="${name}" class="embed hide" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                          `);
+                          dots.push(`
+                              <span class="dot">${idx + 1}</span>
+                          `);
+                      }
+                  });
+
+                  const overview = `
+                      <div class="overview">
+                          <h3>Описание</h3>
+                          ${movie.overview}
+                      </div>
+                  `;
+
+                  const content = `
+                      <h1 class="no-results">${movie.original_title}</h1>
+                      <br/>
+                      ${embed.join('')}
+                      <br/>
+                      <div class="dots">${dots.join('')}</div>
+                      ${overview}
+                  `;
+
+                  overlayContent.innerHTML = content;
+                  activeSlide = 0; 
+                  showVideos(); 
+                  
+                  const dotsElements = document.querySelectorAll('.dot');
+                  dotsElements.forEach((dot, index) => {
+                      dot.addEventListener('click', () => {
+                          activeSlide = index; 
+                          showVideos(); 
+                      });
+                  });
+
+              } else {
+                  overlayContent.innerHTML = `<h1 class="no-results">No Results Found</h1>`;
+              }
           }
-      }
-  });
+      });
 }
+
+
+
 
 
 /* Close when someone clicks on the "x" symbol inside the overlay */
@@ -458,7 +473,7 @@ document.addEventListener('click', function(event) {
           })
           .catch(error => {
               console.error('Error fetching IMDb ID:', error);
-              alert('Не удалось получить IMDb ID. Пожалуйста, попробуйте позже, или используйте скрипт на странице фильма IMDb или Кинопоиск.');
+              alert('Failed to fetch IMDb ID. Please try again later.');
           });
   }
 });
