@@ -641,15 +641,34 @@ document.addEventListener("DOMContentLoaded", function() {
     var metaDescription = document.querySelector('meta[property="og:description"]');
 
     if (window.location.hash) {
-        const movieId = window.location.hash.substring(1);
-        fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=3b68a0041f64019817b5a6a12fcfc882&language=ru-RU`)
-          .then(response => response.json())
-          .then(data => {
-            metaTitle.content = data.title;
-            metaDescription.content = "Смотреть на RMP";
-            document.title = data.title;  
-          })
-          .catch(error => console.log('Ошибка при получении данных фильма:', error));
+    const movieId = window.location.hash.substring(1); // Получаем ID из URL
+
+    if (movieId.startsWith('tt')) {
+      
+      fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=3b68a0041f64019817b5a6a12fcfc882&language=ru-RU`)
+        .then(response => response.json())
+        .then(data => {
+          metaTitle.content = data.title;
+          metaDescription.content = "Смотреть на RMP";
+          document.title = data.title;  // Обновление заголовка вкладки
+        })
+        .catch(error => console.error('Ошибка при получении данных фильма с TMDB:', error));
+    } else {
+      
+      fetch(`https://kinopoiskapiunofficial.tech/api/v2.2/films/${movieId}`, {
+        headers: {
+          'X-API-KEY': 'd0d5a542-754d-4365-a46f-07f88ebabc82'
+        }
+      })
+        .then(response => response.json())
+        .then(data => {
+          const title = data.nameRu || data.nameEn || data.nameOriginal;
+          metaTitle.content = title;
+          metaDescription.content = "Смотреть на RMP";
+          document.title = title;  
+        })
+        .catch(error => console.error('Ошибка при получении данных фильма с КиноПоиска:', error));
     }
+  }
 });
 
