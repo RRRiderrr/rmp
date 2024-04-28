@@ -85,9 +85,7 @@ const genres = [
     }
   ]
 
-document.getElementById('logo').addEventListener('click', function() {
-    window.location.reload(true); 
-});
+
 
 const main = document.getElementById('main');
 const form =  document.getElementById('form');
