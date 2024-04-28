@@ -18,24 +18,25 @@ body{
 
 header {
     display: flex;
-    justify-content: space-between; /* Распределяет пространство между элементами */
-    align-items: center; /* Центрирует элементы по вертикали */
-    padding: 10px 20px; /* Добавляет отступы вокруг содержимого */
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #20282f; /* Устанавливает цвет фона панели */
 }
 
-
 #logo {
-    height: 50px; /* Устанавливает высоту логотипа */
-    width: auto; /* Автоматически рассчитывает ширину */
+    height: 50px;
+    width: auto;
 }
 
 .links-container {
-    display: flex; /* Делает контейнер флексбоксом */
-    align-items: center; /* Центрирует ссылки по вертикали */
+    display: flex;
+    align-items: center;
 }
 
 .links-container a, .links-container input[type="text"] {
-    margin-left: 10px; /* Добавляет отступ слева для каждого элемента в контейнере */
+    margin-left: 10px;
+    color: #ffffff; /* Устанавливает цвет текста ссылок и поля поиска на белый */
 }
 
 
