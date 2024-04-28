@@ -402,25 +402,37 @@ next.addEventListener('click', () => {
   }
 })
 
-function pageCall(page){
-  let urlSplit = lastUrl.split('?');
-  let queryParams = urlSplit[1].split('&');
-  let key = queryParams[queryParams.length -1].split('=');
-  if(key[0] != 'page'){
-    let url = lastUrl + '&page='+page
-    getMovies(url);
-  }else{
-    key[1] = page.toString();
-    let a = key.join('=');
-    queryParams[queryParams.length -1] = a;
-    let b = queryParams.join('&');
-    let url = urlSplit[0] +'?'+ b
-    getMovies(url);
-  }
+function pageCall(page) {
+    let urlSplit = lastUrl.split('?');
+    let queryParams = urlSplit.length > 1 ? urlSplit[1].split('&') : [];
+    let pageParamFound = false;
+    let newQueryParams = queryParams.map(param => {
+        let [key, value] = param.split('=');
+        if (key === 'page') {
+            pageParamFound = true;
+            return `page=${page}`;
+        }
+        return param;
+    });
+
+    if (!pageParamFound) {
+        newQueryParams.push(`page=${page}`);
+    }
+
+    let newUrl = urlSplit[0] + '?' + newQueryParams.join('&');
+    getMovies(newUrl);
 }
 
 
-
+function getMovies(url) {
+    fetch(url)
+    .then(response => response.json())
+    .then(data => {
+        showMovies(data.results);
+        window.scrollTo(0, 0); // Прокрутка страницы вверх
+    })
+    .catch(error => console.error('Ошибка при загрузке данных:', error));
+}
 
 document.addEventListener('click', function(event) {
   if (event.target.classList.contains('watch-online')) {
