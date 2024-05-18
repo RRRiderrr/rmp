@@ -505,20 +505,26 @@ function updateUrlWithImdbId(imdbId) {
 
 // Function to initialize Kinobox player with IMDb ID
 function initializeKinobox(imdbId) {
-  document.body.innerHTML = `<div class="kinobox_player" style="width: 80%; height: 80%;"></div>`;
+  const kinoboxContainer = document.createElement('div');
+  kinoboxContainer.classList.add('kinobox_player');
+  document.body.appendChild(kinoboxContainer);
+
   new Kinobox('.kinobox_player', {search: {query: imdbId}}).init();
   centerKinobox();
 }
 
 
 function centerKinobox() {
-    const kinoboxPlayer = document.querySelector('.kinobox_player');
-    kinoboxPlayer.style.position = 'fixed';
-    kinoboxPlayer.style.top = '0';
-    kinoboxPlayer.style.left = '0';
-    kinoboxPlayer.style.width = '100%';
-    kinoboxPlayer.style.height = '100vh';
-    kinoboxPlayer.style.zIndex = '9999';
+  const kinoboxPlayer = document.querySelector('.kinobox_player');
+  kinoboxPlayer.style.position = 'fixed';
+  kinoboxPlayer.style.top = '0';
+  kinoboxPlayer.style.left = '0';
+  kinoboxPlayer.style.width = '100%';
+  kinoboxPlayer.style.height = '100vh';
+  kinoboxPlayer.style.zIndex = '9999';
+  kinoboxPlayer.style.display = 'flex';
+  kinoboxPlayer.style.justifyContent = 'center';
+  kinoboxPlayer.style.alignItems = 'center';
 }
 
 
@@ -536,14 +542,14 @@ function initializeKinoboxWithHash() {
 function centerKinobox() {
   const kinoboxPlayer = document.querySelector('.kinobox_player');
   kinoboxPlayer.style.position = 'fixed';
-  kinoboxPlayer.style.top = '50%';
-  kinoboxPlayer.style.left = '50%';
-  kinoboxPlayer.style.transform = 'translate(-50%, -50%)';
-  kinoboxPlayer.style.zIndex = '9999'; // Set higher z-index
-
-  // Adjust size of Kinobox player
-  kinoboxPlayer.style.width = '80%'; // Adjust the width as needed
-  kinoboxPlayer.style.height = '80%'; // Adjust the height as needed
+  kinoboxPlayer.style.top = '0';
+  kinoboxPlayer.style.left = '0';
+  kinoboxPlayer.style.width = '100%';
+  kinoboxPlayer.style.height = '100vh';
+  kinoboxPlayer.style.zIndex = '9999';
+  kinoboxPlayer.style.display = 'flex';
+  kinoboxPlayer.style.justifyContent = 'center';
+  kinoboxPlayer.style.alignItems = 'center';
 }
 
 // Function to add a home button
