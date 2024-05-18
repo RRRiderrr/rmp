@@ -194,42 +194,39 @@ getMovies(API_URL);
 
 function getMovies(url) {
   lastUrl = url;
-    fetch(url).then(res => res.json()).then(data => {
-        console.log(data.results)
-        if(data.results.length !== 0){
-            showMovies(data.results);
-            currentPage = data.page;
-            nextPage = currentPage + 1;
-            prevPage = currentPage - 1;
-            totalPages = data.total_pages;
+  fetch(url).then(res => res.json()).then(data => {
+      console.log(data.results);
+      if (data.results.length !== 0) {
+          showMovies(data.results);
+          currentPage = data.page;
+          nextPage = currentPage + 1;
+          prevPage = currentPage - 1;
+          totalPages = data.total_pages;
 
-            current.innerText = currentPage;
+          current.innerText = currentPage;
 
-            if(currentPage <= 1){
+          if (currentPage <= 1) {
               prev.classList.add('disabled');
-              next.classList.remove('disabled')
-            }else if(currentPage>= totalPages){
+              next.classList.remove('disabled');
+          } else if (currentPage >= totalPages) {
               prev.classList.remove('disabled');
-              next.classList.add('disabled')
-            }else{
+              next.classList.add('disabled');
+          } else {
               prev.classList.remove('disabled');
-              next.classList.remove('disabled')
-            }
-
-            //tagsEl.scrollIntoView({behavior : 'smooth'})
-
-        }else{
-            main.innerHTML= `<h1 class="no-results">No Results Found</h1>`
-        }
-       
-    })
-
+              next.classList.remove('disabled');
+          }
+      } else {
+          main.innerHTML = `<h1 class="no-results">No Results Found</h1>`;
+          // Добавим панель пагинации в конец контейнера main даже если нет результатов
+          main.appendChild(document.querySelector('.pagination'));
+      }
+  });
 }
-
 
 // Update the showMovies function to correctly append movie elements to the catalog
 function showMovies(data) {
   const main = document.getElementById('main');
+  const pagination = document.querySelector('.pagination');
   main.innerHTML = '';
 
   data.forEach(movie => {
@@ -237,14 +234,16 @@ function showMovies(data) {
       const movieEl = document.createElement('div');
       movieEl.classList.add('movie');
       movieEl.innerHTML = `
-          <img src="${poster_path? IMG_URL+poster_path: "http://via.placeholder.com/1080x1580" }" alt="${title}">
-          <div class="movie-info">
-              <h3>${title}</h3>
-              <span class="${getColor(vote_average)}">${vote_average}</span>
-          </div>
-          <div class="buttons"> <!-- Create a separate div for buttons -->
-              <button class="know-more" id="${id}">Подробнее</button>
-              <button class="watch-online" data-id="${id}">Смотреть онлайн</button>
+          <img src="${poster_path ? IMG_URL + poster_path : "http://via.placeholder.com/300x450"}" alt="${title}">
+          <div class="movie-content">
+              <div class="movie-info">
+                  <h3>${title}</h3>
+                  <span class="${getColor(vote_average)}">${vote_average}</span>
+              </div>
+              <div class="buttons"> <!-- Контейнер для кнопок -->
+                  <button class="know-more" id="${id}">Подробнее</button>
+                  <button class="watch-online" data-id="${id}">Смотреть онлайн</button>
+              </div>
           </div>
       `;
 
@@ -255,6 +254,9 @@ function showMovies(data) {
           openNav(movie);
       });
   });
+
+  // Добавим панель пагинации в конец контейнера main
+  main.appendChild(pagination);
 }
 
 
@@ -417,23 +419,35 @@ next.addEventListener('click', () => {
   }
 })
 
-function pageCall(page){
+function pageCall(page) {
   let urlSplit = lastUrl.split('?');
   let queryParams = urlSplit[1].split('&');
-  let key = queryParams[queryParams.length -1].split('=');
-  if(key[0] != 'page'){
-    let url = lastUrl + '&page='+page
-    getMovies(url);
-  }else{
-    key[1] = page.toString();
-    let a = key.join('=');
-    queryParams[queryParams.length -1] = a;
-    let b = queryParams.join('&');
-    let url = urlSplit[0] +'?'+ b
-    getMovies(url);
+  let key = queryParams[queryParams.length - 1].split('=');
+  if (key[0] != 'page') {
+      let url = lastUrl + '&page=' + page;
+      getMovies(url);
+  } else {
+      key[1] = page.toString();
+      let a = key.join('=');
+      queryParams[queryParams.length - 1] = a;
+      let b = queryParams.join('&');
+      let url = urlSplit[0] + '?' + b;
+      getMovies(url);
   }
 }
 
+// Event listeners for pagination
+document.getElementById('prev').addEventListener('click', () => {
+  if (prevPage > 0) {
+      pageCall(prevPage);
+  }
+});
+
+document.getElementById('next').addEventListener('click', () => {
+  if (nextPage <= totalPages) {
+      pageCall(nextPage);
+  }
+});
 document.addEventListener('click', function(event) {
   if (event.target.classList.contains('watch-online')) {
       const movieId = event.target.getAttribute('data-id');
@@ -498,14 +512,14 @@ function initializeKinobox(imdbId) {
 
 
 function centerKinobox() {
-  const kinoboxPlayer = document.querySelector('.kinobox_player');
-  kinoboxPlayer.style.position = 'fixed';
-  kinoboxPlayer.style.top = '50%';
-  kinoboxPlayer.style.left = '50%';
-  kinoboxPlayer.style.transform = 'translate(-50%, -50%)';
-  kinoboxPlayer.style.zIndex = '9999';
+    const kinoboxPlayer = document.querySelector('.kinobox_player');
+    kinoboxPlayer.style.position = 'fixed';
+    kinoboxPlayer.style.top = '0';
+    kinoboxPlayer.style.left = '0';
+    kinoboxPlayer.style.width = '100%';
+    kinoboxPlayer.style.height = '100vh';
+    kinoboxPlayer.style.zIndex = '9999';
 }
-
 
 
 // Function to initialize Kinobox player with IMDb ID and center it
