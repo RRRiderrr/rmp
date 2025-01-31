@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  
+  <title>RMP</title>
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png"/>
+  <!-- Open Graph -->
+  <meta property="og:url" content="https://rmp.pages.dev" />
+  <meta property="og:title" content="RMP" />
+  <meta property="og:description" content="Онлайн кинотеатр без рекламы" />
+  <meta property="og:image" content="icons/favicon-32x32.png" />
+  
+  <!-- Стили -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Шапка -->
+  <header class="header">
+    <div class="header-content">
+      <!-- Лого -->
+      <div class="logo">
+        <a href="index.html">RMP</a>
+      </div>
+      <!-- Ссылки -->
+      <nav class="header-links">
+        <a href="old.html">Старая версия</a>
+        <a href="https://boosty.to/riderr">Boosty</a>
+        <a href="https://www.patreon.com/MichailPimakhov">Patreon</a>
+        <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2">PayPal</a>
+        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/master/tms.user.js">
+          Установить скрипт
+        </a>
+      </nav>
+
+      <!-- Переключатель темы -->
+      <label class="theme-switch" style="margin-right:0.3rem;">
+        <input type="checkbox" class="checkbox" id="themeToggleCheckbox"/>
+        <div class="container">
+          <div class="circle-container">
+            <div class="sun-moon-container">
+              <div class="moon">
+                <div class="spot"></div>
+                <div class="spot"></div>
+                <div class="spot"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </label>
+
+      <!-- Кнопка «Избранное» -->
+      <button id="favoriteToggle" class="favorite-toggle">Показать избранное</button>
+
+      <!-- Поиск -->
+      <form id="form" class="search-form">
+        <input type="text" placeholder="Поиск" id="search" class="search-input" />
+      </form>
+    </div>
+  </header>
+
+  <!-- Контейнер (wrapper) со Sidebar и Main -->
+  <div class="wrapper">
+    <aside class="sidebar">
+      <h2 class="sidebar-title">Жанры</h2>
+      <div id="tags" class="tags-container"></div>
+    </aside>
+    <main id="main" class="main-content"></main>
+  </div>
+
+  <!-- Модальное окно (трейлер) -->
+  <div id="myNav" class="overlay">
+    <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+    <div class="overlay-content" id="overlay-content"></div>
+    <span class="arrow left-arrow" id="left-arrow">&#9664;</span>
+    <span class="arrow right-arrow" id="right-arrow">&#9654;</span>
+  </div>
+
+  <!-- Пагинация -->
+  <div class="pagination">
+    <div class="page" id="prev">Пред. стр.</div>
+    <div class="current" id="current">1</div>
+    <div class="page" id="next">След. стр.</div>
+  </div>
+
+  <!-- Кнопка «Наверх» -->
+  <button id="scrollTopBtn" class="scroll-to-top">↑</button>
+
+  <!-- Скрипты -->
+  <script src="script.js"></script>
+  <script src="https://kinobox.tv/kinobox.min.js"></script>
+
+  <!-- Скрипт-редирект для RU -->
+  <script>
+    function redirectToOldPage() {
+      if (window.location.hash) {
+        return;
+      }
+      fetch("https://ipapi.co/json/")
+        .then((response) => response.json())
+        .then((data) => {
+          const country = data.country;
+          if (country === "RU") {
+            window.location.href = "old.html";
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching user location:", error);
+        });
+    }
+    window.onload = redirectToOldPage;
+  </script>
+</body>
+</html>
