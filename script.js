@@ -39,31 +39,32 @@ const prev = document.getElementById('prev');
 const next = document.getElementById('next');
 const current = document.getElementById('current');
 
+/* Параметры пагинации */
 let currentPage = 1;
 let nextPage = 2;
 let prevPage = 3;
 let totalPages = 100;
 let lastUrl = '';
 
-/* Выбранные жанры */
+/* Жанры */
 let selectedGenre = [];
 /* Избранное */
 let favMovies = JSON.parse(localStorage.getItem('favMovies')) || [];
 /* Режим «Показать избранное» */
 let showFavoritesOnly = false;
 
-/* Установка жанров в боковую панель */
+/* Установка жанров */
 setGenre();
 function setGenre() {
   tagsEl.innerHTML = '';
-  genres.forEach(genre => {
+  genres.forEach((genre) => {
     const t = document.createElement('div');
     t.classList.add('tag');
     t.id = genre.id;
     t.innerText = genre.name;
     t.addEventListener('click', () => {
       if (selectedGenre.includes(genre.id)) {
-        selectedGenre = selectedGenre.filter(g => g !== genre.id);
+        selectedGenre = selectedGenre.filter((g) => g !== genre.id);
       } else {
         selectedGenre.push(genre.id);
       }
@@ -76,10 +77,10 @@ function setGenre() {
 
 function highlightSelection() {
   const tags = document.querySelectorAll('.tag');
-  tags.forEach(tag => tag.classList.remove('highlight'));
+  tags.forEach((tag) => tag.classList.remove('highlight'));
   clearBtn();
   if (selectedGenre.length !== 0) {
-    selectedGenre.forEach(id => {
+    selectedGenre.forEach((id) => {
       const t = document.getElementById(id);
       if (t) t.classList.add('highlight');
     });
@@ -104,22 +105,21 @@ function clearBtn() {
   }
 }
 
-/* Начальная загрузка популярных фильмов */
+/* Стартовая загрузка популярных фильмов */
 getMovies(API_URL);
 
 /**
  * getMovies(url)
  * Если showFavoritesOnly -> showAllFavorites()
- * иначе -> fetch(url) -> showMovies()
+ * иначе -> fetch(url)
  */
 function getMovies(url) {
   lastUrl = url;
-  console.log('[getMovies] showFavoritesOnly=', showFavoritesOnly);
-
   if (showFavoritesOnly) {
     showAllFavorites();
     return;
   }
+  console.log('[getMovies]', url);
 
   fetch(url)
     .then(res => {
@@ -127,7 +127,6 @@ function getMovies(url) {
       return res.json();
     })
     .then(data => {
-      console.log('[getMovies] Data:', data);
       if (data.results && data.results.length !== 0) {
         showMovies(data.results);
 
@@ -152,14 +151,14 @@ function getMovies(url) {
       }
     })
     .catch(err => {
-      console.error('[getMovies] fetch error:', err);
+      console.error('[getMovies]', err);
       main.innerHTML = `<h1 class="no-results">Ошибка сети/запроса</h1>`;
     });
 }
 
 /**
  * showAllFavorites()
- * загружаем все фильмы из favMovies и показываем
+ * Загружаем все фильмы из favMovies
  */
 function showAllFavorites() {
   if (!favMovies.length) {
@@ -170,7 +169,7 @@ function showAllFavorites() {
     fetch(`${BASE_URL}/movie/${id}?${API_KEY}&language=ru-RU`)
       .then(res => res.json())
       .catch(err => {
-        console.error('[showAllFavorites] failed on ID=', id, err);
+        console.error('[showAllFavorites] fail on ID=', id, err);
         return null;
       })
   );
@@ -184,18 +183,18 @@ function showAllFavorites() {
       }
     })
     .catch(err => {
-      console.error('[showAllFavorites] Error:', err);
+      console.error('[showAllFavorites]', err);
       main.innerHTML = `<h1 class="no-results">Ошибка при загрузке избранного</h1>`;
     });
 }
 
 /**
  * showMovies(data)
- * Рендер карточек
+ * Рендерим карточки
  */
 function showMovies(data) {
   main.innerHTML = '';
-  console.log('[showMovies]', data.length, 'films');
+  console.log('[showMovies]', data.length, 'items');
   data.forEach(movie => {
     const { title, poster_path, vote_average, id } = movie;
     const movieEl = document.createElement('div');
@@ -238,7 +237,7 @@ function showMovies(data) {
   });
 }
 
-/** toggleFavorite(movieId) */
+/* toggleFavorite(movieId) */
 function toggleFavorite(movieId) {
   const idx = favMovies.indexOf(movieId);
   if (idx === -1) {
@@ -259,60 +258,57 @@ function openNav(movie) {
   fetch(`${BASE_URL}/movie/${id}/videos?${API_KEY}`)
     .then(res => res.json())
     .then(videoData => {
-      if (videoData) {
-        document.getElementById('myNav').style.width = '100%';
-        if (videoData.results && videoData.results.length) {
-          const embed = [];
-          const dots = [];
-          videoData.results.forEach((video, idx) => {
-            const { key, site } = video;
-            if (site === 'YouTube') {
-              embed.push(`
-                <iframe
-                  width="560"
-                  height="315"
-                  src="https://www.youtube.com/embed/${key}"
-                  class="embed hide"
-                  allowfullscreen
-                ></iframe>
-              `);
-              dots.push(`<span class="dot">${idx + 1}</span>`);
-            }
+      document.getElementById('myNav').style.width = '100%';
+      if (videoData && videoData.results && videoData.results.length > 0) {
+        const embed = [];
+        const dots = [];
+        videoData.results.forEach((v, idx) => {
+          if (v.site === 'YouTube') {
+            embed.push(`
+              <iframe
+                width="560"
+                height="315"
+                src="https://www.youtube.com/embed/${v.key}"
+                class="embed hide"
+                allowfullscreen
+              ></iframe>
+            `);
+            dots.push(`<span class="dot">${idx + 1}</span>`);
+          }
+        });
+        const overview = `
+          <div class="overview">
+            <h3>Описание</h3>
+            ${movie.overview || 'Описание отсутствует.'}
+          </div>
+        `;
+        overlayContent.innerHTML = `
+          <h1>${movie.original_title || movie.title}</h1>
+          <br/>
+          ${embed.join('')}
+          <br/>
+          <div class="dots">${dots.join('')}</div>
+          ${overview}
+        `;
+        activeSlide = 0;
+        showVideos();
+        document.querySelectorAll('.dot').forEach((dot, i) => {
+          dot.addEventListener('click', () => {
+            activeSlide = i;
+            showVideos();
           });
-          const overview = `
-            <div class="overview">
-              <h3>Описание</h3>
-              ${movie.overview || 'Описание отсутствует.'}
-            </div>
-          `;
-          overlayContent.innerHTML = `
-            <h1>${movie.original_title || movie.title}</h1>
-            <br/>
-            ${embed.join('')}
-            <br/>
-            <div class="dots">${dots.join('')}</div>
-            ${overview}
-          `;
-          activeSlide = 0;
-          showVideos();
-          document.querySelectorAll('.dot').forEach((dot, i) => {
-            dot.addEventListener('click', () => {
-              activeSlide = i;
-              showVideos();
-            });
-          });
-        } else {
-          overlayContent.innerHTML = `<h1 class="no-results">Нет доступных трейлеров</h1>`;
-        }
+        });
+      } else {
+        overlayContent.innerHTML = `<h1 class="no-results">Нет доступных трейлеров</h1>`;
       }
     })
-    .catch(err => console.error(err));
+    .catch(err => console.error('[openNav]', err));
 }
 function closeNav() {
   document.getElementById('myNav').style.width = '0%';
 }
 
-/* Смена слайдов (трейлер) */
+/* Переключение трейлеров */
 let activeSlide = 0;
 let totalVideos = 0;
 function showVideos() {
@@ -340,7 +336,7 @@ document.getElementById('right-arrow').addEventListener('click', () => {
 function getColor(vote) {
   if (vote >= 8) return 'green';
   else if (vote >= 5) return 'orange';
-  else return 'red';
+  return 'red';
 }
 
 /* Поиск */
@@ -382,65 +378,54 @@ function pageCall(page) {
   }
 }
 
-/* === "Смотреть" (Kinobox) ===
-   1) Если location.hash пуст — ставим "#tm<tmdbID>"
-   2) Уточняем название фильма (через TMDB /movie/:id?api_key),
-      меняем document.title
-   3) Смотрим external_ids -> если IMDb есть -> openKinoBox(imdb),
-      иначе openKinoBox('tm'+id)
+/* =========== Кнопка "Смотреть" (Kinobox) ===========
+
+   1) Если hash пуст -> ставим location.hash = '#tm<ID>'
+   2) С помощью TMDB /movie/<id>?api_key берем title -> document.title
+   3) /external_ids -> if imdb -> openKinoBox(imdb), else openKinoBox('tm'+id)
 */
 document.addEventListener('click', (event) => {
   if (event.target.classList.contains('watch-online')) {
     const movieId = event.target.getAttribute('data-id');
-
-    // 1) Если нет внешнего hash, ставим #tm<movieId>
+    // 1) Проверяем, есть ли уже hash
     if (!window.location.hash) {
-      window.location.hash = 'tm' + movieId; 
+      window.location.hash = 'tm' + movieId;
     }
-
-    // 2) Получаем название фильма
+    // 2) Обновляем document.title из TMDB
     fetch(`${BASE_URL}/movie/${movieId}?${API_KEY}&language=ru-RU`)
       .then(r => r.json())
       .then(movieData => {
-        // Обновляем title вкладки
-        if (movieData.title) {
+        if (movieData && movieData.title) {
           document.title = movieData.title;
         }
       })
-      .catch(err => {
-        console.error('[watch-online] title fetch error:', err);
-      });
-
-    // 3) external_ids -> IMDb or fallback
+      .catch(err => console.error('[watch-online] title error:', err));
+    // 3) imdb? -> openKinoBox(imdb) : openKinoBox('tm'+id)
     fetch(`${BASE_URL}/movie/${movieId}/external_ids?${API_KEY}`)
       .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch external IDs, status='+res.status);
+        if (!res.ok) throw new Error('Failed external_ids, status='+res.status);
         return res.json();
       })
       .then(data => {
         if (data.imdb_id) {
           openKinoBox(data.imdb_id);
         } else {
-          // fallback: "tm" + movieId
           openKinoBox('tm' + movieId);
         }
       })
-      .catch(error => {
-        console.error(error);
+      .catch(er => {
+        console.error(er);
         openKinoBox('tm' + movieId);
       });
   }
 });
 
-/* openKinoBox(query):
-   1) Обновляем document.title, если не сделали выше
-   2) Запускаем Kinobox
+/* openKinoBox(query): 
+   Запускает плеер, центрируем,
+   +Добавляем "На главную"
 */
 function openKinoBox(query) {
-  // 2) Запускаем Kinobox
-  document.body.innerHTML = `
-    <div class="kinobox_player" style="width: 80%; height: 80%;"></div>
-  `;
+  document.body.innerHTML = `<div class="kinobox_player" style="width: 80%; height: 80%;"></div>`;
   kbox('.kinobox_player', { search: { query } });
   centerKinobox();
   addHomeButton();
@@ -483,8 +468,8 @@ scrollBtn.addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-/* Попкорн + авто-открытие плеера по hash */
-document.addEventListener('DOMContentLoaded', function () {
+/* Попкорн + авто-открытие плеера из hash */
+document.addEventListener('DOMContentLoaded', function() {
   // Попкорн-анимация
   const canvas = document.createElement('canvas');
   canvas.id = 'popcornCanvas';
@@ -495,72 +480,104 @@ document.addEventListener('DOMContentLoaded', function () {
   canvas.height = window.innerHeight;
 
   const popcornImages = [
-    'popcorn.png',
-    'popcorn2.png',
-    'popcorn3.png',
-    'popcorn4.png',
-    'popcorn5.png'
+    'popcorn.png', 'popcorn2.png',
+    'popcorn3.png', 'popcorn4.png', 'popcorn5.png'
   ];
   const popcornParticles = [];
 
-  function spawnPopcorn(amount) {
-    for (let i = 0; i < amount; i++) {
-      const randImg = popcornImages[Math.floor(Math.random() * popcornImages.length)];
+  function spawnPopcorn(n) {
+    for (let i=0; i<n; i++) {
+      const randImg = popcornImages[Math.floor(Math.random()*popcornImages.length)];
       const popcorn = {
-        x: Math.random() * canvas.width,
+        x: Math.random()*canvas.width,
         y: canvas.height,
-        size: Math.floor(Math.random() * 41) + 40,
+        size: Math.floor(Math.random()*41)+40,
         image: new Image()
       };
       popcorn.image.src = randImg;
       popcorn.velocity = {
-        x: (Math.random() - 0.5) * 5,
-        y: -(Math.random() * 8 + 5)
+        x: (Math.random()-0.5)*5,
+        y: - (Math.random()*8+5)
       };
       popcornParticles.push(popcorn);
     }
   }
-
   function animatePopcorn() {
     requestAnimationFrame(animatePopcorn);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (let i = 0; i < popcornParticles.length; i++) {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for (let i=0; i<popcornParticles.length; i++) {
       const pc = popcornParticles[i];
       pc.velocity.y += 0.2;
       pc.x += pc.velocity.x;
       pc.y += pc.velocity.y;
       ctx.drawImage(pc.image, pc.x, pc.y, pc.size, pc.size);
       if (pc.y > canvas.height + pc.size) {
-        popcornParticles.splice(i, 1);
+        popcornParticles.splice(i,1);
         i--;
       }
     }
   }
-  document.addEventListener('keydown', function (e) {
-    const k = e.key.toLowerCase();
-    if (k === 'p' || k === 'з') {
+  document.addEventListener('keydown', (e) => {
+    if (['p','з'].includes(e.key.toLowerCase())) {
       spawnPopcorn(50);
     }
   });
   animatePopcorn();
 
-  // Авто-открытие плеера по хэшу (IMDB, TMDB, KP)
+  // Авто-открытие плеера, если есть hash
   if (window.location.hash) {
-    const rawHash = window.location.hash.substring(1); // убираем '#'
-    // Если начинается с 'tt' -> IMDb
-    // Если начинается с 'tm' -> TMDB
-    // Иначе -> считаем КиноПоиск (число)
+    const rawHash = window.location.hash.substring(1); // убираем #
+    // Чекаем, начинается ли 'tt'/'tm' или число
+    // 1) Подтягиваем title
+    updateTitleByHash(rawHash);
+    // 2) Открываем плеер
     openKinoBox(rawHash);
-    // Название вкладки подтянем через fetch TMDB:
-    // (Если 'tt...' -> find by imdb, 
-    //  если 'tm...'/число -> /movie/ N ... )
-    // Но проще в watch-online logic. 
-    // Или можно здесь, при желании, 
-    //   fetch title + doc.title=...
   }
 });
 
-/* Тема (light/dark) */
+/* updateTitleByHash(hashVal):
+   Определяем тип: imdb (tt...), tmdb (tm...), или kp(число).
+   Потом делаем fetch для получения title -> document.title
+*/
+function updateTitleByHash(hashVal) {
+  if (hashVal.startsWith('tt')) {
+    // IMDb ID -> /find/xxxx?external_source=imdb_id
+    fetch(`${BASE_URL}/find/${hashVal}?${API_KEY}&language=ru-RU&external_source=imdb_id`)
+      .then(r => r.json())
+      .then(data => {
+        // data.movie_results[0] -> { title, name, original_title, ... }
+        if (data && data.movie_results && data.movie_results.length) {
+          const m = data.movie_results[0];
+          document.title = m.title || m.original_title || 'Фильм';
+        }
+      })
+      .catch(err => console.error('[updateTitleByHash:imdb]', err));
+  } else if (hashVal.startsWith('tm')) {
+    // TM... -> /movie/<число>
+    const tmdbId = hashVal.substring(2);
+    fetch(`${BASE_URL}/movie/${tmdbId}?${API_KEY}&language=ru-RU`)
+      .then(r => r.json())
+      .then(m => {
+        if (m && m.title) {
+          document.title = m.title;
+        }
+      })
+      .catch(e => console.error('[updateTitleByHash:tmdb]', e));
+  } else {
+    // Иначе считаем число (КиноПоиск ID), 
+    //   но TMDB тоже часто хранит
+    fetch(`${BASE_URL}/movie/${hashVal}?${API_KEY}&language=ru-RU`)
+      .then(r => r.json())
+      .then(m => {
+        if (m && m.title) {
+          document.title = m.title;
+        }
+      })
+      .catch(e => console.error('[updateTitleByHash:kp/other]', e));
+  }
+}
+
+/* Темы (light/dark) */
 const themeToggle = document.getElementById('themeToggleCheckbox');
 const htmlEl = document.documentElement;
 let currentTheme = localStorage.getItem('theme') || 'light';
@@ -576,7 +593,7 @@ themeToggle.addEventListener('change', () => {
   }
 });
 
-/* "Показать избранное" */
+/* Кнопка "Показать избранное" */
 const favToggleBtn = document.getElementById('favoriteToggle');
 favToggleBtn.addEventListener('click', () => {
   showFavoritesOnly = !showFavoritesOnly;
