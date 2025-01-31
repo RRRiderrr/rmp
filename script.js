@@ -1,15 +1,12 @@
-/* ========= JS: script.js ========= */
+/* ========== script.js с авто-открытием плеера по hash ========== */
 
-/* TMDB API ключ и базовые URL */
 const API_KEY = 'api_key=3b68a0041f64019817b5a6a12fcfc882';
 const BASE_URL = 'https://api.themoviedb.org/3';
-/* Популярные фильмы по умолчанию */
 const API_URL = BASE_URL + '/discover/movie?sort_by=popularity.desc&' + API_KEY + '&language=ru-RU&region=ru';
-/* Для поиска */
 const IMG_URL = 'https://image.tmdb.org/t/p/w500';
 const searchURL = BASE_URL + '/search/movie?' + API_KEY + '&language=ru-RU&region=ru';
 
-/* Список жанров */
+/* Полный список жанров */
 const genres = [
   { id: 28,   name: 'Боевик' },
   { id: 12,   name: 'Приключения' },
@@ -32,7 +29,7 @@ const genres = [
   { id: 37,   name: 'Вестерн' }
 ];
 
-/* DOM-элементы */
+/* DOM элементы */
 const main = document.getElementById('main');
 const form = document.getElementById('form');
 const search = document.getElementById('search');
@@ -49,18 +46,14 @@ let prevPage = 3;
 let totalPages = 100;
 let lastUrl = '';
 
-/* Жанры, Избранное, флаг избранного */
+/* Жанры */
 let selectedGenre = [];
+/* Избранное */
 let favMovies = JSON.parse(localStorage.getItem('favMovies')) || [];
 let showFavoritesOnly = false;
 
-/* Список жанров в боковой панели */
+/* Установка жанров */
 setGenre();
-
-/* При загрузке сразу вызываем получение фильмов */
-getMovies(API_URL);
-
-/* === Функция setGenre() создает теги жанров === */
 function setGenre() {
   tagsEl.innerHTML = '';
   genres.forEach((genre) => {
@@ -111,32 +104,31 @@ function clearBtn() {
   }
 }
 
-/* === getMovies(url) ===
-   Если showFavoritesOnly = true -> showAllFavorites()
-   Иначе -> fetch(url) и покажем result
+/* Первичный вызов — загрузка популярных фильмов */
+getMovies(API_URL);
+
+/* getMovies(url):
+   Если showFavoritesOnly = true -> showAllFavorites().
+   Иначе -> fetch(url) -> showMovies().
 */
 function getMovies(url) {
   lastUrl = url;
-  console.log('[getMovies] showFavoritesOnly =', showFavoritesOnly);
 
   if (showFavoritesOnly) {
     showAllFavorites();
     return;
   }
-  console.log('[getMovies] Loading from URL =', url);
 
   fetch(url)
     .then((res) => {
       if (!res.ok) {
-        throw new Error('Network response not OK. Status=' + res.status);
+        throw new Error('Network error, status='+res.status);
       }
       return res.json();
     })
     .then((data) => {
-      console.log('[getMovies] Data received:', data);
       if (data.results && data.results.length !== 0) {
         showMovies(data.results);
-
         currentPage = data.page;
         nextPage = currentPage + 1;
         prevPage = currentPage - 1;
@@ -158,24 +150,20 @@ function getMovies(url) {
       }
     })
     .catch((err) => {
-      console.error('[getMovies] Fetch error:', err);
+      console.error('[getMovies] Error:', err);
       main.innerHTML = `<h1 class="no-results">Ошибка сети/запроса</h1>`;
     });
 }
 
-/* 
-   showAllFavorites()
-   - загружаем все фильмы по списку ID в favMovies
-   - если пусто -> «Избранных фильмов нет»
-   - если есть -> showMovies() всем сразу
+/* showAllFavorites():
+   Загружаем все фильмы из favMovies, 
+   показываем одним массивом
 */
 function showAllFavorites() {
-  console.log('[showAllFavorites] favMovies:', favMovies);
   if (!favMovies.length) {
     main.innerHTML = `<h1 class="no-results">Избранных фильмов нет</h1>`;
     return;
   }
-  // Запрос для каждого ID:
   const promises = favMovies.map((id) =>
     fetch(`${BASE_URL}/movie/${id}?${API_KEY}&language=ru-RU`)
       .then((res) => res.json())
@@ -184,11 +172,9 @@ function showAllFavorites() {
         return null;
       })
   );
-
   Promise.all(promises)
     .then((moviesData) => {
-      console.log('[showAllFavorites] All responses:', moviesData);
-      const validMovies = moviesData.filter((m) => m && m.id);
+      const validMovies = moviesData.filter(m => m && m.id);
       if (!validMovies.length) {
         main.innerHTML = `<h1 class="no-results">Избранных фильмов нет</h1>`;
       } else {
@@ -201,16 +187,12 @@ function showAllFavorites() {
     });
 }
 
-/* === showMovies(data) ===
-   Рендер фильмов в main
-*/
+/* showMovies(data) — рендер фильмов */
 function showMovies(data) {
   main.innerHTML = '';
-  console.log('[showMovies] rendering data with length=', data.length);
 
   data.forEach((movie) => {
     const { title, poster_path, vote_average, id } = movie;
-
     const movieEl = document.createElement('div');
     movieEl.classList.add('movie');
     movieEl.innerHTML = `
@@ -227,12 +209,12 @@ function showMovies(data) {
     `;
     main.appendChild(movieEl);
 
-    // Подробнее
+    // "Подробнее"
     document.getElementById(id).addEventListener('click', () => {
       openNav(movie);
     });
 
-    // Звёздочка (избранное)
+    // Избранное
     const favBtn = movieEl.querySelector(`.fav-btn[data-fav="${id}"]`);
     if (favMovies.includes(id)) {
       favBtn.style.backgroundColor = 'gold';
@@ -251,7 +233,7 @@ function showMovies(data) {
   });
 }
 
-/* toggleFavorite(movieId) добавляет/убирает ID в favMovies */
+/* toggleFavorite(movieId) */
 function toggleFavorite(movieId) {
   const index = favMovies.indexOf(movieId);
   if (index === -1) {
@@ -260,8 +242,6 @@ function toggleFavorite(movieId) {
     favMovies.splice(index, 1);
   }
   localStorage.setItem('favMovies', JSON.stringify(favMovies));
-
-  // Если сейчас режим избранного, перерисуем
   if (showFavoritesOnly) {
     showAllFavorites();
   }
@@ -287,9 +267,7 @@ function openNav(movie) {
                   width="560"
                   height="315"
                   src="https://www.youtube.com/embed/${key}"
-                  title="${name}"
                   class="embed hide"
-                  frameborder="0"
                   allowfullscreen
                 ></iframe>
               `);
@@ -331,7 +309,7 @@ function closeNav() {
   document.getElementById('myNav').style.width = '0%';
 }
 
-/* Смена слайдов (трейлеры) */
+/* Переключение слайдов (трейлер) */
 let activeSlide = 0;
 let totalVideos = 0;
 function showVideos() {
@@ -408,7 +386,7 @@ function pageCall(page) {
   }
 }
 
-/* "Смотреть" (плеер Kinobox) */
+/* Кнопка "Смотреть" (Kinobox) */
 document.addEventListener('click', (event) => {
   if (event.target.classList.contains('watch-online')) {
     const movieId = event.target.getAttribute('data-id');
@@ -474,8 +452,9 @@ scrollBtn.addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-/* Попкорн-анимация */
+/* Попкорн-анимация + авто-открытие плеера по # */
 document.addEventListener('DOMContentLoaded', function () {
+  /* Попкорн */
   const canvas = document.createElement('canvas');
   canvas.id = 'popcornCanvas';
   document.body.appendChild(canvas);
@@ -499,7 +478,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const popcorn = {
         x: Math.random() * canvas.width,
         y: canvas.height,
-        size: Math.floor(Math.random() * (80 - 40 + 1)) + 40,
+        size: Math.floor(Math.random() * 41) + 40, // [40..80]
         image: new Image()
       };
       popcorn.image.src = randomImage;
@@ -510,11 +489,9 @@ document.addEventListener('DOMContentLoaded', function () {
       popcornParticles.push(popcorn);
     }
   }
-
   function animate() {
     requestAnimationFrame(animate);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     for (let i = 0; i < popcornParticles.length; i++) {
       const popcorn = popcornParticles[i];
       popcorn.velocity.y += 0.2;
@@ -527,7 +504,6 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     }
   }
-
   document.addEventListener('keydown', function (event) {
     const key = event.key.toLowerCase();
     if (key === 'p' || key === 'з') {
@@ -536,45 +512,27 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   animate();
 
-  // Мета-теги при наличии # в URL
-  const metaTitle = document.querySelector('meta[property="og:title"]');
-  const metaDescription = document.querySelector('meta[property="og:description"]');
+  /* Авто-открытие плеера, если #hash есть */
   if (window.location.hash) {
-    const movieId = window.location.hash.substring(1);
-    if (movieId.startsWith('tt')) {
-      fetch(`https://api.themoviedb.org/3/movie/${movieId}?${API_KEY}&language=ru-RU`)
-        .then((res) => res.json())
-        .then((data) => {
-          metaTitle.content = data.title;
-          metaDescription.content = 'Смотреть на RMP';
-          document.title = data.title;
-        })
-        .catch((e) => console.error('Ошибка при получении данных фильма:', e));
+    const hashVal = window.location.hash.substring(1); // убираем '#'
+    // Проверяем, начинается ли с 'tt' (IMDB) или это число (КП)
+    if (hashVal.startsWith('tt')) {
+      // Это IMDB ID
+      openKinoBox(hashVal);
     } else {
-      fetch(`https://kinopoiskapiunofficial.tech/api/v2.2/films/${movieId}`, {
-        headers: {
-          'X-API-KEY': 'd0d5a542-754d-4365-a46f-07f88ebabc82'
-        }
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          const title = data.nameRu || data.nameEn || data.nameOriginal;
-          metaTitle.content = title;
-          metaDescription.content = 'Смотреть на RMP';
-          document.title = title;
-        })
-        .catch((er) => console.error('Ошибка при получении данных с КиноПоиска:', er));
+      // Это число (КиноПоиск ID) - передаём как 'tmXXXX' (tmdb)
+      // Или, если хотите — 'tm'+hashVal
+      openKinoBox('tm' + hashVal);
     }
   }
 });
 
-/* Тема (light/dark) */
+/* Темы (light/dark) */
 const themeToggle = document.getElementById('themeToggleCheckbox');
 const htmlEl = document.documentElement;
 let currentTheme = localStorage.getItem('theme') || 'light';
 htmlEl.setAttribute('data-theme', currentTheme);
 themeToggle.checked = (currentTheme === 'dark');
-
 themeToggle.addEventListener('change', () => {
   if (themeToggle.checked) {
     htmlEl.setAttribute('data-theme', 'dark');
@@ -585,7 +543,7 @@ themeToggle.addEventListener('change', () => {
   }
 });
 
-/* Кнопка «Показать избранное» */
+/* Кнопка "Показать избранное" */
 const favToggleBtn = document.getElementById('favoriteToggle');
 favToggleBtn.addEventListener('click', () => {
   showFavoritesOnly = !showFavoritesOnly;
