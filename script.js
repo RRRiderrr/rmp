@@ -514,15 +514,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
   /* Авто-открытие плеера, если #hash есть */
   if (window.location.hash) {
-    const hashVal = window.location.hash.substring(1); // убираем '#'
-    // Проверяем, начинается ли с 'tt' (IMDB) или это число (КП)
-    if (hashVal.startsWith('tt')) {
-      // Это IMDB ID
-      openKinoBox(hashVal);
+    const rawHash = window.location.hash.substring(1); // Убираем '#'
+
+    // Определяем тип:
+    if (rawHash.startsWith('tt')) {
+      // IMDb
+      openKinoBox(rawHash);  
+    } else if (rawHash.startsWith('tm')) {
+      // TMDB
+      openKinoBox(rawHash);
     } else {
-      // Это число (КиноПоиск ID) - передаём как 'tmXXXX' (tmdb)
-      // Или, если хотите — 'tm'+hashVal
-      openKinoBox('tm' + hashVal);
+      // Иначе считаем, что это КиноПоиск (число)
+      // передаём как есть
+      openKinoBox(rawHash);
     }
   }
 });
