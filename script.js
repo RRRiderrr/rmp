@@ -5,6 +5,7 @@ const BASE_URL = 'https://api.themoviedb.org/3';
 const API_URL = BASE_URL + '/discover/movie?sort_by=popularity.desc&' + API_KEY + '&language=ru-RU&region=ru';
 const IMG_URL = 'https://image.tmdb.org/t/p/w500';
 const searchURL = BASE_URL + '/search/movie?' + API_KEY + '&language=ru-RU&region=ru';
+const KINOBOX_API = 'https://api.kinobox.tv/api/players';
 
 /* Список жанров */
 const genres = [
@@ -54,6 +55,7 @@ let showFavoritesOnly = false;
 
 /* Установка жанров */
 setGenre();
+
 function setGenre() {
   tagsEl.innerHTML = '';
   genres.forEach((genre) => {
@@ -87,21 +89,22 @@ function highlightSelection() {
 }
 
 function clearBtn() {
-  let clearBtn = document.getElementById('clear');
-  if (clearBtn) {
-    clearBtn.classList.add('highlight');
-  } else {
-    let clear = document.createElement('div');
-    clear.classList.add('tag', 'highlight');
-    clear.id = 'clear';
-    clear.innerText = 'Сбросить';
-    clear.addEventListener('click', () => {
-      selectedGenre = [];
-      setGenre();
-      getMovies(API_URL);
-    });
-    tagsEl.append(clear);
+  const existingClearBtn = document.getElementById('clear');
+  if (existingClearBtn) {
+    existingClearBtn.classList.add('highlight');
+    return;
   }
+
+  const clear = document.createElement('div');
+  clear.classList.add('tag', 'highlight');
+  clear.id = 'clear';
+  clear.innerText = 'Сбросить';
+  clear.addEventListener('click', () => {
+    selectedGenre = [];
+    setGenre();
+    getMovies(API_URL);
+  });
+  tagsEl.append(clear);
 }
 
 /* Стартовая загрузка популярных фильмов */
@@ -362,7 +365,7 @@ function pageCall(page) {
   }
 }
 
-/* =========== Кнопка "Смотреть" (Kinobox, новая статичная схема) =========== */
+/* =========== Кнопка "Смотреть" (Kinobox API) =========== */
 document.addEventListener('click', async (event) => {
   if (!event.target.classList.contains('watch-online')) return;
 
@@ -395,82 +398,117 @@ async function buildPlayerPayloadFromTmdb(movieId) {
   const title = movieData.title || movieData.original_title || 'Фильм';
   document.title = title;
 
-  return {
-    mode: 'tmdb',
-    tmdbId: String(movieId),
-    imdbId: externalData.imdb_id || '',
-    kinopoiskId: '',
+  return sanitizeMovieData({
+    tmdb: String(movieId),
+    imdb: externalData.imdb_id || '',
     title,
+    year: movieData.release_date ? String(movieData.release_date).slice(0, 4) : '',
+    poster: movieData.poster_path ? (IMG_URL + movieData.poster_path) : '',
     originalTitle: movieData.original_title || '',
-    year: movieData.release_date ? String(movieData.release_date).slice(0, 4) : ''
-  };
+    overview: movieData.overview || ''
+  });
 }
 
 async function buildPlayerPayloadFromHash(hashVal) {
-  if (!hashVal) {
-    throw new Error('Empty hash');
-  }
+  if (!hashVal) throw new Error('Empty hash');
 
   if (hashVal.startsWith('tm')) {
     return buildPlayerPayloadFromTmdb(hashVal.substring(2));
   }
 
   if (hashVal.startsWith('tt')) {
-    const imdbId = hashVal;
+    const imdbId = hashVal.toLowerCase();
     const findRes = await fetch(`${BASE_URL}/find/${imdbId}?${API_KEY}&language=ru-RU&external_source=imdb_id`);
     const data = findRes.ok ? await findRes.json() : {};
     const movie = data && data.movie_results && data.movie_results[0] ? data.movie_results[0] : null;
-    const title = movie?.title || movie?.original_title || imdbId;
-    document.title = title;
 
-    return {
-      mode: 'imdb',
-      tmdbId: movie?.id ? String(movie.id) : '',
-      imdbId,
-      kinopoiskId: '',
-      title,
+    return sanitizeMovieData({
+      imdb: imdbId,
+      tmdb: movie?.id ? String(movie.id) : '',
+      title: movie?.title || movie?.original_title || imdbId,
+      year: movie?.release_date ? String(movie.release_date).slice(0, 4) : '',
+      poster: movie?.poster_path ? (IMG_URL + movie.poster_path) : '',
       originalTitle: movie?.original_title || '',
-      year: movie?.release_date ? String(movie.release_date).slice(0, 4) : ''
-    };
+      overview: movie?.overview || ''
+    });
   }
 
   const normalizedKp = hashVal.startsWith('kp') ? hashVal.substring(2) : hashVal;
-  document.title = 'RMP Player';
+  return sanitizeMovieData({ kinopoisk: normalizedKp, title: 'RMP Player' });
+}
 
-  return {
-    mode: 'kinopoisk',
-    tmdbId: '',
-    imdbId: '',
-    kinopoiskId: normalizedKp,
-    title: '',
-    originalTitle: '',
-    year: ''
+function sanitizeMovieData(input = {}) {
+  const payload = {
+    tmdb: input.tmdb ? String(input.tmdb).trim() : '',
+    imdb: input.imdb ? String(input.imdb).trim() : '',
+    kinopoisk: input.kinopoisk ? String(input.kinopoisk).trim() : '',
+    title: input.title ? String(input.title).trim() : '',
+    year: input.year ? String(input.year).trim() : '',
+    poster: input.poster ? String(input.poster).trim() : '',
+    originalTitle: input.originalTitle ? String(input.originalTitle).trim() : '',
+    overview: input.overview ? String(input.overview).trim() : ''
   };
+
+  if (!payload.tmdb && !payload.imdb && !payload.kinopoisk && !payload.title) {
+    throw new Error('Movie payload is empty');
+  }
+
+  return payload;
+}
+
+async function fetchKinoboxSources(movieData) {
+  const apiURL = new URL(KINOBOX_API);
+  ['imdb', 'tmdb', 'kinopoisk', 'title'].forEach((key) => {
+    if (movieData[key]) {
+      apiURL.searchParams.set(key, movieData[key]);
+    }
+  });
+
+  const request = await fetch(apiURL.toString(), {
+    method: 'GET'
+  });
+
+  if (!request.ok || request.status !== 200) {
+    throw new Error(`Request failed with status ${request.status}`);
+  }
+
+  const response = await request.json();
+  if (typeof response !== 'object' || response === null || !Array.isArray(response.data)) {
+    throw new Error('Invalid response format');
+  }
+
+  let playersData = response.data.filter((player) => player?.iframeUrl && player?.type);
+  const turboIndex = playersData.findIndex((player) => String(player.type).toLowerCase() === 'turbo');
+  if (turboIndex !== -1) {
+    playersData.push(playersData.splice(turboIndex, 1)[0]);
+  }
+
+  return playersData;
 }
 
 function renderPlayerShell(meta = {}) {
   const safeTitle = escapeHtml(meta.title || meta.originalTitle || 'Онлайн-просмотр');
   const safeSubtitle = [
     meta.year,
-    meta.imdbId ? `IMDb: ${escapeHtml(meta.imdbId)}` : '',
-    meta.kinopoiskId ? `KP: ${escapeHtml(meta.kinopoiskId)}` : ''
-  ]
-    .filter(Boolean)
-    .join(' • ');
+    meta.imdb ? `IMDb: ${escapeHtml(meta.imdb)}` : '',
+    meta.kinopoisk ? `KP: ${escapeHtml(meta.kinopoisk)}` : '',
+    meta.tmdb ? `TMDB: ${escapeHtml(meta.tmdb)}` : ''
+  ].filter(Boolean).join(' • ');
 
   document.body.innerHTML = `
     <div id="rmp-player-shell" style="position:fixed;inset:0;background:#0b0b0f;color:#fff;z-index:99999;display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.45);backdrop-filter:blur(10px);">
         <div style="display:flex;flex-direction:column;gap:4px;min-width:0;">
           <div style="font-size:20px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${safeTitle}</div>
-          <div style="font-size:12px;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${safeSubtitle || 'Пробуем подобрать рабочий источник...'}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${safeSubtitle || 'Подбираем доступные источники...'}</div>
         </div>
         <button id="rmp-home-button" style="flex:0 0 auto;background:#fff;color:#111;font-size:14px;font-weight:700;border:0;border-radius:999px;padding:10px 16px;cursor:pointer;">← На главную</button>
       </div>
-      <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;">
-        <div style="width:min(1400px,100%);">
-          <div class="kinobox_player" style="width:100%;min-height:min(78vh,900px);border-radius:18px;overflow:hidden;background:#111;box-shadow:0 25px 80px rgba(0,0,0,.45);"></div>
-          <div id="rmp-player-status" style="margin-top:12px;font-size:12px;color:rgba(255,255,255,.6);text-align:center;">Если источник не подхватился сразу — подожди пару секунд или вернись и открой фильм заново.</div>
+      <div style="flex:1;display:flex;align-items:stretch;justify-content:center;padding:18px;overflow:auto;">
+        <div style="width:min(1480px,100%);display:flex;flex-direction:column;gap:14px;">
+          <div id="rmp-sources" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+          <div id="rmp-player-content" style="width:100%;min-height:min(78vh,900px);border-radius:18px;overflow:hidden;background:#111;box-shadow:0 25px 80px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;"></div>
+          <div id="rmp-player-status" style="font-size:12px;color:rgba(255,255,255,.6);text-align:center;line-height:1.5;">Подключаемся к Kinobox API...</div>
         </div>
       </div>
     </div>
@@ -481,82 +519,101 @@ function renderPlayerShell(meta = {}) {
   });
 }
 
-function waitForExistingScriptLoad(scriptEl) {
-  return new Promise((resolve, reject) => {
-    if (!scriptEl) {
-      reject(new Error('Kinobox script tag was not found'));
-      return;
-    }
-
-    if (scriptEl.dataset.loaded === '1' || typeof window.Kinobox === 'function' || typeof window.kbox === 'function') {
-      resolve();
-      return;
-    }
-
-    scriptEl.addEventListener('load', () => {
-      scriptEl.dataset.loaded = '1';
-      resolve();
-    }, { once: true });
-
-    scriptEl.addEventListener('error', () => {
-      reject(new Error('Kinobox script failed to load'));
-    }, { once: true });
-  });
+function setPlayerStatus(message) {
+  const statusEl = document.getElementById('rmp-player-status');
+  if (statusEl) {
+    statusEl.textContent = message;
+  }
 }
 
-function loadKinoboxScript() {
-  if (typeof window.Kinobox === 'function' || typeof window.kbox === 'function') {
-    return Promise.resolve();
-  }
-
-  const existing = document.querySelector('script[src*="kinobox.tv/kinobox.min.js"]');
-  if (existing) {
-    return waitForExistingScriptLoad(existing);
-  }
-
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://kinobox.tv/kinobox.min.js';
-    script.async = true;
-    script.crossOrigin = 'anonymous';
-    script.onload = () => {
-      script.dataset.loaded = '1';
-      resolve();
-    };
-    script.onerror = () => reject(new Error('Kinobox script failed to load'));
-    document.head.appendChild(script);
-  });
+function showPlayerPlaceholder(message) {
+  const contentEl = document.getElementById('rmp-player-content');
+  if (!contentEl) return;
+  contentEl.innerHTML = `<div style="padding:24px;text-align:center;color:rgba(255,255,255,.7);font-size:18px;line-height:1.6;max-width:720px;">${escapeHtml(message)}</div>`;
 }
 
-function initKinoboxPlayer(meta) {
-  const searchPayload = {
-    kinopoisk: meta.kinopoiskId || undefined,
-    imdb: meta.imdbId || undefined,
-    title: meta.title || meta.originalTitle || undefined
-  };
+function selectKinoboxSource(sourceData) {
+  const contentEl = document.getElementById('rmp-player-content');
+  if (!contentEl) return;
 
-  if (typeof window.Kinobox === 'function') {
-    new window.Kinobox('.kinobox_player', { search: searchPayload }).init();
-    return;
-  }
+  const iframe = document.createElement('iframe');
+  iframe.src = sourceData.iframeUrl;
+  iframe.allowFullscreen = true;
+  iframe.referrerPolicy = 'origin';
+  iframe.style.width = '100%';
+  iframe.style.height = 'min(78vh, 900px)';
+  iframe.style.border = '0';
+  iframe.style.background = '#111';
 
-  if (typeof window.kbox === 'function') {
-    window.kbox('.kinobox_player', { search: searchPayload });
-    return;
-  }
+  contentEl.innerHTML = '';
+  contentEl.appendChild(iframe);
+  setPlayerStatus(`Источник: ${sourceData.type}. Если плеер пустой, попробуй другой источник или включи VPN.`);
+}
 
-  throw new Error('Kinobox script is not loaded');
+function renderKinoboxSources(sourcesData) {
+  const sourcesEl = document.getElementById('rmp-sources');
+  if (!sourcesEl) return;
+
+  sourcesEl.innerHTML = '';
+  const preferredSource = localStorage.getItem('preferred-source');
+  let preferredSourceIndex = sourcesData.findIndex((source) => source.type === preferredSource);
+  if (preferredSourceIndex === -1) preferredSourceIndex = 0;
+
+  sourcesData.forEach((source, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = source.type;
+    button.style.background = index === preferredSourceIndex ? '#ffffff' : 'rgba(255,255,255,.08)';
+    button.style.color = index === preferredSourceIndex ? '#111111' : '#ffffff';
+    button.style.border = '1px solid rgba(255,255,255,.12)';
+    button.style.borderRadius = '999px';
+    button.style.padding = '10px 14px';
+    button.style.cursor = 'pointer';
+    button.style.fontWeight = '700';
+    button.style.transition = 'transform .15s ease, background .15s ease';
+
+    button.addEventListener('mouseenter', () => {
+      button.style.transform = 'translateY(-1px)';
+    });
+    button.addEventListener('mouseleave', () => {
+      button.style.transform = 'translateY(0)';
+    });
+
+    button.addEventListener('click', () => {
+      sourcesEl.querySelectorAll('button').forEach((el) => {
+        el.style.background = 'rgba(255,255,255,.08)';
+        el.style.color = '#ffffff';
+      });
+      button.style.background = '#ffffff';
+      button.style.color = '#111111';
+      localStorage.setItem('preferred-source', source.type);
+      selectKinoboxSource(source);
+    });
+
+    sourcesEl.appendChild(button);
+  });
+
+  selectKinoboxSource(sourcesData[preferredSourceIndex]);
 }
 
 async function openKinoBox(meta) {
   renderPlayerShell(meta);
+  showPlayerPlaceholder('Подбираем доступные источники...');
 
   try {
-    await loadKinoboxScript();
-    initKinoboxPlayer(meta);
+    const sources = await fetchKinoboxSources(meta);
+
+    if (!sources.length) {
+      showPlayerPlaceholder('Источники не найдены. Попробуй другой фильм, открой страницу позже или проверь VPN/доступность сервиса в твоей сети.');
+      setPlayerStatus('Kinobox API ответил, но источники для этого запроса не нашлись.');
+      return;
+    }
+
+    renderKinoboxSources(sources);
   } catch (error) {
     console.error('[openKinoBox]', error);
-    openPlayerError('Kinobox не загрузился. Если ты открыл сайт как file://, лучше проверь через локальный сервер или хостинг. Также отключи блокировщик рекламы для этой страницы.');
+    showPlayerPlaceholder('Не удалось получить данные от Kinobox API. Проверь, доступен ли сервис из твоей сети, и попробуй включить VPN.');
+    setPlayerStatus(`Ошибка загрузки источников: ${error.message}`);
   }
 }
 
