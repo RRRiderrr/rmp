@@ -4,48 +4,52 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RMP (Old)</title>
-<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
     <style>
     body {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 100vh;
+        min-height: 100vh;
         margin: 0;
         background-color: #222;
         color: #fff;
         font-family: Arial, sans-serif;
+        padding: 16px;
     }
 
     .kinobox_player {
-        display: flex;
-        max-width: 88%;
+        display: none;
+        width: min(88vw, 1400px);
+        min-height: min(78vh, 900px);
+        border-radius: 20px;
+        overflow: hidden;
+        background: #111;
+        box-shadow: 0 16px 50px rgba(0,0,0,.4);
     }
 
     #top-links {
         margin-top: 20px;
         display: flex;
         align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        justify-content: center;
     }
 
     #top-links a {
         color: #fff !important;
         text-decoration: none;
-        margin-right: 40px;
     }
 
     .hidden {
-        display: none;
+        display: none !important;
     }
 
     #header {
         text-align: center;
         margin-bottom: 20px;
-    }
-
-    #header.hidden {
-        display: none;
     }
 
     #header h1 {
@@ -58,17 +62,19 @@
         display: flex;
         flex-direction: column;
         align-items: center;
+        width: 100%;
+        max-width: 560px;
     }
 
     #search-bar {
-        width: 90%; /* Изменено с 400px на проценты для лучшей адаптации */
-        max-width: 400px; /* Максимальная ширина ограничена для больших экранов */
+        width: 100%;
         padding: 12px;
         font-size: 16px;
         background-color: #333;
         border: none;
         color: #fff;
         margin-bottom: 20px;
+        border-radius: 12px;
     }
 
     #search-button {
@@ -77,27 +83,19 @@
         background-color: #333;
         color: #fff;
         border: none;
+        border-radius: 999px;
         cursor: pointer;
         transition: background-color 0.3s, transform 0.2s;
     }
 
     #search-button:hover {
         background-color: #999;
-        transform: scale(1.1);
-    }
-
-    .kinobox_player {
-        display: none;
-        width: 100%;
+        transform: scale(1.05);
     }
 
     #bottom-text {
         margin-top: 20px;
         color: #fff;
-    }
-
-    #bottom-text.hidden {
-        display: none;
     }
 
     #home-button {
@@ -106,62 +104,56 @@
         left: 10px;
         background-color: #333;
         color: #fff;
-        padding: 5px 10px;
+        padding: 8px 14px;
         font-size: 14px;
+        border-radius: 999px;
+        text-decoration: none;
         cursor: pointer;
         z-index: 9999;
     }
 
-    /* Медиазапросы для мобильных устройств */
+    #status {
+        margin-top: 12px;
+        color: rgba(255,255,255,.7);
+        text-align: center;
+        max-width: 720px;
+        line-height: 1.5;
+    }
+
     @media (max-width: 768px) {
         #header h1 {
-            font-size: 24px; /* Уменьшение размера заголовка */
+            font-size: 28px;
         }
 
-        #top-links a {
-            margin-right: 20px; /* Уменьшение расстояния между ссылками */
+        #top-links {
+            gap: 12px;
         }
     }
-</style>
-
+    </style>
 </head>
 <body>
     <a href="index.html" id="home-button" class="hidden">Home</a>
+
     <div id="top-links">
         <a href="https://boosty.to/riderr" target="_blank" class="link">Boosty</a>
         <a href="https://www.patreon.com/MichailPimakhov" target="_blank" class="link">Patreon</a>
         <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2" target="_blank" class="link">PayPal</a>
-       <a href="#" id="install-script-link" class="link">Install TamperMonkey Script for Kinopoisk and IMDb</a>
-
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-    const installScriptLink = document.getElementById('install-script-link');
-
-    installScriptLink.addEventListener('click', function(event) {
-        event.preventDefault();
-        
-        // Open the TamperMonkey script setup page in the same tab
-        window.location.href = 'https://github.com/RRRiderrr/rmp/raw/main/tms.user.js';
-    });
-});
-</script>
-
-
-
-
-        
+        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js" class="link">Install TamperMonkey Script for Kinopoisk and IMDb</a>
     </div>
+
     <div id="header">
         <h1>Rider's Movie Player</h1>
     </div>
+
     <div id="search-container">
-        <input type="text" id="search-bar" placeholder="Kinopoisk ID/IMDb ID/Title/Kinopoisk link/IMDb link">
+        <input type="text" id="search-bar" placeholder="Kinopoisk ID / IMDb ID / title / Kinopoisk link / IMDb link">
         <button id="search-button">Search</button>
+        <div id="status">Старая страница теперь тоже работает без серверной части: можно искать по названию, IMDb ID, Kinopoisk ID и ссылкам на них.</div>
     </div>
+
     <div class="kinobox_player"></div>
-    <div id="bottom-text">
-        Based on KinoBox
-    </div>
+    <div id="bottom-text">Based on KinoBox</div>
+
     <script src="https://kinobox.tv/kinobox.min.js"></script>
     <script>
     const searchBar = document.getElementById('search-bar');
@@ -171,6 +163,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const links = document.querySelectorAll('.link');
     const bottomText = document.getElementById('bottom-text');
     const homeButton = document.getElementById('home-button');
+    const statusEl = document.getElementById('status');
 
     function hideLinks() {
         for (const link of links) {
@@ -178,79 +171,112 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    function performSearch(query) {
-        if (query) {
-            kinoboxPlayer.style.display = 'block';
-            searchBar.style.display = 'none';
-            searchButton.style.display = 'none';
-            header.classList.add('hidden');
-            hideLinks();
-            bottomText.classList.add('hidden');
-            homeButton.classList.remove('hidden');
-            
-            // Specify the menu options based on the device (desktop or mobile)
-            const menu = window.innerWidth < 768 ? { default: 'menuButton', mobile: 'menuButton' } : { default: 'menuList', mobile: 'menuButton' };
+    function parseSearchInput(input) {
+        const value = String(input || '').trim();
+        if (!value) return null;
 
-            new Kinobox('.kinobox_player', { search: { query }, menu }).init();
+        const imdbMatch = value.match(/tt\d+/i);
+        if (imdbMatch) {
+            return { imdb: imdbMatch[0].toLowerCase() };
+        }
+
+        const kpMatch = value.match(/(?:kinopoisk\.ru\/(?:film|series)\/|kp=|kinopoisk=)?(\d{3,})/i);
+        if (/^\d{3,}$/.test(value)) {
+            return { kinopoisk: value };
+        }
+        if (kpMatch && /kinopoisk\.ru|kp=|kinopoisk=/.test(value)) {
+            return { kinopoisk: kpMatch[1] };
+        }
+
+        return { title: value };
+    }
+
+    function renderPlayerMode(meta, sourceText) {
+        kinoboxPlayer.style.display = 'block';
+        searchBar.style.display = 'none';
+        searchButton.style.display = 'none';
+        header.classList.add('hidden');
+        hideLinks();
+        bottomText.classList.add('hidden');
+        homeButton.classList.remove('hidden');
+        statusEl.textContent = sourceText || 'Подбираем рабочий источник...';
+        document.title = meta.title || meta.imdb || meta.kinopoisk || 'RMP (Old)';
+    }
+
+    function initPlayer(searchPayload) {
+        if (typeof window.Kinobox === 'function') {
+            new window.Kinobox('.kinobox_player', { search: searchPayload }).init();
+            return;
+        }
+        if (typeof window.kbox === 'function') {
+            window.kbox('.kinobox_player', { search: searchPayload });
+            return;
+        }
+        throw new Error('Kinobox script was not loaded');
+    }
+
+    function performSearch(rawQuery) {
+        const parsed = parseSearchInput(rawQuery);
+        if (!parsed) return;
+
+        let sourceText = 'Поиск по названию';
+        if (parsed.imdb) sourceText = 'Поиск по IMDb ID: ' + parsed.imdb;
+        if (parsed.kinopoisk) sourceText = 'Поиск по Kinopoisk ID: ' + parsed.kinopoisk;
+        if (parsed.title) sourceText = 'Поиск по названию: ' + parsed.title;
+
+        renderPlayerMode(parsed, sourceText);
+
+        try {
+            initPlayer(parsed);
+        } catch (err) {
+            console.error(err);
+            statusEl.textContent = 'Не удалось запустить Kinobox. Проверь доступность kinobox.tv и перезагрузи страницу.';
         }
     }
 
-    // Handle search when the button is clicked
     searchButton.addEventListener('click', () => {
         const query = searchBar.value.trim();
+        if (!query) return;
         performSearch(query);
     });
 
-    // Handle search on Enter key press
     searchBar.addEventListener('keyup', (event) => {
         if (event.key === 'Enter') {
             const query = searchBar.value.trim();
+            if (!query) return;
             performSearch(query);
         }
     });
 
-    // Check for hash or query parameter on page load and perform search if found
     window.addEventListener('load', () => {
         const hash = window.location.hash.substr(1);
         const searchParam = new URLSearchParams(window.location.search).get('search');
         const query = hash || searchParam;
-        if (query && query.match(/^\w+$/)) {
+        if (query) {
             searchBar.value = query;
             performSearch(query);
         }
     });
 
-    // Handle Home button click
     homeButton.addEventListener('click', () => {
         window.location.href = 'index.html';
     });
 
-
-
-
-
-
-
-
-
-
-
-document.addEventListener("DOMContentLoaded", function() {
-        const canvas = document.createElement("canvas");
-        canvas.id = "popcornCanvas";
-        canvas.style.position = "fixed";
-        canvas.style.top = "0";
-        canvas.style.left = "0";
-        canvas.style.pointerEvents = "none";
-        canvas.style.zIndex = "9999"; // Set a high z-index to appear on top
+    document.addEventListener('DOMContentLoaded', function() {
+        const canvas = document.createElement('canvas');
+        canvas.id = 'popcornCanvas';
+        canvas.style.position = 'fixed';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.pointerEvents = 'none';
+        canvas.style.zIndex = '9999';
         document.body.appendChild(canvas);
 
-        const ctx = canvas.getContext("2d");
+        const ctx = canvas.getContext('2d');
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        const popcornImages = ["popcorn.png", "popcorn2.png", "popcorn3.png", "popcorn4.png", "popcorn5.png"];
-
+        const popcornImages = ['popcorn.png', 'popcorn2.png', 'popcorn3.png', 'popcorn4.png', 'popcorn5.png'];
         const popcornParticles = [];
 
         function spawnPopcorn(amount) {
@@ -259,51 +285,42 @@ document.addEventListener("DOMContentLoaded", function() {
                 const popcorn = {
                     x: Math.random() * canvas.width,
                     y: canvas.height,
-                    size: Math.floor(Math.random() * (80 - 40 + 1)) + 40,
+                    size: Math.floor(Math.random() * 41) + 40,
                     image: new Image()
                 };
-
                 popcorn.image.src = randomImage;
-
                 popcorn.velocity = {
                     x: (Math.random() - 0.5) * 5,
                     y: -(Math.random() * 8 + 5)
                 };
-
                 popcornParticles.push(popcorn);
             }
         }
 
-        function animate() {
-            requestAnimationFrame(animate);
+        function animatePopcorn() {
+            requestAnimationFrame(animatePopcorn);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
             for (let i = 0; i < popcornParticles.length; i++) {
-                const popcorn = popcornParticles[i];
-
-                popcorn.velocity.y += 0.2;
-
-                popcorn.x += popcorn.velocity.x;
-                popcorn.y += popcorn.velocity.y;
-
-                ctx.drawImage(popcorn.image, popcorn.x, popcorn.y, popcorn.size, popcorn.size);
-
-                if (popcorn.y > canvas.height + popcorn.size) {
+                const pc = popcornParticles[i];
+                pc.velocity.y += 0.2;
+                pc.x += pc.velocity.x;
+                pc.y += pc.velocity.y;
+                ctx.drawImage(pc.image, pc.x, pc.y, pc.size, pc.size);
+                if (pc.y > canvas.height + pc.size) {
                     popcornParticles.splice(i, 1);
                     i--;
                 }
             }
         }
 
-        document.addEventListener("keydown", function(event) {
-            if (event.key === "p" || event.key === "P" || event.key === "з" || event.key === "З") {
-                spawnPopcorn(50);  // Spawn 50 particles at once
+        document.addEventListener('keydown', (e) => {
+            if (['p', 'з'].includes(e.key.toLowerCase())) {
+                spawnPopcorn(50);
             }
         });
 
-        animate();
+        animatePopcorn();
     });
-</script>
-
+    </script>
 </body>
 </html>
