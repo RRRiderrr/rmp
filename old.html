@@ -203,6 +203,53 @@
         document.title = meta.title || meta.imdb || meta.kinopoisk || 'RMP (Old)';
     }
 
+    function waitForExistingScriptLoad(scriptEl) {
+        return new Promise((resolve, reject) => {
+            if (!scriptEl) {
+                reject(new Error('Kinobox script tag was not found'));
+                return;
+            }
+
+            if (scriptEl.dataset.loaded === '1' || typeof window.Kinobox === 'function' || typeof window.kbox === 'function') {
+                resolve();
+                return;
+            }
+
+            scriptEl.addEventListener('load', () => {
+                scriptEl.dataset.loaded = '1';
+                resolve();
+            }, { once: true });
+
+            scriptEl.addEventListener('error', () => {
+                reject(new Error('Kinobox script failed to load'));
+            }, { once: true });
+        });
+    }
+
+    function loadKinoboxScript() {
+        if (typeof window.Kinobox === 'function' || typeof window.kbox === 'function') {
+            return Promise.resolve();
+        }
+
+        const existing = document.querySelector('script[src*="kinobox.tv/kinobox.min.js"]');
+        if (existing) {
+            return waitForExistingScriptLoad(existing);
+        }
+
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://kinobox.tv/kinobox.min.js';
+            script.async = true;
+            script.crossOrigin = 'anonymous';
+            script.onload = () => {
+                script.dataset.loaded = '1';
+                resolve();
+            };
+            script.onerror = () => reject(new Error('Kinobox script failed to load'));
+            document.head.appendChild(script);
+        });
+    }
+
     function initPlayer(searchPayload) {
         if (typeof window.Kinobox === 'function') {
             new window.Kinobox('.kinobox_player', { search: searchPayload }).init();
@@ -215,7 +262,7 @@
         throw new Error('Kinobox script was not loaded');
     }
 
-    function performSearch(rawQuery) {
+    async function performSearch(rawQuery) {
         const parsed = parseSearchInput(rawQuery);
         if (!parsed) return;
 
@@ -227,10 +274,11 @@
         renderPlayerMode(parsed, sourceText);
 
         try {
+            await loadKinoboxScript();
             initPlayer(parsed);
         } catch (err) {
             console.error(err);
-            statusEl.textContent = 'Не удалось запустить Kinobox. Проверь доступность kinobox.tv и перезагрузи страницу.';
+            statusEl.textContent = 'Kinobox не загрузился. Если страница открыта как file://, проверь её через локальный сервер или хостинг. И отключи блокировщик рекламы для этого сайта.';
         }
     }
 

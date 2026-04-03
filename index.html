@@ -98,6 +98,12 @@
       if (window.location.hash) {
         return;
       }
+
+      if (window.location.protocol === 'file:') {
+        console.info('Local file mode detected: geolocation redirect is skipped.');
+        return;
+      }
+
       fetch("https://ipapi.co/json/")
         .then((response) => response.json())
         .then((data) => {

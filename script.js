@@ -372,7 +372,7 @@ document.addEventListener('click', async (event) => {
   try {
     const payload = await buildPlayerPayloadFromTmdb(movieId);
     window.location.hash = 'tm' + movieId;
-    openKinoBox(payload);
+    await openKinoBox(payload);
   } catch (error) {
     console.error('[watch-online]', error);
     openPlayerError('Не удалось подготовить плеер. Попробуй ещё раз чуть позже.');
@@ -481,6 +481,53 @@ function renderPlayerShell(meta = {}) {
   });
 }
 
+function waitForExistingScriptLoad(scriptEl) {
+  return new Promise((resolve, reject) => {
+    if (!scriptEl) {
+      reject(new Error('Kinobox script tag was not found'));
+      return;
+    }
+
+    if (scriptEl.dataset.loaded === '1' || typeof window.Kinobox === 'function' || typeof window.kbox === 'function') {
+      resolve();
+      return;
+    }
+
+    scriptEl.addEventListener('load', () => {
+      scriptEl.dataset.loaded = '1';
+      resolve();
+    }, { once: true });
+
+    scriptEl.addEventListener('error', () => {
+      reject(new Error('Kinobox script failed to load'));
+    }, { once: true });
+  });
+}
+
+function loadKinoboxScript() {
+  if (typeof window.Kinobox === 'function' || typeof window.kbox === 'function') {
+    return Promise.resolve();
+  }
+
+  const existing = document.querySelector('script[src*="kinobox.tv/kinobox.min.js"]');
+  if (existing) {
+    return waitForExistingScriptLoad(existing);
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://kinobox.tv/kinobox.min.js';
+    script.async = true;
+    script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      script.dataset.loaded = '1';
+      resolve();
+    };
+    script.onerror = () => reject(new Error('Kinobox script failed to load'));
+    document.head.appendChild(script);
+  });
+}
+
 function initKinoboxPlayer(meta) {
   const searchPayload = {
     kinopoisk: meta.kinopoiskId || undefined,
@@ -501,14 +548,15 @@ function initKinoboxPlayer(meta) {
   throw new Error('Kinobox script is not loaded');
 }
 
-function openKinoBox(meta) {
+async function openKinoBox(meta) {
   renderPlayerShell(meta);
 
   try {
+    await loadKinoboxScript();
     initKinoboxPlayer(meta);
   } catch (error) {
     console.error('[openKinoBox]', error);
-    openPlayerError('Скрипт плеера не загрузился. Проверь доступность kinobox и перезагрузи страницу.');
+    openPlayerError('Kinobox не загрузился. Если ты открыл сайт как file://, лучше проверь через локальный сервер или хостинг. Также отключи блокировщик рекламы для этой страницы.');
   }
 }
 
