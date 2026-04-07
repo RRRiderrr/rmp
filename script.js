@@ -780,14 +780,29 @@ function buildStatusText(count, searchMode = false) {
 
 async function openNav(item) {
   try {
-    const videoData = await apiFetch(`/${item.mediaType}/${item.id}/videos`, { language: 'ru-RU' }).catch(() => apiFetch(`/${item.mediaType}/${item.id}/videos`));
-    const videos = (videoData.results || []).filter((video) => video.site === 'YouTube');
+    const details = await apiFetch(`/${item.mediaType}/${item.id}`, {
+      language: 'ru-RU',
+      append_to_response: 'videos',
+      include_video_language: 'ru-RU,ru,en-US,en,null'
+    });
+
+    const fallbackVideos = !details?.videos?.results?.length
+      ? await apiFetch(`/${item.mediaType}/${item.id}/videos`, {
+          include_video_language: 'ru-RU,ru,en-US,en,null'
+        }).catch(() => ({ results: [] }))
+      : null;
+
+    const videos = prioritizeVideos((details?.videos?.results || fallbackVideos?.results || []).filter((video) => {
+      return video.site === 'YouTube' && video.key;
+    }));
 
     overlay.style.width = '100%';
     overlay.setAttribute('aria-hidden', 'false');
 
-    const title = item.originalTitle || item.title;
-    const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(item.releaseDate)}`;
+    const title = item.originalTitle || item.title || details.original_title || details.original_name || details.title || details.name;
+    const resolvedOverview = item.overview || details.overview || 'Описание отсутствует.';
+    const resolvedDate = item.releaseDate || details.release_date || details.first_air_date || '';
+    const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(resolvedDate)}`;
 
     if (videos.length) {
       const embed = videos.map((video) => `
@@ -809,7 +824,7 @@ async function openNav(item) {
         <div class="dots">${dots.join('')}</div>
         <div class="overlay-overview">
           <h3 style="margin-bottom:0.65rem;">Описание</h3>
-          ${escapeHtml(item.overview || 'Описание отсутствует.')}
+          ${escapeHtml(resolvedOverview)}
         </div>
       `;
 
@@ -829,15 +844,45 @@ async function openNav(item) {
         </div>
         <div class="overlay-overview">
           <h3 style="margin-bottom:0.65rem;">Трейлеры не найдены</h3>
-          ${escapeHtml(item.overview || 'Описание отсутствует.')}
+          ${escapeHtml(resolvedOverview)}
         </div>
       `;
     }
   } catch (error) {
     console.error('[openNav]', error);
     overlay.style.width = '100%';
+    overlay.setAttribute('aria-hidden', 'false');
     overlayContent.innerHTML = '<h1 class="no-results">Не удалось загрузить информацию о трейлере</h1>';
   }
+}
+
+function prioritizeVideos(videos) {
+  return [...videos].sort((a, b) => {
+    const scoreA = getVideoPriority(a);
+    const scoreB = getVideoPriority(b);
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    const dateA = Date.parse(a.published_at || '') || 0;
+    const dateB = Date.parse(b.published_at || '') || 0;
+    return dateB - dateA;
+  });
+}
+
+function getVideoPriority(video) {
+  let score = 0;
+  const type = String(video?.type || '').toLowerCase();
+  const language = String(video?.iso_639_1 || '').toLowerCase();
+
+  if (video?.official) score += 1000;
+  if (type === 'trailer') score += 500;
+  else if (type === 'teaser') score += 300;
+  else if (type === 'clip') score += 200;
+  else if (type === 'behind the scenes') score += 100;
+
+  if (language === 'ru') score += 50;
+  else if (language === 'en') score += 25;
+  else if (!language || language === 'null') score += 10;
+
+  return score;
 }
 
 function closeNav() {
