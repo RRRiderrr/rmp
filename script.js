@@ -1,36 +1,11 @@
-/* ========== script.js ========== */
-
-const API_KEY = 'api_key=3b68a0041f64019817b5a6a12fcfc882';
+const API_KEY = '3b68a0041f64019817b5a6a12fcfc882';
 const BASE_URL = 'https://api.themoviedb.org/3';
-const API_URL = BASE_URL + '/discover/movie?sort_by=popularity.desc&' + API_KEY + '&language=ru-RU&region=ru';
-const IMG_URL = 'https://image.tmdb.org/t/p/w500';
-const searchURL = BASE_URL + '/search/movie?' + API_KEY + '&language=ru-RU&region=ru';
+const DEFAULT_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 const KINOBOX_API = 'https://api.kinobox.tv/api/players';
+const CURRENT_YEAR = new Date().getFullYear();
+const MIN_YEAR = 1888;
+const PAGE_SIZE = 20;
 
-/* Список жанров */
-const genres = [
-  { id: 28, name: 'Боевик' },
-  { id: 12, name: 'Приключения' },
-  { id: 16, name: 'Анимация' },
-  { id: 35, name: 'Комедия' },
-  { id: 80, name: 'Криминал' },
-  { id: 99, name: 'Документальный' },
-  { id: 18, name: 'Драма' },
-  { id: 10751, name: 'Семейный' },
-  { id: 14, name: 'Фэнтези' },
-  { id: 36, name: 'Исторический' },
-  { id: 27, name: 'Ужасы' },
-  { id: 10402, name: 'Мюзикл' },
-  { id: 9648, name: 'Мистика' },
-  { id: 10749, name: 'Романтика' },
-  { id: 878, name: 'Научная фантастика' },
-  { id: 10770, name: 'Телефильм' },
-  { id: 53, name: 'Триллер' },
-  { id: 10752, name: 'Военный' },
-  { id: 37, name: 'Вестерн' }
-];
-
-/* DOM-элементы */
 const main = document.getElementById('main');
 const form = document.getElementById('form');
 const search = document.getElementById('search');
@@ -38,287 +13,923 @@ const tagsEl = document.getElementById('tags');
 const prev = document.getElementById('prev');
 const next = document.getElementById('next');
 const current = document.getElementById('current');
-
-/* Параметры пагинации */
-let currentPage = 1;
-let nextPage = 2;
-let prevPage = 3;
-let totalPages = 100;
-let lastUrl = '';
-
-/* Жанры */
-let selectedGenre = [];
-/* Избранное */
-let favMovies = JSON.parse(localStorage.getItem('favMovies')) || [];
-/* Режим «Показать избранное» */
-let showFavoritesOnly = false;
-
-/* Установка жанров */
-setGenre();
-
-function setGenre() {
-  tagsEl.innerHTML = '';
-  genres.forEach((genre) => {
-    const t = document.createElement('div');
-    t.classList.add('tag');
-    t.id = genre.id;
-    t.innerText = genre.name;
-    t.addEventListener('click', () => {
-      if (selectedGenre.includes(genre.id)) {
-        selectedGenre = selectedGenre.filter((g) => g !== genre.id);
-      } else {
-        selectedGenre.push(genre.id);
-      }
-      getMovies(API_URL + '&with_genres=' + encodeURI(selectedGenre.join(',')));
-      highlightSelection();
-    });
-    tagsEl.append(t);
-  });
-}
-
-function highlightSelection() {
-  const tags = document.querySelectorAll('.tag');
-  tags.forEach((tag) => tag.classList.remove('highlight'));
-  clearBtn();
-  if (selectedGenre.length !== 0) {
-    selectedGenre.forEach((id) => {
-      const t = document.getElementById(id);
-      if (t) t.classList.add('highlight');
-    });
-  }
-}
-
-function clearBtn() {
-  const existingClearBtn = document.getElementById('clear');
-  if (existingClearBtn) {
-    existingClearBtn.classList.add('highlight');
-    return;
-  }
-
-  const clear = document.createElement('div');
-  clear.classList.add('tag', 'highlight');
-  clear.id = 'clear';
-  clear.innerText = 'Сбросить';
-  clear.addEventListener('click', () => {
-    selectedGenre = [];
-    setGenre();
-    getMovies(API_URL);
-  });
-  tagsEl.append(clear);
-}
-
-/* Стартовая загрузка популярных фильмов */
-getMovies(API_URL);
-
-function getMovies(url) {
-  lastUrl = url;
-  if (showFavoritesOnly) {
-    showAllFavorites();
-    return;
-  }
-
-  fetch(url)
-    .then((res) => {
-      if (!res.ok) throw new Error('Network error, status=' + res.status);
-      return res.json();
-    })
-    .then((data) => {
-      if (data.results && data.results.length !== 0) {
-        showMovies(data.results);
-
-        currentPage = data.page;
-        nextPage = currentPage + 1;
-        prevPage = currentPage - 1;
-        totalPages = data.total_pages;
-        current.innerText = currentPage;
-
-        if (currentPage <= 1) {
-          prev.classList.add('disabled');
-          next.classList.remove('disabled');
-        } else if (currentPage >= totalPages) {
-          prev.classList.remove('disabled');
-          next.classList.add('disabled');
-        } else {
-          prev.classList.remove('disabled');
-          next.classList.remove('disabled');
-        }
-      } else {
-        main.innerHTML = '<h1 class="no-results">Ничего не найдено</h1>';
-      }
-    })
-    .catch((err) => {
-      console.error('[getMovies]', err);
-      main.innerHTML = '<h1 class="no-results">Ошибка сети/запроса</h1>';
-    });
-}
-
-function showAllFavorites() {
-  if (!favMovies.length) {
-    main.innerHTML = '<h1 class="no-results">Избранных фильмов нет</h1>';
-    return;
-  }
-
-  const promises = favMovies.map((id) =>
-    fetch(`${BASE_URL}/movie/${id}?${API_KEY}&language=ru-RU`)
-      .then((res) => res.json())
-      .catch((err) => {
-        console.error('[showAllFavorites] fail on ID=', id, err);
-        return null;
-      })
-  );
-
-  Promise.all(promises)
-    .then((allData) => {
-      const valid = allData.filter((m) => m && m.id);
-      if (!valid.length) {
-        main.innerHTML = '<h1 class="no-results">Избранных фильмов нет</h1>';
-      } else {
-        showMovies(valid);
-      }
-    })
-    .catch((err) => {
-      console.error('[showAllFavorites]', err);
-      main.innerHTML = '<h1 class="no-results">Ошибка при загрузке избранного</h1>';
-    });
-}
-
-function showMovies(data) {
-  main.innerHTML = '';
-
-  data.forEach((movie) => {
-    const { title, poster_path, vote_average, id } = movie;
-    const movieEl = document.createElement('div');
-    movieEl.classList.add('movie');
-    movieEl.innerHTML = `
-      <img src="${poster_path ? (IMG_URL + poster_path) : 'https://via.placeholder.com/1080x1580?text=No+Poster'}" alt="${escapeHtml(title)}">
-      <div class="movie-info">
-        <h3>${escapeHtml(title)}</h3>
-        <span class="${getColor(vote_average)}">${vote_average}</span>
-      </div>
-      <div class="buttons">
-        <button class="know-more" id="movie-info-${id}">Подробнее</button>
-        <button class="watch-online" data-id="${id}">Смотреть</button>
-      </div>
-      <button class="fav-btn" data-fav="${id}">★</button>
-    `;
-    main.appendChild(movieEl);
-
-    document.getElementById(`movie-info-${id}`).addEventListener('click', () => {
-      openNav(movie);
-    });
-
-    const favBtn = movieEl.querySelector(`.fav-btn[data-fav="${id}"]`);
-    if (favMovies.includes(id)) {
-      favBtn.style.backgroundColor = 'gold';
-      favBtn.style.color = '#333';
-    }
-    favBtn.addEventListener('click', () => {
-      toggleFavorite(id);
-      if (favMovies.includes(id)) {
-        favBtn.style.backgroundColor = 'gold';
-        favBtn.style.color = '#333';
-      } else {
-        favBtn.style.backgroundColor = 'var(--star-bg)';
-        favBtn.style.color = 'gold';
-      }
-    });
-  });
-}
-
-function toggleFavorite(movieId) {
-  const idx = favMovies.indexOf(movieId);
-  if (idx === -1) {
-    favMovies.push(movieId);
-  } else {
-    favMovies.splice(idx, 1);
-  }
-  localStorage.setItem('favMovies', JSON.stringify(favMovies));
-  if (showFavoritesOnly) {
-    showAllFavorites();
-  }
-}
-
+const resultsStatus = document.getElementById('resultsStatus');
+const paginationBlock = document.getElementById('paginationBlock');
+const overlay = document.getElementById('myNav');
 const overlayContent = document.getElementById('overlay-content');
-function openNav(movie) {
-  const id = movie.id;
-  fetch(`${BASE_URL}/movie/${id}/videos?${API_KEY}`)
-    .then((res) => res.json())
-    .then((videoData) => {
-      document.getElementById('myNav').style.width = '100%';
-      if (videoData && videoData.results && videoData.results.length > 0) {
-        const embed = [];
-        const dots = [];
-        videoData.results.forEach((v, idx) => {
-          if (v.site === 'YouTube') {
-            embed.push(`
-              <iframe
-                width="560"
-                height="315"
-                src="https://www.youtube.com/embed/${v.key}"
-                class="embed hide"
-                allowfullscreen
-              ></iframe>
-            `);
-            dots.push(`<span class="dot">${idx + 1}</span>`);
-          }
-        });
-        const overview = `
-          <div class="overview">
-            <h3>Описание</h3>
-            ${escapeHtml(movie.overview || 'Описание отсутствует.')}
-          </div>
-        `;
-        overlayContent.innerHTML = `
-          <h1>${escapeHtml(movie.original_title || movie.title)}</h1>
-          <br/>
-          ${embed.join('')}
-          <br/>
-          <div class="dots">${dots.join('')}</div>
-          ${overview}
-        `;
-        activeSlide = 0;
-        showVideos();
-        document.querySelectorAll('.dot').forEach((dot, i) => {
-          dot.addEventListener('click', () => {
-            activeSlide = i;
-            showVideos();
-          });
-        });
-      } else {
-        overlayContent.innerHTML = '<h1 class="no-results">Нет доступных трейлеров</h1>';
-      }
-    })
-    .catch((err) => console.error('[openNav]', err));
-}
+const overlayCloseBtn = document.getElementById('overlayCloseBtn');
+const scrollBtn = document.getElementById('scrollTopBtn');
+const themeToggle = document.getElementById('themeToggleCheckbox');
+const favoriteToggle = document.getElementById('favoriteToggle');
+const typeButtons = document.getElementById('typeButtons');
+const applyExtraFiltersBtn = document.getElementById('applyExtraFilters');
+const resetFiltersBtn = document.getElementById('resetFilters');
+const filtersDirtyBadge = document.getElementById('filtersDirtyBadge');
+const yearFromInput = document.getElementById('yearFromInput');
+const yearToInput = document.getElementById('yearToInput');
+const yearFromRange = document.getElementById('yearFromRange');
+const yearToRange = document.getElementById('yearToRange');
+const yearSliderRange = document.getElementById('yearSliderRange');
+const leftArrow = document.getElementById('left-arrow');
+const rightArrow = document.getElementById('right-arrow');
 
-function closeNav() {
-  document.getElementById('myNav').style.width = '0%';
-}
+const defaultFilters = Object.freeze({
+  type: 'all',
+  yearFrom: MIN_YEAR,
+  yearTo: CURRENT_YEAR
+});
+
+const state = {
+  currentPage: 1,
+  totalPages: 1,
+  query: '',
+  selectedGenres: [],
+  showFavoritesOnly: false,
+  imageBaseUrl: DEFAULT_IMAGE_BASE_URL,
+  imageBackdropBaseUrl: 'https://image.tmdb.org/t/p/original',
+  genres: [],
+  genresByKey: new Map(),
+  appliedFilters: { ...defaultFilters },
+  pendingFilters: { ...defaultFilters }
+};
 
 let activeSlide = 0;
 let totalVideos = 0;
-function showVideos() {
-  const embedClasses = document.querySelectorAll('.embed');
-  const dots = document.querySelectorAll('.dot');
-  totalVideos = embedClasses.length;
-  embedClasses.forEach((embedTag, idx) => {
-    embedTag.classList.toggle('show', idx === activeSlide);
-    embedTag.classList.toggle('hide', idx !== activeSlide);
+
+init();
+
+async function init() {
+  initTheme();
+  initYearControls();
+  bindEvents();
+  renderLoading('Подключаемся к TMDB...');
+
+  try {
+    await Promise.all([initImageConfig(), loadGenres()]);
+    renderGenreTags();
+    syncFilterUiFromPending();
+    await loadContent(1);
+  } catch (error) {
+    console.error('[init]', error);
+    renderError('Не удалось инициализировать каталог. Попробуй обновить страницу чуть позже.');
+    updateResultsStatus('Ошибка инициализации каталога.');
+  }
+}
+
+function bindEvents() {
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    state.query = search.value.trim();
+    await loadContent(1);
   });
-  dots.forEach((dot, i) => {
-    dot.classList.toggle('active', i === activeSlide);
+
+  prev.addEventListener('click', async () => {
+    if (state.currentPage > 1) {
+      await loadContent(state.currentPage - 1);
+    }
+  });
+
+  next.addEventListener('click', async () => {
+    if (state.currentPage < state.totalPages) {
+      await loadContent(state.currentPage + 1);
+    }
+  });
+
+  favoriteToggle.addEventListener('click', async () => {
+    state.showFavoritesOnly = !state.showFavoritesOnly;
+    favoriteToggle.textContent = state.showFavoritesOnly ? 'Показать всё' : 'Показать избранное';
+    await loadContent(1);
+  });
+
+  typeButtons.addEventListener('click', (event) => {
+    const button = event.target.closest('.type-btn');
+    if (!button) return;
+    state.pendingFilters.type = button.dataset.type;
+    markFiltersDirty();
+    syncTypeButtons();
+  });
+
+  applyExtraFiltersBtn.addEventListener('click', async () => {
+    state.appliedFilters = { ...state.pendingFilters };
+    updateFilterApplyState();
+    await loadContent(1);
+  });
+
+  resetFiltersBtn.addEventListener('click', async () => {
+    state.selectedGenres = [];
+    state.pendingFilters = { ...defaultFilters };
+    state.appliedFilters = { ...defaultFilters };
+    renderGenreTags();
+    syncFilterUiFromPending();
+    updateFilterApplyState();
+    await loadContent(1);
+  });
+
+  overlayCloseBtn.addEventListener('click', closeNav);
+  leftArrow.addEventListener('click', () => {
+    activeSlide = activeSlide > 0 ? activeSlide - 1 : totalVideos - 1;
+    showVideos();
+  });
+  rightArrow.addEventListener('click', () => {
+    activeSlide = activeSlide < totalVideos - 1 ? activeSlide + 1 : 0;
+    showVideos();
+  });
+
+  window.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      closeNav();
+    }
+  });
+
+  window.addEventListener('scroll', () => {
+    scrollBtn.style.display = window.scrollY > 300 ? 'block' : 'none';
+  });
+
+  scrollBtn.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  document.addEventListener('click', async (event) => {
+    const watchButton = event.target.closest('.watch-online');
+    if (watchButton) {
+      const id = Number(watchButton.dataset.id);
+      const mediaType = watchButton.dataset.mediaType;
+      if (!id || !mediaType) return;
+
+      try {
+        const payload = await buildPlayerPayloadFromId(id, mediaType);
+        window.location.hash = `${mediaType}-${id}`;
+        await openKinoBox(payload);
+      } catch (error) {
+        console.error('[watch-online]', error);
+        openPlayerError('Не удалось подготовить плеер. Попробуй ещё раз чуть позже.');
+      }
+      return;
+    }
+
+    const infoButton = event.target.closest('.know-more');
+    if (infoButton) {
+      const id = Number(infoButton.dataset.id);
+      const mediaType = infoButton.dataset.mediaType;
+      if (!id || !mediaType) return;
+      const item = {
+        id,
+        mediaType,
+        title: infoButton.dataset.title || '',
+        originalTitle: infoButton.dataset.originalTitle || '',
+        overview: infoButton.dataset.overview || '',
+        releaseDate: infoButton.dataset.releaseDate || ''
+      };
+      openNav(item);
+      return;
+    }
+
+    const favoriteButton = event.target.closest('.fav-btn');
+    if (favoriteButton) {
+      const id = Number(favoriteButton.dataset.id);
+      const mediaType = favoriteButton.dataset.mediaType;
+      if (!id || !mediaType) return;
+      toggleFavorite({ id, mediaType });
+      favoriteButton.classList.toggle('fav-active', isFavorite(id, mediaType));
+      if (isFavorite(id, mediaType)) {
+        favoriteButton.style.backgroundColor = 'gold';
+        favoriteButton.style.color = '#333';
+      } else {
+        favoriteButton.style.backgroundColor = 'var(--star-bg)';
+        favoriteButton.style.color = 'gold';
+      }
+
+      if (state.showFavoritesOnly) {
+        await loadContent(1);
+      }
+    }
+  });
+
+  window.addEventListener('hashchange', async () => {
+    const rawHash = window.location.hash.substring(1);
+    if (!rawHash) return;
+    try {
+      const payload = await buildPlayerPayloadFromHash(rawHash);
+      await openKinoBox(payload);
+    } catch (error) {
+      console.error('[hashchange]', error);
+    }
   });
 }
 
-document.getElementById('left-arrow').addEventListener('click', () => {
-  activeSlide = activeSlide > 0 ? activeSlide - 1 : totalVideos - 1;
-  showVideos();
-});
+function initTheme() {
+  const htmlEl = document.documentElement;
+  const currentTheme = localStorage.getItem('theme') || 'light';
+  htmlEl.setAttribute('data-theme', currentTheme);
+  themeToggle.checked = currentTheme === 'dark';
 
-document.getElementById('right-arrow').addEventListener('click', () => {
-  activeSlide = activeSlide < totalVideos - 1 ? activeSlide + 1 : 0;
-  showVideos();
-});
+  themeToggle.addEventListener('change', () => {
+    const nextTheme = themeToggle.checked ? 'dark' : 'light';
+    htmlEl.setAttribute('data-theme', nextTheme);
+    localStorage.setItem('theme', nextTheme);
+  });
+}
+
+function initYearControls() {
+  [yearFromInput, yearToInput, yearFromRange, yearToRange].forEach((input) => {
+    input.min = String(MIN_YEAR);
+    input.max = String(CURRENT_YEAR);
+  });
+
+  yearFromInput.value = String(state.pendingFilters.yearFrom);
+  yearToInput.value = String(state.pendingFilters.yearTo);
+  yearFromRange.value = String(state.pendingFilters.yearFrom);
+  yearToRange.value = String(state.pendingFilters.yearTo);
+
+  yearFromRange.addEventListener('input', () => {
+    const nextValue = clampYear(Number(yearFromRange.value));
+    state.pendingFilters.yearFrom = Math.min(nextValue, state.pendingFilters.yearTo);
+    if (state.pendingFilters.yearFrom > state.pendingFilters.yearTo) {
+      state.pendingFilters.yearTo = state.pendingFilters.yearFrom;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+
+  yearToRange.addEventListener('input', () => {
+    const nextValue = clampYear(Number(yearToRange.value));
+    state.pendingFilters.yearTo = Math.max(nextValue, state.pendingFilters.yearFrom);
+    if (state.pendingFilters.yearTo < state.pendingFilters.yearFrom) {
+      state.pendingFilters.yearFrom = state.pendingFilters.yearTo;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+
+  yearFromInput.addEventListener('input', () => {
+    const nextValue = clampYear(Number(yearFromInput.value || MIN_YEAR));
+    state.pendingFilters.yearFrom = nextValue;
+    if (state.pendingFilters.yearFrom > state.pendingFilters.yearTo) {
+      state.pendingFilters.yearTo = state.pendingFilters.yearFrom;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+
+  yearToInput.addEventListener('input', () => {
+    const nextValue = clampYear(Number(yearToInput.value || CURRENT_YEAR));
+    state.pendingFilters.yearTo = nextValue;
+    if (state.pendingFilters.yearTo < state.pendingFilters.yearFrom) {
+      state.pendingFilters.yearFrom = state.pendingFilters.yearTo;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+}
+
+function syncFilterUiFromPending() {
+  syncTypeButtons();
+
+  yearFromInput.value = String(state.pendingFilters.yearFrom);
+  yearToInput.value = String(state.pendingFilters.yearTo);
+  yearFromRange.value = String(state.pendingFilters.yearFrom);
+  yearToRange.value = String(state.pendingFilters.yearTo);
+
+  const range = CURRENT_YEAR - MIN_YEAR;
+  const fromPercent = ((state.pendingFilters.yearFrom - MIN_YEAR) / range) * 100;
+  const toPercent = ((state.pendingFilters.yearTo - MIN_YEAR) / range) * 100;
+  yearSliderRange.style.left = `${fromPercent}%`;
+  yearSliderRange.style.width = `${Math.max(0, toPercent - fromPercent)}%`;
+}
+
+function syncTypeButtons() {
+  document.querySelectorAll('.type-btn').forEach((button) => {
+    button.classList.toggle('active', button.dataset.type === state.pendingFilters.type);
+  });
+}
+
+function markFiltersDirty() {
+  updateFilterApplyState();
+}
+
+function updateFilterApplyState() {
+  const dirty = isFilterDirty();
+  applyExtraFiltersBtn.disabled = !dirty;
+  filtersDirtyBadge.classList.toggle('hidden', !dirty);
+}
+
+function isFilterDirty() {
+  return JSON.stringify(state.appliedFilters) !== JSON.stringify(state.pendingFilters);
+}
+
+async function initImageConfig() {
+  try {
+    const config = await apiFetch('/configuration');
+    const secureBaseUrl = config?.images?.secure_base_url;
+    const posterSizes = config?.images?.poster_sizes || [];
+    const backdropSizes = config?.images?.backdrop_sizes || [];
+
+    if (secureBaseUrl) {
+      state.imageBaseUrl = secureBaseUrl + (posterSizes.includes('w500') ? 'w500' : (posterSizes[posterSizes.length - 1] || 'original'));
+      state.imageBackdropBaseUrl = secureBaseUrl + (backdropSizes.includes('w780') ? 'w780' : (backdropSizes[backdropSizes.length - 1] || 'original'));
+    }
+  } catch (error) {
+    console.warn('[initImageConfig] fallback to default image base url', error);
+  }
+}
+
+async function loadGenres() {
+  const [movieGenresData, tvGenresData] = await Promise.all([
+    apiFetch('/genre/movie/list', { language: 'ru' }),
+    apiFetch('/genre/tv/list', { language: 'ru' })
+  ]);
+
+  const genreMap = new Map();
+
+  for (const genre of movieGenresData.genres || []) {
+    const key = makeGenreKey(genre.name);
+    if (!genreMap.has(key)) {
+      genreMap.set(key, { key, label: genre.name, movieIds: [], tvIds: [] });
+    }
+    genreMap.get(key).movieIds.push(genre.id);
+  }
+
+  for (const genre of tvGenresData.genres || []) {
+    const key = makeGenreKey(genre.name);
+    if (!genreMap.has(key)) {
+      genreMap.set(key, { key, label: genre.name, movieIds: [], tvIds: [] });
+    }
+    genreMap.get(key).tvIds.push(genre.id);
+  }
+
+  state.genres = Array.from(genreMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  state.genresByKey = new Map(state.genres.map((genre) => [genre.key, genre]));
+}
+
+function renderGenreTags() {
+  tagsEl.innerHTML = '';
+
+  for (const genre of state.genres) {
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'tag';
+    element.id = `genre-${genre.key}`;
+    element.textContent = genre.label;
+    element.addEventListener('click', async () => {
+      if (state.selectedGenres.includes(genre.key)) {
+        state.selectedGenres = state.selectedGenres.filter((item) => item !== genre.key);
+      } else {
+        state.selectedGenres.push(genre.key);
+      }
+      renderGenreTags();
+      await loadContent(1);
+    });
+
+    if (state.selectedGenres.includes(genre.key)) {
+      element.classList.add('highlight');
+    }
+
+    tagsEl.appendChild(element);
+  }
+
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.className = 'tag';
+  clear.id = 'clear';
+  clear.textContent = 'Сбросить';
+  clear.addEventListener('click', async () => {
+    state.selectedGenres = [];
+    state.pendingFilters = { ...defaultFilters };
+    state.appliedFilters = { ...defaultFilters };
+    renderGenreTags();
+    syncFilterUiFromPending();
+    updateFilterApplyState();
+    await loadContent(1);
+  });
+  tagsEl.appendChild(clear);
+}
+
+async function loadContent(page = 1) {
+  state.currentPage = page;
+  renderLoading('Загружаем каталог...');
+
+  try {
+    const payload = state.showFavoritesOnly ? await fetchFavoritesContent() : (state.query ? await fetchSearchContent(page) : await fetchDiscoverContent(page));
+
+    state.totalPages = Math.max(1, payload.totalPages || 1);
+    state.currentPage = Math.min(page, state.totalPages);
+
+    if (!payload.items.length) {
+      renderNoResults();
+    } else {
+      renderMovies(payload.items);
+    }
+
+    updatePagination();
+    updateResultsStatus(payload.statusText || buildStatusText(payload.items.length));
+  } catch (error) {
+    console.error('[loadContent]', error);
+    renderError('Ошибка сети или запроса к TMDB. Попробуй ещё раз чуть позже.');
+    updatePagination({ forceDisabled: true });
+    updateResultsStatus('Не удалось загрузить данные.');
+  }
+}
+
+async function fetchDiscoverContent(page) {
+  const { type } = state.appliedFilters;
+
+  if (type === 'movie') {
+    const response = await apiFetch('/discover/movie', buildDiscoverParams('movie', page));
+    const items = (response.results || []).map((item) => normalizeItem(item, 'movie'));
+    return {
+      items,
+      totalPages: response.total_pages || 1,
+      statusText: buildStatusText(items.length)
+    };
+  }
+
+  if (type === 'tv') {
+    const response = await apiFetch('/discover/tv', buildDiscoverParams('tv', page));
+    const items = (response.results || []).map((item) => normalizeItem(item, 'tv'));
+    return {
+      items,
+      totalPages: response.total_pages || 1,
+      statusText: buildStatusText(items.length)
+    };
+  }
+
+  const movieImpossible = hasImpossibleGenreCombination('movie');
+  const tvImpossible = hasImpossibleGenreCombination('tv');
+
+  const [movieResponse, tvResponse] = await Promise.all([
+    movieImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/movie', buildDiscoverParams('movie', page)),
+    tvImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/tv', buildDiscoverParams('tv', page))
+  ]);
+
+  const items = [
+    ...(movieResponse.results || []).map((item) => normalizeItem(item, 'movie')),
+    ...(tvResponse.results || []).map((item) => normalizeItem(item, 'tv'))
+  ].sort(sortByPopularity);
+
+  return {
+    items,
+    totalPages: Math.max(movieResponse.total_pages || 1, tvResponse.total_pages || 1),
+    statusText: buildStatusText(items.length)
+  };
+}
+
+async function fetchSearchContent(page) {
+  const { type } = state.appliedFilters;
+
+  if (type === 'movie') {
+    const response = await apiFetch('/search/movie', buildSearchParams('movie', page));
+    const items = (response.results || [])
+      .map((item) => normalizeItem(item, 'movie'))
+      .filter(matchesClientSideFilters);
+
+    return {
+      items,
+      totalPages: response.total_pages || 1,
+      statusText: buildStatusText(items.length, true)
+    };
+  }
+
+  if (type === 'tv') {
+    const response = await apiFetch('/search/tv', buildSearchParams('tv', page));
+    const items = (response.results || [])
+      .map((item) => normalizeItem(item, 'tv'))
+      .filter(matchesClientSideFilters);
+
+    return {
+      items,
+      totalPages: response.total_pages || 1,
+      statusText: buildStatusText(items.length, true)
+    };
+  }
+
+  const response = await apiFetch('/search/multi', buildSearchParams('all', page));
+  const items = (response.results || [])
+    .filter((item) => item.media_type === 'movie' || item.media_type === 'tv')
+    .map((item) => normalizeItem(item, item.media_type))
+    .filter(matchesClientSideFilters);
+
+  return {
+    items,
+    totalPages: response.total_pages || 1,
+    statusText: buildStatusText(items.length, true)
+  };
+}
+
+async function fetchFavoritesContent() {
+  const favorites = getFavorites();
+  if (!favorites.length) {
+    return {
+      items: [],
+      totalPages: 1,
+      statusText: 'Избранное пусто.'
+    };
+  }
+
+  const details = await Promise.all(
+    favorites.map(async (entry) => {
+      try {
+        const endpoint = entry.mediaType === 'tv' ? '/tv/' : '/movie/';
+        const data = await apiFetch(`${endpoint}${entry.id}`, { language: 'ru-RU' });
+        return normalizeItem(data, entry.mediaType);
+      } catch (error) {
+        console.warn('[fetchFavoritesContent] failed for', entry, error);
+        return null;
+      }
+    })
+  );
+
+  const items = details.filter(Boolean).filter(matchesClientSideFilters).sort(sortByPopularity);
+
+  return {
+    items,
+    totalPages: 1,
+    statusText: items.length ? `Показано ${items.length} из избранного.` : 'По текущим фильтрам в избранном ничего не нашлось.'
+  };
+}
+
+function buildDiscoverParams(mediaType, page) {
+  const params = {
+    api_key: API_KEY,
+    language: 'ru-RU',
+    include_adult: 'false',
+    sort_by: 'popularity.desc',
+    page: String(page)
+  };
+
+  const genreIds = getSelectedGenreIdsForType(mediaType);
+  if (genreIds.impossible) {
+    return params;
+  }
+  if (genreIds.value) {
+    params.with_genres = genreIds.value;
+  }
+
+  const { yearFrom, yearTo } = state.appliedFilters;
+  if (mediaType === 'movie') {
+    if (yearFrom === yearTo) {
+      params.year = String(yearFrom);
+    } else {
+      params['primary_release_date.gte'] = `${yearFrom}-01-01`;
+      params['primary_release_date.lte'] = `${yearTo}-12-31`;
+    }
+  } else {
+    if (yearFrom === yearTo) {
+      params.first_air_date_year = String(yearFrom);
+    } else {
+      params['first_air_date.gte'] = `${yearFrom}-01-01`;
+      params['first_air_date.lte'] = `${yearTo}-12-31`;
+    }
+  }
+
+  return params;
+}
+
+function buildSearchParams(type, page) {
+  const params = {
+    api_key: API_KEY,
+    language: 'ru-RU',
+    include_adult: 'false',
+    page: String(page),
+    query: state.query
+  };
+
+  const { yearFrom, yearTo } = state.appliedFilters;
+  if (type === 'movie' && yearFrom === yearTo) {
+    params.year = String(yearFrom);
+  }
+  if (type === 'tv' && yearFrom === yearTo) {
+    params.first_air_date_year = String(yearFrom);
+  }
+
+  return params;
+}
+
+function getSelectedGenreIdsForType(mediaType) {
+  if (!state.selectedGenres.length) {
+    return { impossible: false, value: '' };
+  }
+
+  const ids = [];
+  for (const selectedKey of state.selectedGenres) {
+    const option = state.genresByKey.get(selectedKey);
+    if (!option) continue;
+    const relevantIds = mediaType === 'movie' ? option.movieIds : option.tvIds;
+    if (!relevantIds.length) {
+      return { impossible: true, value: '' };
+    }
+    ids.push(...relevantIds);
+  }
+
+  return { impossible: false, value: ids.join(',') };
+}
+
+function hasImpossibleGenreCombination(mediaType) {
+  return getSelectedGenreIdsForType(mediaType).impossible;
+}
+
+function matchesClientSideFilters(item) {
+  if (!item) return false;
+
+  const { type, yearFrom, yearTo } = state.appliedFilters;
+  if (type !== 'all' && item.mediaType !== type) {
+    return false;
+  }
+
+  const year = getItemYear(item.releaseDate);
+  if (year && (year < yearFrom || year > yearTo)) {
+    return false;
+  }
+
+  if (state.selectedGenres.length) {
+    for (const selectedKey of state.selectedGenres) {
+      const option = state.genresByKey.get(selectedKey);
+      if (!option) continue;
+      const relevantIds = item.mediaType === 'movie' ? option.movieIds : option.tvIds;
+      if (!relevantIds.length) {
+        return false;
+      }
+      if (!relevantIds.some((id) => item.genreIds.includes(id))) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function renderMovies(items) {
+  main.innerHTML = '';
+
+  for (const item of items) {
+    const card = document.createElement('article');
+    card.className = 'movie';
+    const safeTitle = escapeHtml(item.title);
+    const safeOriginalTitle = escapeHtml(item.originalTitle || item.title);
+    const safeOverview = escapeHtml(item.overview || 'Описание отсутствует.');
+    const poster = item.posterUrl ? `<img src="${item.posterUrl}" alt="${safeTitle}" loading="lazy" />` : `<div class="movie-poster-placeholder">${safeTitle}</div>`;
+
+    card.innerHTML = `
+      <div class="movie-poster-wrap">
+        ${poster}
+        <button class="fav-btn" data-id="${item.id}" data-media-type="${item.mediaType}" title="Добавить в избранное">★</button>
+      </div>
+      <div class="movie-body">
+        <div class="movie-info">
+          <h3>${safeTitle}</h3>
+          <span class="${getColor(item.voteAverage)}">${formatVote(item.voteAverage)}</span>
+        </div>
+        <div class="movie-meta">
+          <div class="movie-meta-line">${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'}</div>
+          <div class="movie-meta-line">${escapeHtml(formatFullDate(item.releaseDate))}</div>
+        </div>
+        <div class="buttons">
+          <button class="know-more" data-id="${item.id}" data-media-type="${item.mediaType}" data-title="${safeTitle}" data-original-title="${safeOriginalTitle}" data-overview="${safeOverview}" data-release-date="${escapeHtml(item.releaseDate)}">Подробнее</button>
+          <button class="watch-online" data-id="${item.id}" data-media-type="${item.mediaType}">Смотреть</button>
+        </div>
+      </div>
+    `;
+
+    const favBtn = card.querySelector('.fav-btn');
+    if (isFavorite(item.id, item.mediaType)) {
+      favBtn.style.backgroundColor = 'gold';
+      favBtn.style.color = '#333';
+    }
+
+    main.appendChild(card);
+  }
+}
+
+function renderNoResults() {
+  main.innerHTML = `
+    <div class="no-results">
+      <h2>Ничего не найдено</h2>
+      <p style="margin-top:0.65rem;color:var(--muted-text);line-height:1.6;">Попробуй изменить запрос, жанры или диапазон лет.</p>
+    </div>
+  `;
+}
+
+function renderError(message) {
+  main.innerHTML = `
+    <div class="error-box">
+      <h2>Ошибка загрузки</h2>
+      <p style="margin-top:0.65rem;color:var(--muted-text);line-height:1.6;">${escapeHtml(message)}</p>
+    </div>
+  `;
+}
+
+function renderLoading(message) {
+  main.innerHTML = `
+    <div class="loading-box">
+      <div class="loading-spinner"></div>
+      <h2>Загрузка</h2>
+      <p style="margin-top:0.65rem;color:var(--muted-text);line-height:1.6;">${escapeHtml(message)}</p>
+    </div>
+  `;
+}
+
+function updatePagination(options = {}) {
+  const forceDisabled = options.forceDisabled === true;
+  const singlePage = state.showFavoritesOnly || state.totalPages <= 1;
+
+  paginationBlock.style.display = state.showFavoritesOnly ? 'none' : 'flex';
+  current.textContent = String(state.currentPage);
+
+  prev.classList.toggle('disabled', forceDisabled || singlePage || state.currentPage <= 1);
+  next.classList.toggle('disabled', forceDisabled || singlePage || state.currentPage >= state.totalPages);
+}
+
+function updateResultsStatus(text) {
+  resultsStatus.textContent = text;
+}
+
+function buildStatusText(count, searchMode = false) {
+  const parts = [];
+  if (state.showFavoritesOnly) {
+    parts.push(`Избранное: ${count}`);
+  } else if (searchMode) {
+    parts.push(`Найдено на странице: ${count}`);
+  } else {
+    parts.push(`Показано: ${count}`);
+  }
+
+  if (state.query) {
+    parts.push(`запрос: «${state.query}»`);
+  }
+
+  const typeLabel = state.appliedFilters.type === 'movie' ? 'только фильмы' : state.appliedFilters.type === 'tv' ? 'только сериалы' : 'фильмы и сериалы';
+  parts.push(typeLabel);
+
+  if (state.appliedFilters.yearFrom === state.appliedFilters.yearTo) {
+    parts.push(`год: ${state.appliedFilters.yearFrom}`);
+  } else {
+    parts.push(`годы: ${state.appliedFilters.yearFrom}–${state.appliedFilters.yearTo}`);
+  }
+
+  if (state.selectedGenres.length) {
+    const labels = state.selectedGenres
+      .map((key) => state.genresByKey.get(key)?.label)
+      .filter(Boolean)
+      .join(', ');
+    if (labels) {
+      parts.push(`жанры: ${labels}`);
+    }
+  }
+
+  return parts.join(' • ');
+}
+
+async function openNav(item) {
+  try {
+    const videoData = await apiFetch(`/${item.mediaType}/${item.id}/videos`, { language: 'ru-RU' }).catch(() => apiFetch(`/${item.mediaType}/${item.id}/videos`));
+    const videos = (videoData.results || []).filter((video) => video.site === 'YouTube');
+
+    overlay.style.width = '100%';
+    overlay.setAttribute('aria-hidden', 'false');
+
+    const title = item.originalTitle || item.title;
+    const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(item.releaseDate)}`;
+
+    if (videos.length) {
+      const embed = videos.map((video) => `
+        <iframe
+          src="https://www.youtube.com/embed/${video.key}"
+          class="embed hide"
+          allowfullscreen
+          title="${escapeHtml(video.name || title)}"
+        ></iframe>
+      `);
+      const dots = videos.map((_, index) => `<span class="dot">${index + 1}</span>`);
+
+      overlayContent.innerHTML = `
+        <div class="overlay-headline">
+          <div class="overlay-title">${escapeHtml(title)}</div>
+          <div class="overlay-subtitle">${escapeHtml(subtitle)}</div>
+        </div>
+        ${embed.join('')}
+        <div class="dots">${dots.join('')}</div>
+        <div class="overlay-overview">
+          <h3 style="margin-bottom:0.65rem;">Описание</h3>
+          ${escapeHtml(item.overview || 'Описание отсутствует.')}
+        </div>
+      `;
+
+      activeSlide = 0;
+      showVideos();
+      document.querySelectorAll('.dot').forEach((dot, index) => {
+        dot.addEventListener('click', () => {
+          activeSlide = index;
+          showVideos();
+        });
+      });
+    } else {
+      overlayContent.innerHTML = `
+        <div class="overlay-headline">
+          <div class="overlay-title">${escapeHtml(title)}</div>
+          <div class="overlay-subtitle">${escapeHtml(subtitle)}</div>
+        </div>
+        <div class="overlay-overview">
+          <h3 style="margin-bottom:0.65rem;">Трейлеры не найдены</h3>
+          ${escapeHtml(item.overview || 'Описание отсутствует.')}
+        </div>
+      `;
+    }
+  } catch (error) {
+    console.error('[openNav]', error);
+    overlay.style.width = '100%';
+    overlayContent.innerHTML = '<h1 class="no-results">Не удалось загрузить информацию о трейлере</h1>';
+  }
+}
+
+function closeNav() {
+  overlay.style.width = '0%';
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+function showVideos() {
+  const embeds = document.querySelectorAll('.embed');
+  const dots = document.querySelectorAll('.dot');
+  totalVideos = embeds.length;
+
+  embeds.forEach((embed, index) => {
+    embed.classList.toggle('show', index === activeSlide);
+    embed.classList.toggle('hide', index !== activeSlide);
+  });
+
+  dots.forEach((dot, index) => {
+    dot.classList.toggle('active', index === activeSlide);
+  });
+}
+
+function normalizeItem(item, mediaTypeHint = 'movie') {
+  const mediaType = item.media_type || mediaTypeHint;
+  const genreIds = Array.isArray(item.genre_ids)
+    ? item.genre_ids.slice()
+    : Array.isArray(item.genres)
+      ? item.genres.map((genre) => genre.id)
+      : [];
+
+  const title = item.title || item.name || item.original_title || item.original_name || 'Без названия';
+  const originalTitle = item.original_title || item.original_name || title;
+  const releaseDate = item.release_date || item.first_air_date || '';
+  const posterPath = item.poster_path || item.backdrop_path || '';
+
+  return {
+    id: Number(item.id),
+    mediaType,
+    title,
+    originalTitle,
+    overview: item.overview || '',
+    releaseDate,
+    voteAverage: Number(item.vote_average || 0),
+    popularity: Number(item.popularity || 0),
+    genreIds,
+    posterUrl: posterPath ? buildImageUrl(posterPath) : ''
+  };
+}
+
+function buildImageUrl(path) {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${state.imageBaseUrl}${path}`;
+}
+
+function sortByPopularity(a, b) {
+  return Number(b.popularity || 0) - Number(a.popularity || 0);
+}
+
+async function apiFetch(path, params = {}) {
+  const url = new URL(`${BASE_URL}${path}`);
+  const preparedParams = { ...params };
+  if (!preparedParams.api_key) {
+    preparedParams.api_key = API_KEY;
+  }
+
+  Object.entries(preparedParams).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(`TMDB request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+function clampYear(year) {
+  if (!Number.isFinite(year)) return MIN_YEAR;
+  return Math.max(MIN_YEAR, Math.min(CURRENT_YEAR, Math.round(year)));
+}
+
+function getItemYear(dateString) {
+  if (!dateString || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
+  return Number(dateString.slice(0, 4));
+}
+
+function formatVote(vote) {
+  if (!vote) return '—';
+  return Number(vote).toFixed(1);
+}
 
 function getColor(vote) {
   if (vote >= 8) return 'green';
@@ -326,110 +937,121 @@ function getColor(vote) {
   return 'red';
 }
 
-form.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const searchTerm = search.value;
-  selectedGenre = [];
-  setGenre();
-  if (searchTerm) {
-    getMovies(searchURL + '&query=' + encodeURIComponent(searchTerm));
-  } else {
-    getMovies(API_URL);
-  }
-});
-
-prev.addEventListener('click', () => {
-  if (prevPage > 0) {
-    pageCall(prevPage);
-  }
-});
-
-next.addEventListener('click', () => {
-  if (nextPage <= totalPages) {
-    pageCall(nextPage);
-  }
-});
-
-function pageCall(page) {
-  const urlSplit = lastUrl.split('?');
-  const queryParams = urlSplit[1].split('&');
-  const key = queryParams[queryParams.length - 1].split('=');
-  if (key[0] !== 'page') {
-    const url = lastUrl + '&page=' + page;
-    getMovies(url);
-  } else {
-    key[1] = page.toString();
-    queryParams[queryParams.length - 1] = key.join('=');
-    const newUrl = urlSplit[0] + '?' + queryParams.join('&');
-    getMovies(newUrl);
-  }
+function formatFullDate(dateString) {
+  if (!dateString) return 'Дата неизвестна';
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return 'Дата неизвестна';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }).format(date);
 }
 
-/* =========== Кнопка "Смотреть" (Kinobox API) =========== */
-document.addEventListener('click', async (event) => {
-  if (!event.target.classList.contains('watch-online')) return;
+function makeGenreKey(label) {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zа-яё0-9-]/gi, '');
+}
 
-  const movieId = event.target.getAttribute('data-id');
-  if (!movieId) return;
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  try {
-    const payload = await buildPlayerPayloadFromTmdb(movieId);
-    window.location.hash = 'tm' + movieId;
-    await openKinoBox(payload);
-  } catch (error) {
-    console.error('[watch-online]', error);
-    openPlayerError('Не удалось подготовить плеер. Попробуй ещё раз чуть позже.');
+function getFavorites() {
+  const raw = JSON.parse(localStorage.getItem('favMovies') || '[]');
+  return raw
+    .map((entry) => {
+      if (typeof entry === 'number') {
+        return { id: entry, mediaType: 'movie' };
+      }
+      if (entry && typeof entry.id !== 'undefined') {
+        return {
+          id: Number(entry.id),
+          mediaType: entry.mediaType === 'tv' ? 'tv' : 'movie'
+        };
+      }
+      return null;
+    })
+    .filter((entry) => entry && entry.id);
+}
+
+function saveFavorites(items) {
+  localStorage.setItem('favMovies', JSON.stringify(items));
+}
+
+function isFavorite(id, mediaType) {
+  return getFavorites().some((entry) => entry.id === Number(id) && entry.mediaType === mediaType);
+}
+
+function toggleFavorite(item) {
+  const favorites = getFavorites();
+  const index = favorites.findIndex((entry) => entry.id === Number(item.id) && entry.mediaType === item.mediaType);
+  if (index === -1) {
+    favorites.push({ id: Number(item.id), mediaType: item.mediaType });
+  } else {
+    favorites.splice(index, 1);
   }
-});
+  saveFavorites(favorites);
+}
 
-async function buildPlayerPayloadFromTmdb(movieId) {
-  const [movieRes, externalRes] = await Promise.all([
-    fetch(`${BASE_URL}/movie/${movieId}?${API_KEY}&language=ru-RU`),
-    fetch(`${BASE_URL}/movie/${movieId}/external_ids?${API_KEY}`)
+async function buildPlayerPayloadFromId(id, mediaType) {
+  const endpointPrefix = mediaType === 'tv' ? '/tv/' : '/movie/';
+  const [details, externalIds] = await Promise.all([
+    apiFetch(`${endpointPrefix}${id}`, { language: 'ru-RU' }),
+    apiFetch(`${endpointPrefix}${id}/external_ids`)
   ]);
 
-  if (!movieRes.ok) {
-    throw new Error('TMDB movie request failed: ' + movieRes.status);
-  }
-
-  const movieData = await movieRes.json();
-  const externalData = externalRes.ok ? await externalRes.json() : {};
-
-  const title = movieData.title || movieData.original_title || 'Фильм';
+  const title = details.title || details.name || details.original_title || details.original_name || (mediaType === 'tv' ? 'Сериал' : 'Фильм');
   document.title = title;
 
   return sanitizeMovieData({
-    tmdb: String(movieId),
-    imdb: externalData.imdb_id || '',
+    tmdb: String(id),
+    imdb: externalIds.imdb_id || '',
     title,
-    year: movieData.release_date ? String(movieData.release_date).slice(0, 4) : '',
-    poster: movieData.poster_path ? (IMG_URL + movieData.poster_path) : '',
-    originalTitle: movieData.original_title || '',
-    overview: movieData.overview || ''
+    year: (details.release_date || details.first_air_date || '').slice(0, 4),
+    poster: details.poster_path ? buildImageUrl(details.poster_path) : '',
+    originalTitle: details.original_title || details.original_name || '',
+    overview: details.overview || '',
+    mediaType
   });
 }
 
 async function buildPlayerPayloadFromHash(hashVal) {
   if (!hashVal) throw new Error('Empty hash');
 
+  if (hashVal.startsWith('movie-')) {
+    return buildPlayerPayloadFromId(hashVal.substring(6), 'movie');
+  }
+
+  if (hashVal.startsWith('tv-')) {
+    return buildPlayerPayloadFromId(hashVal.substring(3), 'tv');
+  }
+
   if (hashVal.startsWith('tm')) {
-    return buildPlayerPayloadFromTmdb(hashVal.substring(2));
+    return buildPlayerPayloadFromId(hashVal.substring(2), 'movie');
   }
 
   if (hashVal.startsWith('tt')) {
     const imdbId = hashVal.toLowerCase();
-    const findRes = await fetch(`${BASE_URL}/find/${imdbId}?${API_KEY}&language=ru-RU&external_source=imdb_id`);
-    const data = findRes.ok ? await findRes.json() : {};
-    const movie = data && data.movie_results && data.movie_results[0] ? data.movie_results[0] : null;
-
+    const findRes = await apiFetch(`/find/${imdbId}`, { language: 'ru-RU', external_source: 'imdb_id' });
+    const movie = findRes?.movie_results?.[0] || findRes?.tv_results?.[0] || null;
     return sanitizeMovieData({
       imdb: imdbId,
       tmdb: movie?.id ? String(movie.id) : '',
-      title: movie?.title || movie?.original_title || imdbId,
-      year: movie?.release_date ? String(movie.release_date).slice(0, 4) : '',
-      poster: movie?.poster_path ? (IMG_URL + movie.poster_path) : '',
-      originalTitle: movie?.original_title || '',
-      overview: movie?.overview || ''
+      title: movie?.title || movie?.name || movie?.original_title || movie?.original_name || imdbId,
+      year: (movie?.release_date || movie?.first_air_date || '').slice(0, 4),
+      poster: movie?.poster_path ? buildImageUrl(movie.poster_path) : '',
+      originalTitle: movie?.original_title || movie?.original_name || '',
+      overview: movie?.overview || '',
+      mediaType: movie?.media_type === 'tv' ? 'tv' : 'movie'
     });
   }
 
@@ -446,7 +1068,8 @@ function sanitizeMovieData(input = {}) {
     year: input.year ? String(input.year).trim() : '',
     poster: input.poster ? String(input.poster).trim() : '',
     originalTitle: input.originalTitle ? String(input.originalTitle).trim() : '',
-    overview: input.overview ? String(input.overview).trim() : ''
+    overview: input.overview ? String(input.overview).trim() : '',
+    mediaType: input.mediaType === 'tv' ? 'tv' : 'movie'
   };
 
   if (!payload.tmdb && !payload.imdb && !payload.kinopoisk && !payload.title) {
@@ -464,10 +1087,7 @@ async function fetchKinoboxSources(movieData) {
     }
   });
 
-  const request = await fetch(apiURL.toString(), {
-    method: 'GET'
-  });
-
+  const request = await fetch(apiURL.toString(), { method: 'GET' });
   if (!request.ok || request.status !== 200) {
     throw new Error(`Request failed with status ${request.status}`);
   }
@@ -477,18 +1097,18 @@ async function fetchKinoboxSources(movieData) {
     throw new Error('Invalid response format');
   }
 
-  let playersData = response.data.filter((player) => player?.iframeUrl && player?.type);
+  const playersData = response.data.filter((player) => player?.iframeUrl && player?.type);
   const turboIndex = playersData.findIndex((player) => String(player.type).toLowerCase() === 'turbo');
   if (turboIndex !== -1) {
     playersData.push(playersData.splice(turboIndex, 1)[0]);
   }
-
   return playersData;
 }
 
 function renderPlayerShell(meta = {}) {
   const safeTitle = escapeHtml(meta.title || meta.originalTitle || 'Онлайн-просмотр');
   const safeSubtitle = [
+    meta.mediaType === 'tv' ? 'Сериал' : (meta.mediaType ? 'Фильм' : ''),
     meta.year,
     meta.imdb ? `IMDb: ${escapeHtml(meta.imdb)}` : '',
     meta.kinopoisk ? `KP: ${escapeHtml(meta.kinopoisk)}` : '',
@@ -556,15 +1176,15 @@ function renderKinoboxSources(sourcesData) {
 
   sourcesEl.innerHTML = '';
   const preferredSource = localStorage.getItem('preferred-source');
-  let preferredSourceIndex = sourcesData.findIndex((source) => source.type === preferredSource);
-  if (preferredSourceIndex === -1) preferredSourceIndex = 0;
+  let preferredIndex = sourcesData.findIndex((source) => source.type === preferredSource);
+  if (preferredIndex === -1) preferredIndex = 0;
 
   sourcesData.forEach((source, index) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = source.type;
-    button.style.background = index === preferredSourceIndex ? '#ffffff' : 'rgba(255,255,255,.08)';
-    button.style.color = index === preferredSourceIndex ? '#111111' : '#ffffff';
+    button.style.background = index === preferredIndex ? '#ffffff' : 'rgba(255,255,255,.08)';
+    button.style.color = index === preferredIndex ? '#111111' : '#ffffff';
     button.style.border = '1px solid rgba(255,255,255,.12)';
     button.style.borderRadius = '999px';
     button.style.padding = '10px 14px';
@@ -575,6 +1195,7 @@ function renderKinoboxSources(sourcesData) {
     button.addEventListener('mouseenter', () => {
       button.style.transform = 'translateY(-1px)';
     });
+
     button.addEventListener('mouseleave', () => {
       button.style.transform = 'translateY(0)';
     });
@@ -593,7 +1214,7 @@ function renderKinoboxSources(sourcesData) {
     sourcesEl.appendChild(button);
   });
 
-  selectKinoboxSource(sourcesData[preferredSourceIndex]);
+  selectKinoboxSource(sourcesData[preferredIndex]);
 }
 
 async function openKinoBox(meta) {
@@ -602,13 +1223,11 @@ async function openKinoBox(meta) {
 
   try {
     const sources = await fetchKinoboxSources(meta);
-
     if (!sources.length) {
       showPlayerPlaceholder('Источники не найдены. Попробуй другой фильм, открой страницу позже или проверь VPN/доступность сервиса в твоей сети.');
       setPlayerStatus('Kinobox API ответил, но источники для этого запроса не нашлись.');
       return;
     }
-
     renderKinoboxSources(sources);
   } catch (error) {
     console.error('[openKinoBox]', error);
@@ -629,124 +1248,14 @@ function openPlayerError(message) {
   `;
 }
 
-const scrollBtn = document.getElementById('scrollTopBtn');
-window.addEventListener('scroll', () => {
-  if (scrollBtn) {
-    scrollBtn.style.display = window.scrollY > 300 ? 'block' : 'none';
+window.addEventListener('DOMContentLoaded', async () => {
+  if (!window.location.hash) return;
+  const rawHash = window.location.hash.substring(1);
+  try {
+    const payload = await buildPlayerPayloadFromHash(rawHash);
+    await openKinoBox(payload);
+  } catch (error) {
+    console.error('[DOMContentLoaded hash open]', error);
+    openPlayerError('Не удалось открыть фильм по ссылке. Ссылка могла устареть или источник сейчас недоступен.');
   }
 });
-if (scrollBtn) {
-  scrollBtn.addEventListener('click', () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
-}
-
-document.addEventListener('DOMContentLoaded', function () {
-  const canvas = document.createElement('canvas');
-  canvas.id = 'popcornCanvas';
-  document.body.appendChild(canvas);
-
-  const ctx = canvas.getContext('2d');
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-
-  const popcornImages = ['popcorn.png', 'popcorn2.png', 'popcorn3.png', 'popcorn4.png', 'popcorn5.png'];
-  const popcornParticles = [];
-
-  function spawnPopcorn(n) {
-    for (let i = 0; i < n; i++) {
-      const randImg = popcornImages[Math.floor(Math.random() * popcornImages.length)];
-      const popcorn = {
-        x: Math.random() * canvas.width,
-        y: canvas.height,
-        size: Math.floor(Math.random() * 41) + 40,
-        image: new Image()
-      };
-      popcorn.image.src = randImg;
-      popcorn.velocity = {
-        x: (Math.random() - 0.5) * 5,
-        y: -(Math.random() * 8 + 5)
-      };
-      popcornParticles.push(popcorn);
-    }
-  }
-
-  function animatePopcorn() {
-    requestAnimationFrame(animatePopcorn);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (let i = 0; i < popcornParticles.length; i++) {
-      const pc = popcornParticles[i];
-      pc.velocity.y += 0.2;
-      pc.x += pc.velocity.x;
-      pc.y += pc.velocity.y;
-      ctx.drawImage(pc.image, pc.x, pc.y, pc.size, pc.size);
-      if (pc.y > canvas.height + pc.size) {
-        popcornParticles.splice(i, 1);
-        i--;
-      }
-    }
-  }
-
-  document.addEventListener('keydown', (e) => {
-    if (['p', 'з'].includes(e.key.toLowerCase())) {
-      spawnPopcorn(50);
-    }
-  });
-
-  animatePopcorn();
-
-  if (window.location.hash) {
-    const rawHash = window.location.hash.substring(1);
-    buildPlayerPayloadFromHash(rawHash)
-      .then((meta) => openKinoBox(meta))
-      .catch((err) => {
-        console.error('[hash-open]', err);
-        openPlayerError('Не удалось открыть фильм по ссылке. Ссылка могла устареть или источник сейчас недоступен.');
-      });
-  }
-});
-
-function updateTitleByHash(hashVal) {
-  buildPlayerPayloadFromHash(hashVal)
-    .then((meta) => {
-      if (meta && (meta.title || meta.originalTitle)) {
-        document.title = meta.title || meta.originalTitle;
-      }
-    })
-    .catch((err) => console.error('[updateTitleByHash]', err));
-}
-
-const themeToggle = document.getElementById('themeToggleCheckbox');
-const htmlEl = document.documentElement;
-let currentTheme = localStorage.getItem('theme') || 'light';
-htmlEl.setAttribute('data-theme', currentTheme);
-if (themeToggle) {
-  themeToggle.checked = currentTheme === 'dark';
-  themeToggle.addEventListener('change', () => {
-    if (themeToggle.checked) {
-      htmlEl.setAttribute('data-theme', 'dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      htmlEl.setAttribute('data-theme', 'light');
-      localStorage.setItem('theme', 'light');
-    }
-  });
-}
-
-const favToggleBtn = document.getElementById('favoriteToggle');
-if (favToggleBtn) {
-  favToggleBtn.addEventListener('click', () => {
-    showFavoritesOnly = !showFavoritesOnly;
-    favToggleBtn.textContent = showFavoritesOnly ? 'Показать все' : 'Показать избранное';
-    getMovies(lastUrl);
-  });
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}

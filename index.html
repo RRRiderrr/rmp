@@ -2,42 +2,32 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RMP</title>
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png"/>
-  <!-- Open Graph -->
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png" />
   <meta property="og:url" content="https://rmp.pages.dev" />
   <meta property="og:title" content="RMP" />
-  <meta property="og:description" content="Онлайн каталог фильмов с TMDB и плеером через Kinobox API" />
-  <meta property="og:image" content="icons/favicon-32x32.png" />
-  
-  <!-- Стили -->
+  <meta property="og:description" content="Онлайн каталог фильмов и сериалов с TMDB и плеером через Kinobox API" />
+  <meta property="og:image" content="icons/android-chrome-256x256.png" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Шапка -->
   <header class="header">
     <div class="header-content">
-      <!-- Лого -->
       <div class="logo">
         <a href="index.html">RMP</a>
       </div>
-      <!-- Ссылки -->
+
       <nav class="header-links">
         <a href="old.html">Старая версия</a>
         <a href="https://boosty.to/riderr">Boosty</a>
         <a href="https://www.patreon.com/MichailPimakhov">Patreon</a>
         <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2">PayPal</a>
-        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js">
-          Установить скрипт
-        </a>
+        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js">Установить скрипт</a>
       </nav>
 
-      <!-- Переключатель темы -->
-      <label class="theme-switch" style="margin-right:0.3rem;">
-        <input type="checkbox" class="checkbox" id="themeToggleCheckbox"/>
+      <label class="theme-switch" aria-label="Переключить тему">
+        <input type="checkbox" class="checkbox" id="themeToggleCheckbox" />
         <div class="container">
           <div class="circle-container">
             <div class="sun-moon-container">
@@ -51,71 +41,108 @@
         </div>
       </label>
 
-      <!-- Кнопка «Избранное» -->
       <button id="favoriteToggle" class="favorite-toggle">Показать избранное</button>
 
-      <!-- Поиск -->
       <form id="form" class="search-form">
-        <input type="text" placeholder="Поиск" id="search" class="search-input" />
+        <input type="text" placeholder="Поиск фильма или сериала" id="search" class="search-input" autocomplete="off" />
       </form>
     </div>
   </header>
 
-  <!-- Контейнер (wrapper) со Sidebar и Main -->
   <div class="wrapper">
     <aside class="sidebar">
-      <h2 class="sidebar-title">Жанры</h2>
-      <div id="tags" class="tags-container"></div>
+      <section class="filter-section">
+        <h2 class="sidebar-title">Жанры</h2>
+        <div id="tags" class="tags-container"></div>
+      </section>
+
+      <section class="filter-section extra-filters-section">
+        <div class="section-head">
+          <h2 class="sidebar-title">Доп. фильтры</h2>
+          <span id="filtersDirtyBadge" class="filters-dirty-badge hidden">Есть изменения</span>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Тип</div>
+          <div id="typeButtons" class="type-buttons">
+            <button type="button" class="type-btn active" data-type="all">Все</button>
+            <button type="button" class="type-btn" data-type="movie">Фильм</button>
+            <button type="button" class="type-btn" data-type="tv">Сериал</button>
+          </div>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Год выхода</div>
+          <div class="year-inputs">
+            <label>
+              <span>От</span>
+              <input id="yearFromInput" type="number" inputmode="numeric" />
+            </label>
+            <label>
+              <span>До</span>
+              <input id="yearToInput" type="number" inputmode="numeric" />
+            </label>
+          </div>
+
+          <div class="year-slider-box">
+            <div class="year-slider-track"></div>
+            <div id="yearSliderRange" class="year-slider-range"></div>
+            <input id="yearFromRange" class="year-range year-range-from" type="range" />
+            <input id="yearToRange" class="year-range year-range-to" type="range" />
+          </div>
+          <div class="year-hint">Если значения совпадают — поиск идёт по конкретному году.</div>
+        </div>
+
+        <div class="filter-actions">
+          <button type="button" id="applyExtraFilters" class="apply-filters-btn" disabled>Применить доп. фильтры</button>
+          <button type="button" id="resetFilters" class="reset-filters-btn">Сбросить всё</button>
+        </div>
+      </section>
     </aside>
-    <main id="main" class="main-content"></main>
+
+    <main>
+      <div id="resultsToolbar" class="results-toolbar">
+        <div id="resultsStatus" class="results-status">Загрузка...</div>
+      </div>
+      <section id="main" class="main-content"></section>
+    </main>
   </div>
 
-  <!-- Модальное окно (трейлер) -->
-  <div id="myNav" class="overlay">
-    <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+  <div id="myNav" class="overlay" aria-hidden="true">
+    <a href="javascript:void(0)" class="closebtn" id="overlayCloseBtn">&times;</a>
     <div class="overlay-content" id="overlay-content"></div>
     <span class="arrow left-arrow" id="left-arrow">&#9664;</span>
     <span class="arrow right-arrow" id="right-arrow">&#9654;</span>
   </div>
 
-  <!-- Пагинация -->
-  <div class="pagination">
+  <div class="pagination" id="paginationBlock">
     <div class="page" id="prev">Пред. стр.</div>
     <div class="current" id="current">1</div>
     <div class="page" id="next">След. стр.</div>
   </div>
 
-  <!-- Кнопка «Наверх» -->
   <button id="scrollTopBtn" class="scroll-to-top">↑</button>
 
-  <!-- Скрипты -->
   <script src="script.js"></script>
-  
-  <!-- Скрипт-редирект для RU -->
   <script>
     function redirectToOldPage() {
-      if (window.location.hash) {
-        return;
-      }
-
+      if (window.location.hash) return;
       if (window.location.protocol === 'file:') {
         console.info('Local file mode detected: geolocation redirect is skipped.');
         return;
       }
-
-      fetch("https://ipapi.co/json/")
+      fetch('https://ipapi.co/json/')
         .then((response) => response.json())
         .then((data) => {
-          const country = data.country;
-          if (country === "RU") {
-            window.location.href = "old.html";
+          if (data && data.country === 'RU') {
+            window.location.href = 'old.html';
           }
         })
         .catch((error) => {
-          console.error("Error fetching user location:", error);
+          console.error('Error fetching user location:', error);
         });
     }
-    window.onload = redirectToOldPage;
+    window.addEventListener('load', redirectToOldPage);
   </script>
 </body>
 </html>
