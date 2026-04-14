@@ -805,14 +805,33 @@ async function openNav(item) {
     const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(resolvedDate)}`;
 
     if (videos.length) {
-      const embed = videos.map((video) => `
-        <iframe
-          src="https://www.youtube.com/embed/${video.key}"
-          class="embed hide"
-          allowfullscreen
-          title="${escapeHtml(video.name || title)}"
-        ></iframe>
-      `);
+      const isLocalFile = window.location.protocol === 'file:';
+      const embed = videos.map((video) => {
+        const safeTitle = escapeHtml(video.name || title);
+        if (isLocalFile) {
+          return `
+            <div class="embed embed-fallback hide">
+              <img class="embed-fallback-thumb" src="https://img.youtube.com/vi/${video.key}/hqdefault.jpg" alt="${safeTitle}" />
+              <div class="embed-fallback-body">
+                <div class="embed-fallback-title">${safeTitle}</div>
+                <div class="embed-fallback-text">Локально через file:// YouTube-встраивание может не работать. Открой сайт через http/https или запусти ролик прямо на YouTube.</div>
+                <a class="embed-fallback-link" href="https://www.youtube.com/watch?v=${video.key}" target="_blank" rel="noopener noreferrer">Открыть на YouTube</a>
+              </div>
+            </div>
+          `;
+        }
+        return `
+          <iframe
+            src="${buildYouTubeEmbedUrl(video.key)}"
+            class="embed hide"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+            loading="lazy"
+            referrerpolicy="strict-origin-when-cross-origin"
+            title="${safeTitle}"
+          ></iframe>
+        `;
+      });
       const dots = videos.map((_, index) => `<span class="dot">${index + 1}</span>`);
 
       overlayContent.innerHTML = `
@@ -854,6 +873,21 @@ async function openNav(item) {
     overlay.setAttribute('aria-hidden', 'false');
     overlayContent.innerHTML = '<h1 class="no-results">Не удалось загрузить информацию о трейлере</h1>';
   }
+}
+
+
+function buildYouTubeEmbedUrl(videoKey) {
+  const params = new URLSearchParams({
+    rel: '0',
+    playsinline: '1',
+    enablejsapi: '1'
+  });
+
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    params.set('origin', window.location.origin);
+  }
+
+  return `https://www.youtube.com/embed/${videoKey}?${params.toString()}`;
 }
 
 function prioritizeVideos(videos) {
@@ -1304,3 +1338,117 @@ window.addEventListener('DOMContentLoaded', async () => {
     openPlayerError('Не удалось открыть фильм по ссылке. Ссылка могла устареть или источник сейчас недоступен.');
   }
 });
+
+
+function initializePopcornEasterEgg() {
+  const existingCanvas = document.getElementById('popcornCanvas');
+  if (existingCanvas) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.id = 'popcornCanvas';
+  canvas.style.position = 'fixed';
+  canvas.style.top = '0';
+  canvas.style.left = '0';
+  canvas.style.width = '100vw';
+  canvas.style.height = '100vh';
+  canvas.style.pointerEvents = 'none';
+  canvas.style.zIndex = '9999';
+  document.body.appendChild(canvas);
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const popcornSources = ['popcorn.png', 'popcorn2.png', 'popcorn3.png', 'popcorn4.png', 'popcorn5.png'];
+  const popcornImages = popcornSources.map((src) => {
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = src;
+    return image;
+  });
+  const popcornParticles = [];
+
+  function resizeCanvas() {
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+    canvas.width = Math.floor(window.innerWidth * ratio);
+    canvas.height = Math.floor(window.innerHeight * ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+
+  function spawnPopcorn(amount = 50) {
+    const availableImages = popcornImages.filter((image) => image.complete && image.naturalWidth > 0);
+    for (let i = 0; i < amount; i += 1) {
+      const image = availableImages.length
+        ? availableImages[Math.floor(Math.random() * availableImages.length)]
+        : null;
+
+      popcornParticles.push({
+        x: Math.random() * window.innerWidth,
+        y: window.innerHeight + Math.random() * 40,
+        size: Math.floor(Math.random() * 41) + 40,
+        rotation: (Math.random() - 0.5) * 0.7,
+        angle: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.12,
+        image,
+        velocity: {
+          x: (Math.random() - 0.5) * 5,
+          y: -(Math.random() * 8 + 5),
+        },
+      });
+    }
+  }
+
+  function drawFallbackPopcorn(particle) {
+    ctx.save();
+    ctx.translate(particle.x, particle.y);
+    ctx.rotate(particle.angle);
+    ctx.fillStyle = '#fff8dd';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, particle.size * 0.26, particle.size * 0.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(-particle.size * 0.16, -particle.size * 0.05, particle.size * 0.18, particle.size * 0.14, -0.4, 0, Math.PI * 2);
+    ctx.ellipse(particle.size * 0.12, -particle.size * 0.08, particle.size * 0.16, particle.size * 0.14, 0.35, 0, Math.PI * 2);
+    ctx.ellipse(0, particle.size * 0.12, particle.size * 0.16, particle.size * 0.12, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function animatePopcorn() {
+    requestAnimationFrame(animatePopcorn);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (let i = popcornParticles.length - 1; i >= 0; i -= 1) {
+      const particle = popcornParticles[i];
+      particle.velocity.y += 0.2;
+      particle.x += particle.velocity.x;
+      particle.y += particle.velocity.y;
+      particle.angle += particle.spin;
+
+      if (particle.image && particle.image.complete && particle.image.naturalWidth > 0) {
+        ctx.save();
+        ctx.translate(particle.x, particle.y);
+        ctx.rotate(particle.angle);
+        ctx.drawImage(particle.image, -particle.size / 2, -particle.size / 2, particle.size, particle.size);
+        ctx.restore();
+      } else {
+        drawFallbackPopcorn(particle);
+      }
+
+      if (particle.y > window.innerHeight + particle.size * 2) {
+        popcornParticles.splice(i, 1);
+      }
+    }
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const key = String(event.key || '').toLowerCase();
+    if (key === 'p' || key === 'з') {
+      spawnPopcorn(50);
+    }
+  });
+
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+  animatePopcorn();
+}
+
+window.addEventListener('DOMContentLoaded', initializePopcornEasterEgg);
