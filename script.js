@@ -11,11 +11,115 @@ const EPISODE_CALENDAR_MAX_ITEMS = 24;
 
 const tvCalendarMetaCache = new Map();
 const tvEpisodeScheduleCache = new Map();
+const itemDetailsCache = new Map();
+
+let countryLabelIntl = null;
+try {
+  if (typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function') {
+    countryLabelIntl = new Intl.DisplayNames(['ru', 'en'], { type: 'region' });
+  }
+} catch (error) {
+  countryLabelIntl = null;
+}
+
+
+const REGION_DEFINITIONS = [
+  { key: 'region-1', label: 'Белая элита', countryCodes: ['US', 'CA', 'AU', 'NZ', 'GB', 'DE', 'FR', 'IT', 'ES', 'PT', 'NL', 'BE', 'CH', 'AT', 'SE', 'NO', 'DK', 'FI', 'IE', 'IS', 'GR', 'LU', 'AD', 'MC', 'SM', 'VA'] },
+  { key: 'region-2', label: 'Славянский отстой', countryCodes: ['RU', 'UA', 'BY', 'PL', 'CZ', 'SK', 'HU', 'RO', 'BG', 'RS', 'HR', 'BA', 'ME', 'MK', 'AL', 'SI', 'XK', 'MD', 'LV', 'LT', 'EE'] },
+  { key: 'region-3', label: 'Желтая орда', countryCodes: ['CN', 'JP', 'KR', 'KP', 'TW', 'MN', 'VN', 'LA', 'KH', 'TH', 'MM', 'MY', 'SG', 'ID', 'PH', 'BN', 'TL'] },
+  { key: 'region-4', label: 'Индийский говносвал', countryCodes: ['IN', 'PK', 'BD', 'LK', 'NP', 'BT', 'MV', 'AF'] },
+  { key: 'region-5', label: 'Среднеазиатские ишаки', countryCodes: ['KZ', 'UZ', 'TM', 'KG', 'TJ'] },
+  { key: 'region-6', label: 'Кавказский ножедром', countryCodes: ['GE', 'AM', 'AZ'] },
+  { key: 'region-7', label: 'Турецкая кебабная', countryCodes: ['TR', 'CY'] },
+  { key: 'region-8', label: 'Арабские нефтесосы', countryCodes: ['SA', 'AE', 'QA', 'KW', 'BH', 'OM', 'YE', 'IQ', 'SY', 'LB', 'JO', 'PS', 'IL', 'IR', 'EG', 'LY', 'TN', 'DZ', 'MA', 'SD', 'MR', 'SO', 'DJ', 'ER'] },
+  { key: 'region-9', label: 'Африканский обезьянник', countryCodes: ['DZ', 'AO', 'BJ', 'BW', 'BF', 'BI', 'CM', 'CV', 'CF', 'TD', 'KM', 'CD', 'CG', 'CI', 'DJ', 'EG', 'GQ', 'ER', 'SZ', 'ET', 'GA', 'GM', 'GH', 'GN', 'GW', 'KE', 'LS', 'LR', 'LY', 'MG', 'MW', 'ML', 'MR', 'MU', 'MA', 'MZ', 'NA', 'NE', 'NG', 'RW', 'ST', 'SN', 'SC', 'SL', 'SO', 'ZA', 'SS', 'SD', 'TZ', 'TG', 'TN', 'UG', 'ZM', 'ZW'] },
+  { key: 'region-10', label: 'Латинская нарко-жопа', countryCodes: ['MX', 'BR', 'AR', 'CO', 'CL', 'PE', 'VE', 'EC', 'BO', 'PY', 'UY', 'GY', 'SR', 'BZ', 'GT', 'SV', 'HN', 'NI', 'CR', 'PA', 'CU', 'DO', 'HT', 'JM', 'TT', 'BS', 'BB', 'AG', 'KN', 'LC', 'VC', 'GD', 'DM'] },
+  { key: 'region-11', label: 'Океанийские каннибалы', countryCodes: ['FJ', 'PG', 'SB', 'VU', 'WS', 'TO', 'KI', 'FM', 'MH', 'NR', 'TV', 'PW', 'CK', 'NU'] }
+];
+
+const REGION_TOOLTIP_TEXTS = new Map([
+  ['region-1', `США, Канада, Австралия, Новая Зеландия, Великобритания, Германия, Франция, Италия, Испания, Португалия, Нидерланды, Бельгия, Швейцария, Австрия, Швеция, Норвегия, Дания, Финляндия, Ирландия, Исландия, Греция, Люксембург, Андорра, Монако, Сан-Марино, Ватикан`],
+  ['region-2', `Россия, Украина, Беларусь, Польша, Чехия, Словакия, Венгрия, Румыния, Болгария, Сербия, Хорватия, Босния и Герцеговина, Черногория, Северная Македония, Албания, Словения, Косово, Молдова, Латвия, Литва, Эстония`],
+  ['region-3', `Китай, Япония, Южная Корея, Северная Корея, Тайвань, Монголия, Вьетнам, Лаос, Камбоджа, Таиланд, Мьянма, Малайзия, Сингапур, Индонезия, Филиппины, Бруней, Восточный Тимор`],
+  ['region-4', `Индия, Пакистан, Бангладеш, Шри-Ланка, Непал, Бутан, Мальдивы, Афганистан`],
+  ['region-5', `Казахстан, Узбекистан, Туркменистан, Кыргызстан, Таджикистан`],
+  ['region-6', `Грузия, Армения, Азербайджан`],
+  ['region-7', `Турция, Кипр`],
+  ['region-8', `Саудовская Аравия, ОАЭ, Катар, Кувейт, Бахрейн, Оман, Йемен, Ирак, Сирия, Ливан, Иордания, Палестина, Израиль, Иран, Египет, Ливия, Тунис, Алжир, Марокко, Судан, Мавритания, Сомали, Джибути, Эритрея`],
+  ['region-9', `Нигерия, ЮАР, Кения, Эфиопия, Танзания, Уганда, Гана, Ангола, Мозамбик, Кот-д'Ивуар, Камерун, Конго, Демократическая Республика Конго, Замбия, Зимбабве, Мадагаскар, Сенегал, Мали, Буркина-Фасо, Чад, Нигер, Гвинея, Руанда, Бурунди, Того, Сьерра-Леоне, Либерия, Центральноафриканская Республика, Габон, Экваториальная Гвинея, Кабо-Верде, Коморы, Маврикий, Сейшелы, Южный Судан и все остальные страны Африки`],
+  ['region-10', `Мексика, Бразилия, Аргентина, Колумбия, Чили, Перу, Венесуэла, Эквадор, Боливия, Парагвай, Уругвай, Гайана, Суринам и все страны Центральной Америки и Карибского бассейна`],
+  ['region-11', `Фиджи, Папуа-Новая Гвинея, Соломоновы Острова, Вануату, Самоа, Тонга, Кирибати, Микронезия, Маршалловы Острова, Науру, Тувалу, Палау и все остальные тихоокеанские государства`]
+]);
+
+const GENRE_LABEL_OVERRIDES = new Map([
+  [12, 'Приключения'],
+  [14, 'Фэнтези'],
+  [16, 'Анимация'],
+  [18, 'Драма'],
+  [27, 'Ужасы'],
+  [28, 'Боевик'],
+  [35, 'Комедия'],
+  [36, 'История'],
+  [37, 'Вестерн'],
+  [53, 'Триллер'],
+  [80, 'Криминал'],
+  [99, 'Документальный'],
+  [878, 'Фантастика'],
+  [9648, 'Детектив'],
+  [10402, 'Музыка'],
+  [10749, 'Мелодрама'],
+  [10751, 'Семейный'],
+  [10752, 'Военный'],
+  [10759, 'Боевик и приключения'],
+  [10762, 'Для детей'],
+  [10763, 'Новости'],
+  [10764, 'Реалити-шоу'],
+  [10765, 'Фантастика и фэнтези'],
+  [10766, 'Мыльная опера'],
+  [10767, 'Ток-шоу'],
+  [10768, 'Война и политика'],
+  [10770, 'Телефильм']
+]);
+
+const GENRE_LABEL_FALLBACKS = new Map([
+  ['action', 'Боевик'],
+  ['adventure', 'Приключения'],
+  ['animation', 'Анимация'],
+  ['comedy', 'Комедия'],
+  ['crime', 'Криминал'],
+  ['documentary', 'Документальный'],
+  ['drama', 'Драма'],
+  ['family', 'Семейный'],
+  ['fantasy', 'Фэнтези'],
+  ['history', 'История'],
+  ['horror', 'Ужасы'],
+  ['music', 'Музыка'],
+  ['mystery', 'Детектив'],
+  ['romance', 'Мелодрама'],
+  ['science fiction', 'Фантастика'],
+  ['sci-fi & fantasy', 'Фантастика и фэнтези'],
+  ['tv movie', 'Телефильм'],
+  ['thriller', 'Триллер'],
+  ['war', 'Военный'],
+  ['western', 'Вестерн'],
+  ['action & adventure', 'Боевик и приключения'],
+  ['kids', 'Для детей'],
+  ['news', 'Новости'],
+  ['reality', 'Реалити-шоу'],
+  ['soap', 'Мыльная опера'],
+  ['talk', 'Ток-шоу'],
+  ['war & politics', 'Война и политика']
+]);
 
 const main = document.getElementById('main');
 const form = document.getElementById('form');
 const search = document.getElementById('search');
-const tagsEl = document.getElementById('tags');
+const genreMultiSelect = document.getElementById('genreMultiSelect');
+const countryExcludeMultiSelect = document.getElementById('countryExcludeMultiSelect');
+const excludeModeToggle = document.getElementById('excludeModeToggle');
+const regionConfirmOverlay = document.getElementById('regionConfirmOverlay');
+const regionConfirmYes = document.getElementById('regionConfirmYes');
+const regionConfirmNo = document.getElementById('regionConfirmNo');
 const prev = document.getElementById('prev');
 const next = document.getElementById('next');
 const current = document.getElementById('current');
@@ -39,24 +143,46 @@ const yearSliderRange = document.getElementById('yearSliderRange');
 const leftArrow = document.getElementById('left-arrow');
 const rightArrow = document.getElementById('right-arrow');
 
-const defaultFilters = Object.freeze({
-  type: 'all',
-  yearFrom: MIN_YEAR,
-  yearTo: CURRENT_YEAR
-});
+function createDefaultFilters() {
+  return {
+    type: 'all',
+    yearFrom: MIN_YEAR,
+    yearTo: CURRENT_YEAR,
+    genres: [],
+    excludeMode: 'countries',
+    excludedCountries: [],
+    excludedRegions: []
+  };
+}
+
+function cloneFilters(filters) {
+  return {
+    type: filters.type,
+    yearFrom: filters.yearFrom,
+    yearTo: filters.yearTo,
+    genres: [...(filters.genres || [])].sort(),
+    excludeMode: filters.excludeMode === 'regions' ? 'regions' : 'countries',
+    excludedCountries: [...(filters.excludedCountries || [])].sort(),
+    excludedRegions: [...(filters.excludedRegions || [])].sort()
+  };
+}
 
 const state = {
   currentPage: 1,
   totalPages: 1,
   query: '',
-  selectedGenres: [],
   showFavoritesOnly: false,
   imageBaseUrl: DEFAULT_IMAGE_BASE_URL,
   imageBackdropBaseUrl: 'https://image.tmdb.org/t/p/original',
   genres: [],
   genresByKey: new Map(),
-  appliedFilters: { ...defaultFilters },
-  pendingFilters: { ...defaultFilters }
+  countries: [],
+  countriesByCode: new Map(),
+  regions: [],
+  regionsByKey: new Map(),
+  appliedFilters: createDefaultFilters(),
+  pendingFilters: createDefaultFilters(),
+  pendingExcludeModeSwitch: null
 };
 
 let activeSlide = 0;
@@ -71,8 +197,8 @@ async function init() {
   renderLoading('Подключаемся к TMDB...');
 
   try {
-    await Promise.all([initImageConfig(), loadGenres()]);
-    renderGenreTags();
+    await Promise.all([initImageConfig(), loadGenres(), loadCountries()]);
+    loadRegions();
     syncFilterUiFromPending();
     await loadContent(1);
   } catch (error) {
@@ -116,19 +242,46 @@ function bindEvents() {
   });
 
   applyExtraFiltersBtn.addEventListener('click', async () => {
-    state.appliedFilters = { ...state.pendingFilters };
+    state.appliedFilters = cloneFilters(state.pendingFilters);
     updateFilterApplyState();
     await loadContent(1);
   });
 
   resetFiltersBtn.addEventListener('click', async () => {
-    state.selectedGenres = [];
-    state.pendingFilters = { ...defaultFilters };
-    state.appliedFilters = { ...defaultFilters };
-    renderGenreTags();
+    state.pendingFilters = createDefaultFilters();
+    state.appliedFilters = createDefaultFilters();
     syncFilterUiFromPending();
     updateFilterApplyState();
     await loadContent(1);
+  });
+
+  excludeModeToggle.addEventListener('click', () => {
+    const currentMode = state.pendingFilters.excludeMode === 'regions' ? 'regions' : 'countries';
+    const nextMode = currentMode === 'countries' ? 'regions' : 'countries';
+
+    if (nextMode === 'regions') {
+      showRegionModeConfirmation(() => {
+        applyExcludeModeChange('regions');
+      }, () => {
+        syncExcludeModeToggleUi();
+      });
+      return;
+    }
+
+    applyExcludeModeChange('countries');
+  });
+
+  regionConfirmYes.addEventListener('click', () => {
+    const pendingCallback = state.pendingExcludeModeSwitch;
+    closeRegionModeConfirmation();
+    if (typeof pendingCallback === 'function') {
+      pendingCallback();
+    }
+  });
+
+  regionConfirmNo.addEventListener('click', () => {
+    closeRegionModeConfirmation();
+    syncExcludeModeToggleUi();
   });
 
   overlayCloseBtn.addEventListener('click', closeNav);
@@ -245,6 +398,24 @@ function bindEvents() {
   document.addEventListener('pointerdown', (event) => {
     if (!event.target.closest('.episode-calendar-wrapper')) {
       closeEpisodeCalendarPopovers();
+    }
+
+    if (!event.target.closest('.multi-select')) {
+      closeAllMultiSelects();
+    }
+  });
+
+  regionConfirmOverlay.addEventListener('click', (event) => {
+    if (event.target === regionConfirmOverlay) {
+      closeRegionModeConfirmation();
+      syncExcludeModeToggleUi();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeAllMultiSelects();
+      closeRegionModeConfirmation();
     }
   });
 
@@ -384,6 +555,9 @@ function initYearControls() {
 
 function syncFilterUiFromPending() {
   syncTypeButtons();
+  syncExcludeModeToggleUi();
+  renderGenreTags();
+  renderCountryMultiSelect();
 
   yearFromInput.value = String(state.pendingFilters.yearFrom);
   yearToInput.value = String(state.pendingFilters.yearTo);
@@ -414,7 +588,11 @@ function updateFilterApplyState() {
 }
 
 function isFilterDirty() {
-  return JSON.stringify(state.appliedFilters) !== JSON.stringify(state.pendingFilters);
+  return serializeFilters(state.appliedFilters) !== serializeFilters(state.pendingFilters);
+}
+
+function serializeFilters(filters) {
+  return JSON.stringify(cloneFilters(filters));
 }
 
 async function initImageConfig() {
@@ -442,66 +620,312 @@ async function loadGenres() {
   const genreMap = new Map();
 
   for (const genre of movieGenresData.genres || []) {
-    const key = makeGenreKey(genre.name);
+    const label = normalizeGenreLabel(genre);
+    const key = makeGenreKey(label);
     if (!genreMap.has(key)) {
-      genreMap.set(key, { key, label: genre.name, movieIds: [], tvIds: [] });
+      genreMap.set(key, { key, label, movieIds: [], tvIds: [] });
     }
-    genreMap.get(key).movieIds.push(genre.id);
+    const target = genreMap.get(key);
+    if (!target.movieIds.includes(genre.id)) {
+      target.movieIds.push(genre.id);
+    }
   }
 
   for (const genre of tvGenresData.genres || []) {
-    const key = makeGenreKey(genre.name);
+    const label = normalizeGenreLabel(genre);
+    const key = makeGenreKey(label);
     if (!genreMap.has(key)) {
-      genreMap.set(key, { key, label: genre.name, movieIds: [], tvIds: [] });
+      genreMap.set(key, { key, label, movieIds: [], tvIds: [] });
     }
-    genreMap.get(key).tvIds.push(genre.id);
+    const target = genreMap.get(key);
+    if (!target.tvIds.includes(genre.id)) {
+      target.tvIds.push(genre.id);
+    }
   }
 
   state.genres = Array.from(genreMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
   state.genresByKey = new Map(state.genres.map((genre) => [genre.key, genre]));
 }
 
-function renderGenreTags() {
-  tagsEl.innerHTML = '';
+async function loadCountries() {
+  const countriesData = await apiFetch('/configuration/countries');
+  const countryMap = new Map();
 
-  for (const genre of state.genres) {
-    const element = document.createElement('button');
-    element.type = 'button';
-    element.className = 'tag';
-    element.id = `genre-${genre.key}`;
-    element.textContent = genre.label;
-    element.addEventListener('click', async () => {
-      if (state.selectedGenres.includes(genre.key)) {
-        state.selectedGenres = state.selectedGenres.filter((item) => item !== genre.key);
-      } else {
-        state.selectedGenres.push(genre.key);
-      }
-      renderGenreTags();
-      await loadContent(1);
-    });
-
-    if (state.selectedGenres.includes(genre.key)) {
-      element.classList.add('highlight');
+  for (const entry of countriesData || []) {
+    const code = String(entry?.iso_3166_1 || '').trim().toUpperCase();
+    if (!code) continue;
+    const label = resolveCountryLabel(code, entry?.native_name || entry?.english_name || code);
+    if (!countryMap.has(code)) {
+      countryMap.set(code, { code, label });
     }
-
-    tagsEl.appendChild(element);
   }
 
-  const clear = document.createElement('button');
-  clear.type = 'button';
-  clear.className = 'tag';
-  clear.id = 'clear';
-  clear.textContent = 'Сбросить';
-  clear.addEventListener('click', async () => {
-    state.selectedGenres = [];
-    state.pendingFilters = { ...defaultFilters };
-    state.appliedFilters = { ...defaultFilters };
-    renderGenreTags();
-    syncFilterUiFromPending();
-    updateFilterApplyState();
-    await loadContent(1);
+  state.countries = Array.from(countryMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  state.countriesByCode = new Map(state.countries.map((country) => [country.code, country]));
+}
+
+
+function loadRegions() {
+  state.regions = REGION_DEFINITIONS.map((region) => ({
+    key: region.key,
+    label: region.label,
+    countryCodes: [...region.countryCodes]
+  }));
+  state.regionsByKey = new Map(state.regions.map((region) => [region.key, region]));
+}
+
+function syncExcludeModeToggleUi() {
+  const isRegionsMode = state.pendingFilters.excludeMode === 'regions';
+  if (excludeModeToggle) {
+    excludeModeToggle.classList.toggle('is-regions', isRegionsMode);
+    excludeModeToggle.setAttribute('aria-checked', String(isRegionsMode));
+  }
+
+  document.querySelectorAll('.exclude-mode-text').forEach((label) => {
+    const isActive = label.classList.contains('exclude-mode-text-regions') ? isRegionsMode : !isRegionsMode;
+    label.classList.toggle('active', isActive);
   });
-  tagsEl.appendChild(clear);
+}
+
+function applyExcludeModeChange(nextMode) {
+  state.pendingFilters.excludeMode = nextMode === 'regions' ? 'regions' : 'countries';
+  state.pendingFilters.excludedCountries = [];
+  state.pendingFilters.excludedRegions = [];
+  closeAllMultiSelects();
+  syncFilterUiFromPending();
+  markFiltersDirty();
+}
+
+function showRegionModeConfirmation(onConfirm, onCancel) {
+  state.pendingExcludeModeSwitch = typeof onConfirm === 'function' ? onConfirm : null;
+  regionConfirmOverlay.classList.remove('hidden');
+  regionConfirmOverlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('region-modal-open');
+  regionConfirmOverlay.dataset.cancelAction = typeof onCancel === 'function' ? 'sync' : '';
+}
+
+function closeRegionModeConfirmation() {
+  state.pendingExcludeModeSwitch = null;
+  regionConfirmOverlay.classList.add('hidden');
+  regionConfirmOverlay.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('region-modal-open');
+}
+
+function getActiveExcludeField(filters = state.pendingFilters) {
+  return filters.excludeMode === 'regions' ? 'excludedRegions' : 'excludedCountries';
+}
+
+function getActiveExcludedValues(filters = state.appliedFilters) {
+  const field = getActiveExcludeField(filters);
+  return Array.isArray(filters[field]) ? filters[field] : [];
+}
+
+function hasActiveExclusions(filters = state.appliedFilters) {
+  return getActiveExcludedValues(filters).length > 0;
+}
+
+function getExcludedCountryCodeSet(filters = state.appliedFilters) {
+  const result = new Set();
+  if (filters.excludeMode === 'regions') {
+    for (const regionKey of filters.excludedRegions || []) {
+      const region = state.regionsByKey.get(regionKey);
+      if (!region) continue;
+      for (const code of region.countryCodes || []) {
+        result.add(code);
+      }
+    }
+    return result;
+  }
+
+  for (const code of filters.excludedCountries || []) {
+    result.add(code);
+  }
+  return result;
+}
+
+function renderGenreTags() {
+  renderMultiSelect({
+    host: genreMultiSelect,
+    key: 'genres',
+    placeholder: 'Жанры не выбраны',
+    emptyText: 'Жанры пока не загружены.',
+    options: state.genres.map((genre) => ({ value: genre.key, label: genre.label })),
+    selectedValues: state.pendingFilters.genres,
+    onToggle: (value) => togglePendingMultiValue('genres', value),
+    onClear: () => clearPendingMultiValue('genres')
+  });
+}
+
+function renderCountryMultiSelect() {
+  const regionsMode = state.pendingFilters.excludeMode === 'regions';
+  const selectedField = regionsMode ? 'excludedRegions' : 'excludedCountries';
+  const options = regionsMode
+    ? state.regions.map((region) => ({
+        value: region.key,
+        label: region.label,
+        tooltip: REGION_TOOLTIP_TEXTS.get(region.key) || ''
+      }))
+    : state.countries.map((country) => ({ value: country.code, label: country.label }));
+
+  renderMultiSelect({
+    host: countryExcludeMultiSelect,
+    key: regionsMode ? 'regions' : 'countries',
+    placeholder: regionsMode ? 'Регионы не исключаются' : 'Страны не исключаются',
+    emptyText: regionsMode ? 'Список регионов пока не загружен.' : 'Список стран пока не загружен.',
+    options,
+    selectedValues: state.pendingFilters[selectedField],
+    onToggle: (value) => togglePendingMultiValue(selectedField, value),
+    onClear: () => clearPendingMultiValue(selectedField)
+  });
+}
+
+function renderMultiSelect({ host, key, placeholder, emptyText, options, selectedValues, onToggle, onClear }) {
+  if (!host) return;
+
+  const wasOpen = host.querySelector('.multi-select')?.classList.contains('is-open') === true;
+  const selectedSet = new Set(selectedValues || []);
+  const selectedOptions = options.filter((option) => selectedSet.has(option.value));
+  const summaryMarkup = selectedOptions.length
+    ? selectedOptions.map((option) => `<span class="multi-select-chip">${escapeHtml(option.label)}</span>`).join('')
+    : `<span class="multi-select-placeholder">${escapeHtml(placeholder)}</span>`;
+
+  const countMarkup = selectedOptions.length
+    ? `<span class="multi-select-count">${selectedOptions.length}</span>`
+    : '';
+
+  const optionsMarkup = options.length
+    ? options.map((option) => {
+        const selected = selectedSet.has(option.value);
+        const tooltipAttr = option.tooltip ? ` title="${escapeHtml(option.tooltip)}"` : '';
+        return `
+          <button type="button" class="multi-option${selected ? ' selected' : ''}" data-value="${escapeHtml(option.value)}" aria-pressed="${selected ? 'true' : 'false'}"${tooltipAttr}>
+            <span class="multi-option-check">${selected ? '✓' : ''}</span>
+            <span class="multi-option-label">${escapeHtml(option.label)}</span>
+          </button>
+        `;
+      }).join('')
+    : `<div class="multi-select-empty">${escapeHtml(emptyText)}</div>`;
+
+  host.innerHTML = `
+    <div class="multi-select${wasOpen ? ' is-open' : ''}" data-key="${escapeHtml(key)}">
+      <button type="button" class="multi-select-trigger" aria-expanded="${wasOpen ? 'true' : 'false'}">
+        <span class="multi-select-summary">${summaryMarkup}</span>
+        <span class="multi-select-meta">
+          ${countMarkup}
+          <span class="multi-select-chevron">▾</span>
+        </span>
+      </button>
+      <div class="multi-select-dropdown">
+        <div class="multi-select-options">${optionsMarkup}</div>
+        <div class="multi-select-footer">
+          <button type="button" class="multi-select-clear-btn">Сбросить</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const root = host.querySelector('.multi-select');
+  const trigger = host.querySelector('.multi-select-trigger');
+  const optionButtons = host.querySelectorAll('.multi-option');
+  const clearButton = host.querySelector('.multi-select-clear-btn');
+
+  if (trigger && root) {
+    trigger.addEventListener('click', () => {
+      const isOpen = root.classList.contains('is-open');
+      closeAllMultiSelects(root);
+      root.classList.toggle('is-open', !isOpen);
+      trigger.setAttribute('aria-expanded', String(!isOpen));
+    });
+  }
+
+  optionButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const value = button.dataset.value;
+      if (!value) return;
+      onToggle(value);
+    });
+  });
+
+  if (clearButton) {
+    clearButton.disabled = !selectedOptions.length;
+    clearButton.addEventListener('click', () => {
+      if (!selectedOptions.length) return;
+      onClear();
+    });
+  }
+}
+
+function closeAllMultiSelects(exceptRoot = null) {
+  document.querySelectorAll('.multi-select.is-open').forEach((root) => {
+    if (exceptRoot && root === exceptRoot) return;
+    root.classList.remove('is-open');
+    const trigger = root.querySelector('.multi-select-trigger');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+function togglePendingMultiValue(field, value) {
+  const currentValues = new Set(state.pendingFilters[field] || []);
+  if (currentValues.has(value)) {
+    currentValues.delete(value);
+  } else {
+    currentValues.add(value);
+  }
+  state.pendingFilters[field] = Array.from(currentValues).sort();
+  syncFilterUiFromPending();
+  markFiltersDirty();
+}
+
+function clearPendingMultiValue(field) {
+  state.pendingFilters[field] = [];
+  syncFilterUiFromPending();
+  markFiltersDirty();
+}
+
+function normalizeGenreLabel(genre) {
+  const genreId = Number(genre?.id);
+  const rawLabel = String(genre?.name || '').trim();
+
+  if (GENRE_LABEL_OVERRIDES.has(genreId)) {
+    return GENRE_LABEL_OVERRIDES.get(genreId);
+  }
+
+  const normalizedRawKey = normalizeGenreLabelKey(rawLabel);
+  if (GENRE_LABEL_FALLBACKS.has(normalizedRawKey)) {
+    return GENRE_LABEL_FALLBACKS.get(normalizedRawKey);
+  }
+
+  return capitalizeFirstLetter(rawLabel);
+}
+
+function normalizeGenreLabelKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/\s*&\s*/g, ' & ')
+    .replace(/\s+/g, ' ');
+}
+
+function capitalizeFirstLetter(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.charAt(0).toLocaleUpperCase('ru-RU') + text.slice(1);
+}
+
+function resolveCountryLabel(code, fallback = '') {
+  if (countryLabelIntl) {
+    try {
+      const label = countryLabelIntl.of(code);
+      if (label) return label;
+    } catch (error) {
+      // ignore and fall back below
+    }
+  }
+
+  return fallback || code;
 }
 
 async function loadContent(page = 1) {
@@ -536,7 +960,8 @@ async function fetchDiscoverContent(page) {
 
   if (type === 'movie') {
     const response = await apiFetch('/discover/movie', buildDiscoverParams('movie', page));
-    const items = (response.results || []).map((item) => normalizeItem(item, 'movie'));
+    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'movie')));
+    const items = hydratedItems.filter(matchesClientSideFilters);
     return {
       items,
       totalPages: response.total_pages || 1,
@@ -546,7 +971,8 @@ async function fetchDiscoverContent(page) {
 
   if (type === 'tv') {
     const response = await apiFetch('/discover/tv', buildDiscoverParams('tv', page));
-    const items = (response.results || []).map((item) => normalizeItem(item, 'tv'));
+    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'tv')));
+    const items = hydratedItems.filter(matchesClientSideFilters);
     return {
       items,
       totalPages: response.total_pages || 1,
@@ -562,10 +988,12 @@ async function fetchDiscoverContent(page) {
     tvImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/tv', buildDiscoverParams('tv', page))
   ]);
 
-  const items = [
+  const hydratedItems = await hydrateItemsForClientFilters([
     ...(movieResponse.results || []).map((item) => normalizeItem(item, 'movie')),
     ...(tvResponse.results || []).map((item) => normalizeItem(item, 'tv'))
-  ].sort(sortByPopularity);
+  ]);
+
+  const items = hydratedItems.filter(matchesClientSideFilters).sort(sortByPopularity);
 
   return {
     items,
@@ -579,9 +1007,8 @@ async function fetchSearchContent(page) {
 
   if (type === 'movie') {
     const response = await apiFetch('/search/movie', buildSearchParams('movie', page));
-    const items = (response.results || [])
-      .map((item) => normalizeItem(item, 'movie'))
-      .filter(matchesClientSideFilters);
+    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'movie')));
+    const items = hydratedItems.filter(matchesClientSideFilters);
 
     return {
       items,
@@ -592,9 +1019,8 @@ async function fetchSearchContent(page) {
 
   if (type === 'tv') {
     const response = await apiFetch('/search/tv', buildSearchParams('tv', page));
-    const items = (response.results || [])
-      .map((item) => normalizeItem(item, 'tv'))
-      .filter(matchesClientSideFilters);
+    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'tv')));
+    const items = hydratedItems.filter(matchesClientSideFilters);
 
     return {
       items,
@@ -604,10 +1030,12 @@ async function fetchSearchContent(page) {
   }
 
   const response = await apiFetch('/search/multi', buildSearchParams('all', page));
-  const items = (response.results || [])
-    .filter((item) => item.media_type === 'movie' || item.media_type === 'tv')
-    .map((item) => normalizeItem(item, item.media_type))
-    .filter(matchesClientSideFilters);
+  const hydratedItems = await hydrateItemsForClientFilters(
+    (response.results || [])
+      .filter((item) => item.media_type === 'movie' || item.media_type === 'tv')
+      .map((item) => normalizeItem(item, item.media_type))
+  );
+  const items = hydratedItems.filter(matchesClientSideFilters);
 
   return {
     items,
@@ -639,7 +1067,8 @@ async function fetchFavoritesContent() {
     })
   );
 
-  const items = details.filter(Boolean).filter(matchesClientSideFilters).sort(sortByPopularity);
+  const hydratedItems = await hydrateItemsForClientFilters(details.filter(Boolean));
+  const items = hydratedItems.filter(matchesClientSideFilters).sort(sortByPopularity);
 
   return {
     items,
@@ -706,12 +1135,12 @@ function buildSearchParams(type, page) {
 }
 
 function getSelectedGenreIdsForType(mediaType) {
-  if (!state.selectedGenres.length) {
+  if (!state.appliedFilters.genres.length) {
     return { impossible: false, value: '' };
   }
 
   const ids = [];
-  for (const selectedKey of state.selectedGenres) {
+  for (const selectedKey of state.appliedFilters.genres) {
     const option = state.genresByKey.get(selectedKey);
     if (!option) continue;
     const relevantIds = mediaType === 'movie' ? option.movieIds : option.tvIds;
@@ -731,7 +1160,7 @@ function hasImpossibleGenreCombination(mediaType) {
 function matchesClientSideFilters(item) {
   if (!item) return false;
 
-  const { type, yearFrom, yearTo } = state.appliedFilters;
+  const { type, yearFrom, yearTo, genres } = state.appliedFilters;
   if (type !== 'all' && item.mediaType !== type) {
     return false;
   }
@@ -741,8 +1170,8 @@ function matchesClientSideFilters(item) {
     return false;
   }
 
-  if (state.selectedGenres.length) {
-    for (const selectedKey of state.selectedGenres) {
+  if (genres.length) {
+    for (const selectedKey of genres) {
       const option = state.genresByKey.get(selectedKey);
       if (!option) continue;
       const relevantIds = item.mediaType === 'movie' ? option.movieIds : option.tvIds;
@@ -755,7 +1184,80 @@ function matchesClientSideFilters(item) {
     }
   }
 
+  const activeExcludedCodes = getExcludedCountryCodeSet(state.appliedFilters);
+  if (activeExcludedCodes.size) {
+    const countryCodes = Array.isArray(item.countryCodes) ? item.countryCodes : [];
+    if (countryCodes.some((code) => activeExcludedCodes.has(code))) {
+      return false;
+    }
+  }
+
   return true;
+}
+
+async function hydrateItemsForClientFilters(items) {
+  const sanitized = items.filter(Boolean);
+  if (!hasActiveExclusions(state.appliedFilters)) {
+    return sanitized;
+  }
+
+  const hydratedItems = [...sanitized];
+  await runTasksWithConcurrency(hydratedItems, 4, async (item) => {
+    const enriched = await enrichItemWithCountryData(item);
+    Object.assign(item, enriched);
+  });
+
+  return hydratedItems;
+}
+
+async function enrichItemWithCountryData(item) {
+  if (!item?.id || !item?.mediaType) return item;
+  if (Array.isArray(item.countryCodes) && item.countryCodes.length) {
+    return item;
+  }
+
+  const cacheKey = `${item.mediaType}:${item.id}`;
+  if (!itemDetailsCache.has(cacheKey)) {
+    itemDetailsCache.set(cacheKey, (async () => {
+      const details = await apiFetch(`/${item.mediaType}/${item.id}`, { language: 'ru-RU' });
+      return {
+        countryCodes: extractCountryCodes(details)
+      };
+    })().catch((error) => {
+      itemDetailsCache.delete(cacheKey);
+      throw error;
+    }));
+  }
+
+  try {
+    const cachedDetails = await itemDetailsCache.get(cacheKey);
+    item.countryCodes = Array.isArray(cachedDetails?.countryCodes) ? cachedDetails.countryCodes : [];
+  } catch (error) {
+    console.warn('[enrichItemWithCountryData]', item.id, error);
+    item.countryCodes = Array.isArray(item.countryCodes) ? item.countryCodes : [];
+  }
+
+  return item;
+}
+
+function extractCountryCodes(item) {
+  const result = new Set();
+
+  if (Array.isArray(item?.production_countries)) {
+    item.production_countries.forEach((country) => {
+      const code = String(country?.iso_3166_1 || '').trim().toUpperCase();
+      if (code) result.add(code);
+    });
+  }
+
+  if (Array.isArray(item?.origin_country)) {
+    item.origin_country.forEach((countryCode) => {
+      const code = String(countryCode || '').trim().toUpperCase();
+      if (code) result.add(code);
+    });
+  }
+
+  return Array.from(result);
 }
 
 function renderMovies(items) {
@@ -1314,13 +1816,24 @@ function buildStatusText(count, searchMode = false) {
     parts.push(`годы: ${state.appliedFilters.yearFrom}–${state.appliedFilters.yearTo}`);
   }
 
-  if (state.selectedGenres.length) {
-    const labels = state.selectedGenres
+  if (state.appliedFilters.genres.length) {
+    const labels = state.appliedFilters.genres
       .map((key) => state.genresByKey.get(key)?.label)
       .filter(Boolean)
       .join(', ');
     if (labels) {
       parts.push(`жанры: ${labels}`);
+    }
+  }
+
+  const activeExcludedValues = getActiveExcludedValues(state.appliedFilters);
+  if (activeExcludedValues.length) {
+    const labels = state.appliedFilters.excludeMode === 'regions'
+      ? activeExcludedValues.map((key) => state.regionsByKey.get(key)?.label || key).filter(Boolean).join(', ')
+      : activeExcludedValues.map((code) => state.countriesByCode.get(code)?.label || code).filter(Boolean).join(', ');
+
+    if (labels) {
+      parts.push(state.appliedFilters.excludeMode === 'regions' ? `исключены регионы: ${labels}` : `исключены страны: ${labels}`);
     }
   }
 
@@ -1511,6 +2024,7 @@ function normalizeItem(item, mediaTypeHint = 'movie') {
     voteAverage: Number(item.vote_average || 0),
     popularity: Number(item.popularity || 0),
     genreIds,
+    countryCodes: extractCountryCodes(item),
     posterUrl: posterPath ? buildImageUrl(posterPath) : ''
   };
 }

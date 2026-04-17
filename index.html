@@ -51,15 +51,14 @@
 
   <div class="wrapper">
     <aside class="sidebar">
-      <section class="filter-section">
+      <section class="filter-section genre-filter-section">
         <h2 class="sidebar-title">Жанры</h2>
-        <div id="tags" class="tags-container"></div>
+        <div id="genreMultiSelect" class="multi-select-host"></div>
       </section>
 
       <section class="filter-section extra-filters-section">
         <div class="section-head">
           <h2 class="sidebar-title">Доп. фильтры</h2>
-          <span id="filtersDirtyBadge" class="filters-dirty-badge hidden">Есть изменения</span>
         </div>
 
         <div class="filter-block">
@@ -69,6 +68,20 @@
             <button type="button" class="type-btn" data-type="movie">Фильм</button>
             <button type="button" class="type-btn" data-type="tv">Сериал</button>
           </div>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Исключить</div>
+          <div class="exclude-mode-row">
+            <span class="exclude-mode-text exclude-mode-text-countries">Страны</span>
+            <button type="button" id="excludeModeToggle" class="exclude-mode-toggle" role="switch" aria-checked="false" aria-label="Переключить исключение со стран на регионы">
+              <span class="exclude-mode-toggle-track">
+                <span class="exclude-mode-toggle-thumb"></span>
+              </span>
+            </button>
+            <span class="exclude-mode-text exclude-mode-text-regions">Регионы</span>
+          </div>
+          <div id="countryExcludeMultiSelect" class="multi-select-host"></div>
         </div>
 
         <div class="filter-block">
@@ -93,11 +106,13 @@
           <div class="year-hint">Если значения совпадают — поиск идёт по конкретному году.</div>
         </div>
 
-        <div class="filter-actions">
-          <button type="button" id="applyExtraFilters" class="apply-filters-btn" disabled>Применить доп. фильтры</button>
-          <button type="button" id="resetFilters" class="reset-filters-btn">Сбросить всё</button>
-        </div>
       </section>
+
+      <div class="sidebar-actions-panel">
+        <span id="filtersDirtyBadge" class="filters-dirty-badge hidden">Есть изменения</span>
+        <button type="button" id="applyExtraFilters" class="apply-filters-btn" disabled>Применить фильтры</button>
+        <button type="button" id="resetFilters" class="reset-filters-btn">Сбросить всё</button>
+      </div>
     </aside>
 
     <main>
@@ -122,6 +137,17 @@
   </div>
 
   <button id="scrollTopBtn" class="scroll-to-top">↑</button>
+
+  <div id="regionConfirmOverlay" class="region-confirm-overlay hidden" aria-hidden="true">
+    <div class="region-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="regionConfirmTitle" aria-describedby="regionConfirmText">
+      <div class="region-confirm-title" id="regionConfirmTitle">Подтверждение переключения</div>
+      <div class="region-confirm-text" id="regionConfirmText">При переключении режима на исключение по регионам, вы столкнетесь с чёрным юмором, который нельзя путать с РЕАЛЬНЫМИ расистскими предрассудками. Не рекомендуется трогать этот переключатель особам с обидчивым характером. Хотите продолжить?</div>
+      <div class="region-confirm-actions">
+        <button type="button" id="regionConfirmYes" class="region-confirm-btn region-confirm-btn-yes">да</button>
+        <button type="button" id="regionConfirmNo" class="region-confirm-btn region-confirm-btn-no">нет</button>
+      </div>
+    </div>
+  </div>
 
   <script src="script.js"></script>
   <script>
