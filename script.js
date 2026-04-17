@@ -5,6 +5,12 @@ const KINOBOX_API = 'https://api.kinobox.tv/api/players';
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_YEAR = 1888;
 const PAGE_SIZE = 20;
+const GOOGLE_CALENDAR_BASE_URL = 'https://calendar.google.com/calendar/render';
+const EPISODE_CALENDAR_CONCURRENCY = 4;
+const EPISODE_CALENDAR_MAX_ITEMS = 24;
+
+const tvCalendarMetaCache = new Map();
+const tvEpisodeScheduleCache = new Map();
 
 const main = document.getElementById('main');
 const form = document.getElementById('form');
@@ -150,6 +156,31 @@ function bindEvents() {
   });
 
   document.addEventListener('click', async (event) => {
+    const calendarToggleButton = event.target.closest('.episode-calendar-btn');
+    if (calendarToggleButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const wrapper = calendarToggleButton.closest('.episode-calendar-wrapper');
+      if (!wrapper) return;
+
+      const isPinnedOpen = wrapper.classList.contains('popover-open');
+      if (isPinnedOpen) {
+        wrapper.classList.remove('popover-open');
+        wrapper.classList.add('popover-force-closed');
+        scheduleEpisodeCalendarLayerDeactivate(wrapper);
+        calendarToggleButton.blur();
+        return;
+      }
+
+      closeEpisodeCalendarPopovers(wrapper);
+      wrapper.classList.remove('popover-force-closed');
+      wrapper.classList.add('popover-open');
+      setEpisodeCalendarLayerState(wrapper, true);
+      positionEpisodeCalendarPopover(wrapper);
+      await ensureEpisodeCalendarLoaded(wrapper);
+      return;
+    }
+
     const watchButton = event.target.closest('.watch-online');
     if (watchButton) {
       const id = Number(watchButton.dataset.id);
@@ -204,6 +235,75 @@ function bindEvents() {
       }
     }
   });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.episode-calendar-wrapper')) {
+      closeEpisodeCalendarPopovers();
+    }
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!event.target.closest('.episode-calendar-wrapper')) {
+      closeEpisodeCalendarPopovers();
+    }
+  });
+
+  document.addEventListener('mouseleave', (event) => {
+    const wrapper = event.target?.closest?.('.episode-calendar-wrapper');
+    if (wrapper) {
+      wrapper.classList.remove('popover-force-closed');
+    }
+  }, true);
+
+  document.addEventListener('mouseover', (event) => {
+    const wrapper = event.target.closest('.episode-calendar-wrapper');
+    if (wrapper) {
+      setEpisodeCalendarLayerState(wrapper, true);
+      positionEpisodeCalendarPopover(wrapper);
+      void ensureEpisodeCalendarLoaded(wrapper);
+    }
+  });
+
+  document.addEventListener('mouseout', (event) => {
+    const wrapper = event.target?.closest?.('.episode-calendar-wrapper');
+    if (wrapper) {
+      scheduleEpisodeCalendarLayerDeactivate(wrapper);
+    }
+  }, true);
+
+  document.addEventListener('focusin', (event) => {
+    const wrapper = event.target.closest('.episode-calendar-wrapper');
+    if (wrapper) {
+      setEpisodeCalendarLayerState(wrapper, true);
+      positionEpisodeCalendarPopover(wrapper);
+      void ensureEpisodeCalendarLoaded(wrapper);
+    }
+  });
+
+  document.addEventListener('focusout', (event) => {
+    const wrapper = event.target?.closest?.('.episode-calendar-wrapper');
+    if (wrapper) {
+      scheduleEpisodeCalendarLayerDeactivate(wrapper);
+    }
+  }, true);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeEpisodeCalendarPopovers();
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    document.querySelectorAll('.episode-calendar-wrapper.popover-open, .episode-calendar-wrapper:hover').forEach((wrapper) => {
+      positionEpisodeCalendarPopover(wrapper);
+    });
+  });
+
+  window.addEventListener('scroll', () => {
+    document.querySelectorAll('.episode-calendar-wrapper.popover-open, .episode-calendar-wrapper:hover').forEach((wrapper) => {
+      positionEpisodeCalendarPopover(wrapper);
+    });
+  }, { passive: true });
 
   window.addEventListener('hashchange', async () => {
     const rawHash = window.location.hash.substring(1);
@@ -418,6 +518,7 @@ async function loadContent(page = 1) {
       renderNoResults();
     } else {
       renderMovies(payload.items);
+      queueEpisodeCalendarAvailability(payload.items);
     }
 
     updatePagination();
@@ -663,14 +764,30 @@ function renderMovies(items) {
   for (const item of items) {
     const card = document.createElement('article');
     card.className = 'movie';
+    card.dataset.id = String(item.id);
+    card.dataset.mediaType = item.mediaType;
+
     const safeTitle = escapeHtml(item.title);
     const safeOriginalTitle = escapeHtml(item.originalTitle || item.title);
     const safeOverview = escapeHtml(item.overview || 'Описание отсутствует.');
     const poster = item.posterUrl ? `<img src="${item.posterUrl}" alt="${safeTitle}" loading="lazy" />` : `<div class="movie-poster-placeholder">${safeTitle}</div>`;
+    const calendarMarkup = item.mediaType === 'tv' ? `
+      <div class="episode-calendar-wrapper hidden" data-tv-id="${item.id}" data-title="${safeTitle}">
+        <button class="episode-calendar-btn" type="button" aria-label="Будущие серии" title="Будущие серии">
+          ${getCalendarIconSvg()}
+        </button>
+        <div class="episode-calendar-popover" role="dialog" aria-label="Будущие серии">
+          <div class="episode-calendar-popover-inner">
+            <div class="episode-calendar-loading">Проверяем даты выхода...</div>
+          </div>
+        </div>
+      </div>
+    ` : '';
 
     card.innerHTML = `
       <div class="movie-poster-wrap">
         ${poster}
+        ${calendarMarkup}
         <button class="fav-btn" data-id="${item.id}" data-media-type="${item.mediaType}" title="Добавить в избранное">★</button>
       </div>
       <div class="movie-body">
@@ -740,6 +857,438 @@ function updatePagination(options = {}) {
 
 function updateResultsStatus(text) {
   resultsStatus.textContent = text;
+}
+
+function queueEpisodeCalendarAvailability(items) {
+  const tvItems = items.filter((item) => item?.mediaType === 'tv' && item?.id);
+  if (!tvItems.length) return;
+
+  void runTasksWithConcurrency(tvItems, EPISODE_CALENDAR_CONCURRENCY, async (item) => {
+    try {
+      const meta = await getTvCalendarMeta(item.id);
+      if (meta?.eligible) {
+        activateEpisodeCalendarButton(item.id, meta);
+      }
+    } catch (error) {
+      console.warn('[queueEpisodeCalendarAvailability]', item?.id, error);
+    }
+  });
+}
+
+function activateEpisodeCalendarButton(tvId, meta = {}) {
+  const wrapper = document.querySelector(`.episode-calendar-wrapper[data-tv-id="${tvId}"]`);
+  if (!wrapper) return;
+
+  wrapper.classList.remove('hidden');
+  wrapper.dataset.ready = '1';
+  wrapper.dataset.title = meta.showTitle || wrapper.dataset.title || '';
+
+  const inner = wrapper.querySelector('.episode-calendar-popover-inner');
+  if (inner && !wrapper.dataset.loaded) {
+    const nextEpisodeLine = meta.nextEpisode?.airDate
+      ? `<div class="episode-calendar-preview">Следующая серия: ${escapeHtml(formatFullDate(meta.nextEpisode.airDate))}</div>`
+      : '<div class="episode-calendar-preview">Будущие серии доступны</div>';
+
+    inner.innerHTML = `
+      <div class="episode-calendar-popover-head">
+        <div class="episode-calendar-popover-title">Будущие серии</div>
+        ${nextEpisodeLine}
+      </div>
+      <div class="episode-calendar-loading">Наведи курсор или нажми, чтобы загрузить расписание.</div>
+    `;
+  }
+}
+
+async function ensureEpisodeCalendarLoaded(wrapper) {
+  if (!wrapper || wrapper.dataset.loaded === '1' || wrapper.dataset.loading === '1') return;
+
+  const tvId = Number(wrapper.dataset.tvId);
+  if (!tvId) return;
+
+  wrapper.dataset.loading = '1';
+  const inner = wrapper.querySelector('.episode-calendar-popover-inner');
+  if (inner) {
+    inner.innerHTML = `
+      <div class="episode-calendar-popover-head">
+        <div class="episode-calendar-popover-title">Будущие серии</div>
+        <div class="episode-calendar-loading">Загружаем расписание...</div>
+      </div>
+    `;
+  }
+
+  try {
+    const schedule = await getUpcomingEpisodeSchedule(tvId, wrapper.dataset.title || 'Сериал');
+    renderEpisodeCalendarPopover(wrapper, schedule);
+    wrapper.dataset.loaded = '1';
+  } catch (error) {
+    console.error('[ensureEpisodeCalendarLoaded]', tvId, error);
+    if (inner) {
+      inner.innerHTML = `
+        <div class="episode-calendar-popover-head">
+          <div class="episode-calendar-popover-title">Будущие серии</div>
+        </div>
+        <div class="episode-calendar-error">Не удалось загрузить расписание серий.</div>
+      `;
+    }
+  } finally {
+    wrapper.dataset.loading = '0';
+  }
+}
+
+function renderEpisodeCalendarPopover(wrapper, schedule) {
+  const inner = wrapper.querySelector('.episode-calendar-popover-inner');
+  if (!inner) return;
+
+  wrapper.__episodeCalendarSchedule = schedule || null;
+
+  if (!schedule?.episodes?.length) {
+    inner.innerHTML = `
+      <div class="episode-calendar-popover-head">
+        <div class="episode-calendar-popover-title">Будущие серии</div>
+        <div class="episode-calendar-preview">${escapeHtml(schedule?.showTitle || wrapper.dataset.title || 'Сериал')}</div>
+      </div>
+      <div class="episode-calendar-empty">TMDb не вернул даты следующих серий.</div>
+    `;
+    return;
+  }
+
+  const rows = schedule.episodes.map((episode) => {
+    const code = formatEpisodeCode(episode.seasonNumber, episode.episodeNumber);
+    return `
+      <div class="episode-calendar-item">
+        <div class="episode-calendar-item-main">
+          <div class="episode-calendar-item-code">${escapeHtml(code)}</div>
+          <div class="episode-calendar-item-title">${escapeHtml(resolveEpisodeName(episode.name, '', episode.episodeNumber))}</div>
+          <div class="episode-calendar-item-date">${escapeHtml(formatFullDate(episode.airDate))}</div>
+        </div>
+        <a class="episode-calendar-add-btn" href="${buildGoogleCalendarUrl(schedule.showTitle, episode, { tvId: schedule.tvId, mediaType: 'tv' })}" target="_blank" rel="noopener noreferrer">Добавить в Google Календарь</a>
+      </div>
+    `;
+  }).join('');
+
+  const footer = schedule.totalUpcomingCount > schedule.episodes.length
+    ? `<div class="episode-calendar-footer">Показано ${schedule.episodes.length} из ${schedule.totalUpcomingCount} будущих серий.</div>`
+    : '';
+
+  inner.innerHTML = `
+    <div class="episode-calendar-popover-head">
+      <div class="episode-calendar-popover-title">Будущие серии</div>
+      <div class="episode-calendar-preview">${escapeHtml(schedule.showTitle || wrapper.dataset.title || 'Сериал')}</div>    </div>
+    <div class="episode-calendar-list">${rows}</div>
+    ${footer}
+  `;
+}
+
+
+
+function setEpisodeCalendarLayerState(wrapper, active) {
+  const card = wrapper?.closest('.movie');
+  if (!card) return;
+
+  if (card.__episodeCalendarLayerTimer) {
+    clearTimeout(card.__episodeCalendarLayerTimer);
+    card.__episodeCalendarLayerTimer = null;
+  }
+
+  if (active) {
+    card.classList.add('calendar-layer-active');
+  } else {
+    card.classList.remove('calendar-layer-active');
+  }
+}
+
+function scheduleEpisodeCalendarLayerDeactivate(wrapper) {
+  const card = wrapper?.closest('.movie');
+  if (!card) return;
+
+  if (card.__episodeCalendarLayerTimer) {
+    clearTimeout(card.__episodeCalendarLayerTimer);
+  }
+
+  card.__episodeCalendarLayerTimer = setTimeout(() => {
+    const shouldStayActive = wrapper.matches(':hover') || wrapper.classList.contains('popover-open') || wrapper.contains(document.activeElement);
+    if (!shouldStayActive) {
+      card.classList.remove('calendar-layer-active');
+    }
+    card.__episodeCalendarLayerTimer = null;
+  }, 180);
+}
+
+function positionEpisodeCalendarPopover(wrapper) {
+  const popover = wrapper?.querySelector('.episode-calendar-popover');
+  if (!popover) return;
+
+  popover.style.left = '0';
+  popover.style.right = 'auto';
+
+  const rect = popover.getBoundingClientRect();
+  if (rect.right > window.innerWidth - 12) {
+    popover.style.left = 'auto';
+    popover.style.right = '0';
+  }
+
+  const adjustedRect = popover.getBoundingClientRect();
+  if (adjustedRect.left < 12) {
+    popover.style.left = `${12 - wrapper.getBoundingClientRect().left}px`;
+    popover.style.right = 'auto';
+  }
+}
+
+function closeEpisodeCalendarPopovers(exceptWrapper = null) {
+  document.querySelectorAll('.episode-calendar-wrapper.popover-open').forEach((wrapper) => {
+    if (exceptWrapper && wrapper === exceptWrapper) return;
+    wrapper.classList.remove('popover-open');
+    scheduleEpisodeCalendarLayerDeactivate(wrapper);
+  });
+}
+
+async function getTvCalendarMeta(tvId) {
+  if (tvCalendarMetaCache.has(tvId)) {
+    return tvCalendarMetaCache.get(tvId);
+  }
+
+  const promise = (async () => {
+    const details = await apiFetch(`/tv/${tvId}`, { language: 'ru-RU' });
+    const today = getLocalDateString();
+    const lastEpisodeAirDate = details?.last_episode_to_air?.air_date || '';
+    const nextEpisodeAirDate = details?.next_episode_to_air?.air_date || '';
+    const eligible = Boolean(lastEpisodeAirDate && lastEpisodeAirDate <= today && nextEpisodeAirDate && nextEpisodeAirDate > today);
+
+    return {
+      eligible,
+      tvId,
+      details,
+      showTitle: details?.name || details?.original_name || '',
+      nextEpisode: details?.next_episode_to_air ? {
+        airDate: details.next_episode_to_air.air_date || '',
+        seasonNumber: Number(details.next_episode_to_air.season_number || 0),
+        episodeNumber: Number(details.next_episode_to_air.episode_number || 0),
+        name: details.next_episode_to_air.name || ''
+      } : null
+    };
+  })();
+
+  tvCalendarMetaCache.set(tvId, promise);
+  return promise;
+}
+
+async function getUpcomingEpisodeSchedule(tvId, fallbackTitle = '') {
+  if (tvEpisodeScheduleCache.has(tvId)) {
+    return tvEpisodeScheduleCache.get(tvId);
+  }
+
+  const promise = (async () => {
+    const meta = await getTvCalendarMeta(tvId);
+    const details = meta?.details || await apiFetch(`/tv/${tvId}`, { language: 'ru-RU' });
+    const seasons = Array.isArray(details?.seasons) ? details.seasons : [];
+    const today = getLocalDateString();
+
+    const nextSeasonNumber = Math.max(1, Number(meta?.nextEpisode?.seasonNumber || 1));
+    const seasonNumbers = seasons
+      .filter((season) => Number(season?.season_number) >= nextSeasonNumber)
+      .map((season) => Number(season.season_number))
+      .sort((a, b) => a - b);
+
+    const settled = await Promise.allSettled(
+      seasonNumbers.map((seasonNumber) => fetchSeasonWithFallbackNames(tvId, seasonNumber))
+    );
+
+    const upcoming = [];
+
+    for (const result of settled) {
+      if (result.status !== 'fulfilled') continue;
+      for (const episode of result.value?.episodes || []) {
+        const airDate = episode?.air_date || '';
+        if (!airDate || airDate <= today) continue;
+
+        upcoming.push({
+          airDate,
+          seasonNumber: Number(episode?.season_number || result.value?.season_number || 0),
+          episodeNumber: Number(episode?.episode_number || 0),
+          name: resolveEpisodeName(episode?.name, episode?.fallback_name, episode?.episode_number)
+        });
+      }
+    }
+
+    upcoming.sort((a, b) => {
+      if (a.airDate !== b.airDate) return a.airDate.localeCompare(b.airDate);
+      if (a.seasonNumber !== b.seasonNumber) return a.seasonNumber - b.seasonNumber;
+      return a.episodeNumber - b.episodeNumber;
+    });
+
+    const uniqueEpisodes = dedupeUpcomingEpisodes(upcoming);
+
+    return {
+      tvId,
+      showTitle: details?.name || details?.original_name || fallbackTitle || 'Сериал',
+      totalUpcomingCount: uniqueEpisodes.length,
+      allEpisodes: uniqueEpisodes,
+      episodes: uniqueEpisodes.slice(0, EPISODE_CALENDAR_MAX_ITEMS)
+    };
+  })();
+
+  tvEpisodeScheduleCache.set(tvId, promise);
+  return promise;
+}
+
+function dedupeUpcomingEpisodes(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = `${item.airDate}-${item.seasonNumber}-${item.episodeNumber}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function formatEpisodeCode(seasonNumber, episodeNumber) {
+  const season = String(Math.max(0, Number(seasonNumber || 0))).padStart(2, '0');
+  const episode = String(Math.max(0, Number(episodeNumber || 0))).padStart(2, '0');
+  return `S${season}E${episode}`;
+}
+
+function isGenericEpisodeName(name, episodeNumber = 0) {
+  const normalized = String(name || '').trim();
+  if (!normalized) return true;
+
+  const genericPatterns = [
+    /^эпизод\s+\d+$/i,
+    /^серия\s+\d+$/i,
+    /^episode\s+\d+$/i,
+    /^episodio\s+\d+$/i,
+    /^cap[ií]tulo\s+\d+$/i,
+    /^قسمت\s+\d+$/i
+  ];
+
+  if (genericPatterns.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+
+  if (episodeNumber) {
+    const number = String(Number(episodeNumber));
+    const lowered = normalized.toLowerCase();
+    if (lowered === `эпизод ${number}` || lowered === `серия ${number}` || lowered === `episode ${number}`) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function resolveEpisodeName(primaryName, fallbackName = '', episodeNumber = 0) {
+  const primary = String(primaryName || '').trim();
+  if (primary && !isGenericEpisodeName(primary, episodeNumber)) {
+    return primary;
+  }
+
+  const fallback = String(fallbackName || '').trim();
+  if (fallback && !isGenericEpisodeName(fallback, episodeNumber)) {
+    return fallback;
+  }
+
+  return `Серия ${episodeNumber || ''}`.trim();
+}
+
+async function fetchSeasonWithFallbackNames(tvId, seasonNumber) {
+  const [localizedResult, fallbackResult] = await Promise.allSettled([
+    apiFetch(`/tv/${tvId}/season/${seasonNumber}`, { language: 'ru-RU' }),
+    apiFetch(`/tv/${tvId}/season/${seasonNumber}`)
+  ]);
+
+  const localized = localizedResult.status === 'fulfilled' ? localizedResult.value : null;
+  const fallback = fallbackResult.status === 'fulfilled' ? fallbackResult.value : null;
+
+  if (!localized && !fallback) {
+    throw new Error(`Failed to load season ${seasonNumber}`);
+  }
+
+  const localizedEpisodes = Array.isArray(localized?.episodes) ? localized.episodes : [];
+  const fallbackEpisodes = Array.isArray(fallback?.episodes) ? fallback.episodes : [];
+  const fallbackByEpisodeNumber = new Map(
+    fallbackEpisodes.map((episode) => [String(episode?.episode_number || ''), episode])
+  );
+
+  const baseEpisodes = localizedEpisodes.length ? localizedEpisodes : fallbackEpisodes;
+  const mergedEpisodes = baseEpisodes.map((episode) => {
+    const fallbackEpisode = fallbackByEpisodeNumber.get(String(episode?.episode_number || '')) || null;
+    return {
+      ...(fallbackEpisode || {}),
+      ...episode,
+      fallback_name: fallbackEpisode?.name || '',
+      name: resolveEpisodeName(episode?.name, fallbackEpisode?.name, episode?.episode_number || fallbackEpisode?.episode_number || 0),
+      season_number: episode?.season_number || fallbackEpisode?.season_number || seasonNumber
+    };
+  });
+
+  return {
+    ...(localized || fallback),
+    season_number: localized?.season_number || fallback?.season_number || seasonNumber,
+    episodes: mergedEpisodes
+  };
+}
+
+function buildWatchUrl(id, mediaType = 'movie') {
+  const numericId = Number(id);
+  const normalizedType = mediaType === 'tv' ? 'tv' : 'movie';
+  const url = new URL(window.location.href);
+  if (numericId) {
+    url.hash = `${normalizedType}-${numericId}`;
+  }
+  return url.toString();
+}
+
+function buildGoogleCalendarUrl(showTitle, episode, options = {}) {
+  const start = episode?.airDate || '';
+  const end = getNextDateString(start);
+  const episodeCode = formatEpisodeCode(episode?.seasonNumber, episode?.episodeNumber);
+  const title = `${showTitle} — ${episodeCode}`;
+  const watchUrl = buildWatchUrl(options?.tvId || options?.id || 0, options?.mediaType || 'tv');
+  const details = `${showTitle}
+${episodeCode}
+Дата выхода: ${formatFullDate(start)}
+Смотреть: ${watchUrl}`;
+  const url = new URL(GOOGLE_CALENDAR_BASE_URL);
+  url.searchParams.set('action', 'TEMPLATE');
+  url.searchParams.set('text', title);
+  url.searchParams.set('dates', `${start.replaceAll('-', '')}/${end.replaceAll('-', '')}`);
+  url.searchParams.set('details', details);
+  return url.toString();
+}
+
+function getNextDateString(dateString) {
+  if (!dateString || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return '';
+  const date = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  date.setDate(date.getDate() + 1);
+  return getLocalDateString(date);
+}
+
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+async function runTasksWithConcurrency(items, limit, worker) {
+  const queue = [...items];
+  const runners = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const currentItem = queue.shift();
+      if (!currentItem) return;
+      await worker(currentItem);
+    }
+  });
+
+  await Promise.allSettled(runners);
+}
+
+function getCalendarIconSvg() {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v11a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm12 8H5v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8ZM7 12h3v3H7v-3Z" fill="currentColor"></path>
+    </svg>
+  `;
 }
 
 function buildStatusText(count, searchMode = false) {

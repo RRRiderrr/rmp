@@ -412,14 +412,28 @@ main {
   display: flex;
   flex-direction: column;
   position: relative;
-  transition: transform 0.3s, box-shadow 0.3s;
-  overflow: hidden;
+  transition: transform 0.16s ease, box-shadow 0.3s ease;
+  overflow: visible;
   min-height: 520px;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .movie:hover {
-  transform: translateY(-3px);
   box-shadow: 0 12px 28px rgba(0,0,0,0.12);
+  z-index: 30;
+}
+
+.movie:hover:not(:has(.episode-calendar-wrapper:hover)):not(:has(.episode-calendar-wrapper.popover-open)):not(:has(.episode-calendar-popover:hover)) {
+  transform: translateY(-3px);
+}
+
+.movie:has(.episode-calendar-wrapper:hover),
+.movie:has(.episode-calendar-wrapper.popover-open),
+.movie:has(.episode-calendar-popover:hover),
+.movie.calendar-layer-active {
+  transform: none;
+  z-index: 45;
 }
 
 .movie-poster-wrap {
@@ -427,7 +441,7 @@ main {
   width: 100%;
   aspect-ratio: 2 / 3;
   background: linear-gradient(135deg, rgba(0,0,0,0.08), rgba(0,0,0,0.18));
-  overflow: hidden;
+  overflow: visible;
 }
 
 .movie img {
@@ -435,6 +449,8 @@ main {
   height: 100%;
   object-fit: cover;
   display: block;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
 }
 
 .movie-poster-placeholder {
@@ -450,6 +466,8 @@ main {
   font-weight: 800;
   letter-spacing: 0.02em;
   background: linear-gradient(135deg, #4b87c2, #1d1f2c);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
 }
 
 .fav-btn {
@@ -473,6 +491,192 @@ main {
   transform: scale(1.08);
   background-color: gold;
   color: #333;
+}
+
+.episode-calendar-wrapper {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 60;
+}
+
+.episode-calendar-btn {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 15, 20, 0.78);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 22px rgba(0,0,0,0.22);
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.episode-calendar-btn:hover,
+.episode-calendar-wrapper.popover-open .episode-calendar-btn,
+.episode-calendar-wrapper:focus-within .episode-calendar-btn {
+  transform: scale(1.06);
+  background: rgba(75, 135, 194, 0.95);
+}
+
+.episode-calendar-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.episode-calendar-popover {
+  position: absolute;
+  top: calc(100% + 0.7rem);
+  left: 0;
+  width: min(380px, calc(100vw - 32px));
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(18, 18, 24, 0.96);
+  color: #fff;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.35);
+  padding: 0.95rem;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px) scale(0.98);
+  transform-origin: top left;
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+  pointer-events: none;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(137, 183, 227, 0.72) rgba(255,255,255,0.06);
+  z-index: 80;
+  backface-visibility: hidden;
+  will-change: opacity, transform;
+}
+
+.episode-calendar-popover::-webkit-scrollbar {
+  width: 10px;
+}
+
+.episode-calendar-popover::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.04);
+  border-radius: 999px;
+}
+
+.episode-calendar-popover::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(137, 183, 227, 0.86), rgba(75, 135, 194, 0.92));
+  border-radius: 999px;
+  border: 2px solid rgba(18, 18, 24, 0.96);
+}
+
+.episode-calendar-popover::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(154, 200, 244, 0.95), rgba(89, 151, 214, 0.98));
+}
+
+.episode-calendar-wrapper:hover:not(.popover-force-closed) .episode-calendar-popover,
+.episode-calendar-wrapper:focus-within:not(.popover-force-closed) .episode-calendar-popover,
+.episode-calendar-wrapper.popover-open .episode-calendar-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.episode-calendar-popover-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.episode-calendar-popover-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+
+.episode-calendar-popover-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.episode-calendar-preview,
+.episode-calendar-loading,
+.episode-calendar-empty,
+.episode-calendar-error,
+.episode-calendar-footer {
+  color: rgba(255,255,255,0.74);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.episode-calendar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.episode-calendar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.9rem;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.episode-calendar-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.episode-calendar-item-code {
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: #89b7e3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.episode-calendar-item-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.episode-calendar-item-date {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.72);
+}
+
+.episode-calendar-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: 0.56rem 0.92rem;
+  background: #fff;
+  color: #111;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.2;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+  transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
+}
+
+.episode-calendar-add-btn:hover,
+.episode-calendar-add-btn:focus-visible {
+  color: #111;
+  text-decoration: none;
+  transform: translateY(-1px);
+  opacity: 0.94;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 .movie-body {
@@ -897,6 +1101,12 @@ span.red { color: var(--rating-red); }
     min-height: 500px;
   }
 
+  .episode-calendar-popover {
+    left: -0.1rem;
+    width: min(340px, calc(100vw - 24px));
+    max-height: 340px;
+  }
+
   .embed.show {
     width: min(100%, 100vw - 32px);
   }
@@ -915,6 +1125,11 @@ span.red { color: var(--rating-red); }
 @media (max-width: 500px) {
   .year-inputs {
     grid-template-columns: 1fr;
+  }
+
+  .episode-calendar-popover {
+    width: min(320px, calc(100vw - 20px));
+    max-height: 300px;
   }
 
   .buttons {
