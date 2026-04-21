@@ -217,12 +217,14 @@ function bindEvents() {
 
   prev.addEventListener('click', async () => {
     if (state.currentPage > 1) {
+      scrollToCatalogTopInstant();
       await loadContent(state.currentPage - 1);
     }
   });
 
   next.addEventListener('click', async () => {
     if (state.currentPage < state.totalPages) {
+      scrollToCatalogTopInstant();
       await loadContent(state.currentPage + 1);
     }
   });
@@ -913,6 +915,18 @@ function capitalizeFirstLetter(value) {
   const text = String(value || '').trim();
   if (!text) return '';
   return text.charAt(0).toLocaleUpperCase('ru-RU') + text.slice(1);
+}
+
+function scrollToCatalogTopInstant() {
+  const target = resultsToolbar || main;
+  if (!target) {
+    window.scrollTo(0, 0);
+    return;
+  }
+
+  const headerHeight = document.querySelector('.header')?.offsetHeight || 0;
+  const top = Math.max(0, window.scrollY + target.getBoundingClientRect().top - headerHeight - 12);
+  window.scrollTo({ top, behavior: 'auto' });
 }
 
 function resolveCountryLabel(code, fallback = '') {
