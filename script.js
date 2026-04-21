@@ -1544,6 +1544,74 @@ function closeEpisodeCalendarPopovers(exceptWrapper = null) {
   });
 }
 
+function isTerminalTvStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'ended' || normalized === 'canceled' || normalized === 'cancelled';
+}
+
+function normalizeUpcomingEpisode(rawEpisode, fallbackSeasonNumber = 0) {
+  const airDate = String(rawEpisode?.air_date || '').trim();
+  if (!airDate) return null;
+
+  return {
+    airDate,
+    seasonNumber: Number(rawEpisode?.season_number || fallbackSeasonNumber || 0),
+    episodeNumber: Number(rawEpisode?.episode_number || 0),
+    name: resolveEpisodeName(rawEpisode?.name, rawEpisode?.fallback_name, rawEpisode?.episode_number)
+  };
+}
+
+function getRelevantUpcomingSeasonNumbers(details, preferredSeasonNumber = 0) {
+  const seasons = Array.isArray(details?.seasons) ? details.seasons : [];
+  const fallbackSeasonNumber = Number(details?.last_episode_to_air?.season_number || 0);
+  const minSeasonNumber = Math.max(1, Number(preferredSeasonNumber || 0), fallbackSeasonNumber || 1);
+
+  const seasonNumbers = seasons
+    .map((season) => Number(season?.season_number || 0))
+    .filter((seasonNumber) => Number.isFinite(seasonNumber) && seasonNumber >= minSeasonNumber)
+    .sort((a, b) => a - b);
+
+  if (seasonNumbers.length) {
+    return Array.from(new Set(seasonNumbers));
+  }
+
+  return minSeasonNumber > 0 ? [minSeasonNumber] : [];
+}
+
+async function buildUpcomingEpisodeScheduleFromDetails(tvId, details, seasonNumbers, fallbackTitle = '', today = getLocalDateString()) {
+  const settled = await Promise.allSettled(
+    seasonNumbers.map((seasonNumber) => fetchSeasonWithFallbackNames(tvId, seasonNumber))
+  );
+
+  const upcoming = [];
+
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue;
+
+    for (const episode of result.value?.episodes || []) {
+      const normalizedEpisode = normalizeUpcomingEpisode(episode, result.value?.season_number || 0);
+      if (!normalizedEpisode?.airDate || normalizedEpisode.airDate <= today) continue;
+      upcoming.push(normalizedEpisode);
+    }
+  }
+
+  upcoming.sort((a, b) => {
+    if (a.airDate !== b.airDate) return a.airDate.localeCompare(b.airDate);
+    if (a.seasonNumber !== b.seasonNumber) return a.seasonNumber - b.seasonNumber;
+    return a.episodeNumber - b.episodeNumber;
+  });
+
+  const uniqueEpisodes = dedupeUpcomingEpisodes(upcoming);
+
+  return {
+    tvId,
+    showTitle: details?.name || details?.original_name || fallbackTitle || 'Сериал',
+    totalUpcomingCount: uniqueEpisodes.length,
+    allEpisodes: uniqueEpisodes,
+    episodes: uniqueEpisodes.slice(0, EPISODE_CALENDAR_MAX_ITEMS)
+  };
+}
+
 async function getTvCalendarMeta(tvId) {
   if (tvCalendarMetaCache.has(tvId)) {
     return tvCalendarMetaCache.get(tvId);
@@ -1552,21 +1620,30 @@ async function getTvCalendarMeta(tvId) {
   const promise = (async () => {
     const details = await apiFetch(`/tv/${tvId}`, { language: 'ru-RU' });
     const today = getLocalDateString();
-    const lastEpisodeAirDate = details?.last_episode_to_air?.air_date || '';
-    const nextEpisodeAirDate = details?.next_episode_to_air?.air_date || '';
-    const eligible = Boolean(lastEpisodeAirDate && lastEpisodeAirDate <= today && nextEpisodeAirDate && nextEpisodeAirDate > today);
+    const showTitle = details?.name || details?.original_name || '';
+    const terminalStatus = isTerminalTvStatus(details?.status);
+    const directNextEpisode = normalizeUpcomingEpisode(details?.next_episode_to_air);
+    let eligible = Boolean(!terminalStatus && directNextEpisode?.airDate && directNextEpisode.airDate > today);
+    let nextEpisode = directNextEpisode;
+
+    if (!eligible && !terminalStatus) {
+      const seasonNumbers = getRelevantUpcomingSeasonNumbers(details, directNextEpisode?.seasonNumber || 0);
+      if (seasonNumbers.length) {
+        const probedSchedule = await buildUpcomingEpisodeScheduleFromDetails(tvId, details, seasonNumbers, showTitle, today);
+        if (probedSchedule.totalUpcomingCount > 0) {
+          eligible = true;
+          nextEpisode = probedSchedule.allEpisodes[0] || probedSchedule.episodes[0] || nextEpisode;
+          tvEpisodeScheduleCache.set(tvId, Promise.resolve(probedSchedule));
+        }
+      }
+    }
 
     return {
       eligible,
       tvId,
       details,
-      showTitle: details?.name || details?.original_name || '',
-      nextEpisode: details?.next_episode_to_air ? {
-        airDate: details.next_episode_to_air.air_date || '',
-        seasonNumber: Number(details.next_episode_to_air.season_number || 0),
-        episodeNumber: Number(details.next_episode_to_air.episode_number || 0),
-        name: details.next_episode_to_air.name || ''
-      } : null
+      showTitle,
+      nextEpisode
     };
   })();
 
@@ -1582,51 +1659,15 @@ async function getUpcomingEpisodeSchedule(tvId, fallbackTitle = '') {
   const promise = (async () => {
     const meta = await getTvCalendarMeta(tvId);
     const details = meta?.details || await apiFetch(`/tv/${tvId}`, { language: 'ru-RU' });
-    const seasons = Array.isArray(details?.seasons) ? details.seasons : [];
-    const today = getLocalDateString();
+    const seasonNumbers = getRelevantUpcomingSeasonNumbers(details, meta?.nextEpisode?.seasonNumber || 0);
 
-    const nextSeasonNumber = Math.max(1, Number(meta?.nextEpisode?.seasonNumber || 1));
-    const seasonNumbers = seasons
-      .filter((season) => Number(season?.season_number) >= nextSeasonNumber)
-      .map((season) => Number(season.season_number))
-      .sort((a, b) => a - b);
-
-    const settled = await Promise.allSettled(
-      seasonNumbers.map((seasonNumber) => fetchSeasonWithFallbackNames(tvId, seasonNumber))
-    );
-
-    const upcoming = [];
-
-    for (const result of settled) {
-      if (result.status !== 'fulfilled') continue;
-      for (const episode of result.value?.episodes || []) {
-        const airDate = episode?.air_date || '';
-        if (!airDate || airDate <= today) continue;
-
-        upcoming.push({
-          airDate,
-          seasonNumber: Number(episode?.season_number || result.value?.season_number || 0),
-          episodeNumber: Number(episode?.episode_number || 0),
-          name: resolveEpisodeName(episode?.name, episode?.fallback_name, episode?.episode_number)
-        });
-      }
-    }
-
-    upcoming.sort((a, b) => {
-      if (a.airDate !== b.airDate) return a.airDate.localeCompare(b.airDate);
-      if (a.seasonNumber !== b.seasonNumber) return a.seasonNumber - b.seasonNumber;
-      return a.episodeNumber - b.episodeNumber;
-    });
-
-    const uniqueEpisodes = dedupeUpcomingEpisodes(upcoming);
-
-    return {
+    return buildUpcomingEpisodeScheduleFromDetails(
       tvId,
-      showTitle: details?.name || details?.original_name || fallbackTitle || 'Сериал',
-      totalUpcomingCount: uniqueEpisodes.length,
-      allEpisodes: uniqueEpisodes,
-      episodes: uniqueEpisodes.slice(0, EPISODE_CALENDAR_MAX_ITEMS)
-    };
+      details,
+      seasonNumbers,
+      meta?.showTitle || fallbackTitle,
+      getLocalDateString()
+    );
   })();
 
   tvEpisodeScheduleCache.set(tvId, promise);
@@ -1840,6 +1881,44 @@ function buildStatusText(count, searchMode = false) {
   return parts.join(' • ');
 }
 
+function resolveGenreLabelsForItem(mediaType, detailsGenres = [], fallbackGenreIds = []) {
+  if (Array.isArray(detailsGenres) && detailsGenres.length) {
+    return Array.from(new Set(detailsGenres
+      .map((genre) => normalizeGenreLabel(genre))
+      .filter(Boolean)));
+  }
+
+  if (!Array.isArray(fallbackGenreIds) || !fallbackGenreIds.length) {
+    return [];
+  }
+
+  const ids = fallbackGenreIds.map((id) => Number(id));
+  const labels = state.genres
+    .filter((genre) => {
+      const relevantIds = mediaType === 'tv' ? genre.tvIds : genre.movieIds;
+      return relevantIds.some((id) => ids.includes(Number(id)));
+    })
+    .map((genre) => genre.label)
+    .filter(Boolean);
+
+  return Array.from(new Set(labels));
+}
+
+function buildOverlayGenresMarkup(mediaType, detailsGenres = [], fallbackGenreIds = []) {
+  const labels = resolveGenreLabelsForItem(mediaType, detailsGenres, fallbackGenreIds);
+  if (!labels.length) return '';
+
+  const tags = labels
+    .map((label) => `<span class="overlay-genre-chip">${escapeHtml(label)}</span>`)
+    .join('');
+
+  return `
+    <div class="overlay-genres" aria-label="Жанры">
+      ${tags}
+    </div>
+  `;
+}
+
 async function openNav(item) {
   try {
     const details = await apiFetch(`/${item.mediaType}/${item.id}`, {
@@ -1865,6 +1944,7 @@ async function openNav(item) {
     const resolvedOverview = item.overview || details.overview || 'Описание отсутствует.';
     const resolvedDate = item.releaseDate || details.release_date || details.first_air_date || '';
     const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(resolvedDate)}`;
+    const genresMarkup = buildOverlayGenresMarkup(item.mediaType, details?.genres, item.genreIds);
 
     if (videos.length) {
       const isLocalFile = window.location.protocol === 'file:';
@@ -1900,6 +1980,7 @@ async function openNav(item) {
         <div class="overlay-headline">
           <div class="overlay-title">${escapeHtml(title)}</div>
           <div class="overlay-subtitle">${escapeHtml(subtitle)}</div>
+          ${genresMarkup}
         </div>
         ${embed.join('')}
         <div class="dots">${dots.join('')}</div>
@@ -1922,6 +2003,7 @@ async function openNav(item) {
         <div class="overlay-headline">
           <div class="overlay-title">${escapeHtml(title)}</div>
           <div class="overlay-subtitle">${escapeHtml(subtitle)}</div>
+          ${genresMarkup}
         </div>
         <div class="overlay-overview">
           <h3 style="margin-bottom:0.65rem;">Трейлеры не найдены</h3>
