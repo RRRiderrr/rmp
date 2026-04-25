@@ -12,6 +12,7 @@ const EPISODE_CALENDAR_MAX_ITEMS = 24;
 const tvCalendarMetaCache = new Map();
 const tvEpisodeScheduleCache = new Map();
 const itemDetailsCache = new Map();
+const EMPTY_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
 let countryLabelIntl = null;
 try {
@@ -189,6 +190,10 @@ let activeSlide = 0;
 let totalVideos = 0;
 
 init();
+
+window.addEventListener('beforeunload', () => {
+  resetCatalogRuntimeState();
+});
 
 async function init() {
   initTheme();
@@ -917,6 +922,31 @@ function capitalizeFirstLetter(value) {
   return text.charAt(0).toLocaleUpperCase('ru-RU') + text.slice(1);
 }
 
+
+function clearTmdbRuntimeCaches() {
+  itemDetailsCache.clear();
+  tvCalendarMetaCache.clear();
+  tvEpisodeScheduleCache.clear();
+}
+
+function disposeCatalogMediaResources(container = main) {
+  if (!container || typeof container.querySelectorAll !== 'function') return;
+
+  container.querySelectorAll('img').forEach((image) => {
+    image.removeAttribute('srcset');
+    image.removeAttribute('sizes');
+    if (image.getAttribute('src')) {
+      image.setAttribute('src', EMPTY_IMAGE_PLACEHOLDER);
+    }
+  });
+}
+
+function resetCatalogRuntimeState() {
+  closeEpisodeCalendarPopovers();
+  disposeCatalogMediaResources(main);
+  clearTmdbRuntimeCaches();
+}
+
 function scrollToCatalogTopInstant() {
   const target = resultsToolbar || main;
   if (!target) {
@@ -944,6 +974,7 @@ function resolveCountryLabel(code, fallback = '') {
 
 async function loadContent(page = 1) {
   state.currentPage = page;
+  resetCatalogRuntimeState();
   renderLoading('Загружаем каталог...');
 
   try {
@@ -2147,7 +2178,7 @@ async function apiFetch(path, params = {}) {
     url.searchParams.set(key, String(value));
   });
 
-  const response = await fetch(url.toString());
+  const response = await fetch(url.toString(), { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`TMDB request failed: ${response.status}`);
   }
