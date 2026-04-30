@@ -44,7 +44,8 @@
       <button id="favoriteToggle" class="favorite-toggle">Показать избранное</button>
 
       <form id="form" class="search-form">
-        <input type="text" placeholder="Поиск фильма или сериала" id="search" class="search-input" autocomplete="off" />
+        <button type="button" id="aiSearchToggle" class="ai-search-toggle" aria-pressed="false" title="AI-поиск по описанию и вайбу">AI🧠</button>
+        <textarea placeholder="Поиск по названию" id="search" class="search-input" autocomplete="off" rows="1" wrap="off"></textarea>
       </form>
     </div>
   </header>
@@ -119,6 +120,28 @@
       <div id="resultsToolbar" class="results-toolbar">
         <div id="resultsStatus" class="results-status">Загрузка...</div>
       </div>
+
+      <section id="aiSearchPanel" class="ai-search-panel hidden" aria-live="polite">
+        <div class="ai-search-panel-head">
+          <div>
+            <div class="ai-search-title-row">
+              <span class="ai-search-badge">AI SEARCH</span>
+              <span id="aiSearchModeLabel" class="ai-search-mode-label">vibe mode</span>
+            </div>
+            <div id="aiSearchSummary" class="ai-search-summary">Включи AI-режим, опиши настроение или сюжет — и поиск станет охотиться по вайбу, а не по одному названию.</div>
+          </div>
+          <button type="button" id="aiSearchClear" class="ai-search-clear">Сбросить AI</button>
+        </div>
+        <div id="aiSearchPlanChips" class="ai-search-plan-chips"></div>
+        <div class="ai-search-log-shell">
+          <div class="ai-search-log-head">
+            <span>Лог работы</span>
+            <span id="aiSearchStatusPill" class="ai-search-status-pill">ожидание</span>
+          </div>
+          <pre id="aiSearchLog" class="ai-search-log">Пока тихо. Нейронка ещё не рылась в твоём вкусе.</pre>
+        </div>
+      </section>
+
       <section id="main" class="main-content"></section>
     </main>
   </div>

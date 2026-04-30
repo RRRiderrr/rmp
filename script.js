@@ -8,6 +8,31 @@ const PAGE_SIZE = 20;
 const GOOGLE_CALENDAR_BASE_URL = 'https://calendar.google.com/calendar/render';
 const EPISODE_CALENDAR_CONCURRENCY = 4;
 const EPISODE_CALENDAR_MAX_ITEMS = 24;
+const OPENROUTER_API_KEY = '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';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
+const AI_SEARCH_REASONING_MAX_LINES = 22;
+const AI_SEARCH_ROASTS_FILE = 'ai_roasts.txt';
+const AI_SEARCH_DEFAULT_ROASTS = [
+  'Запрос уже на столе. Снимаю отпечатки с жанров.',
+  'Проверяю, не притворяется ли этот вайб нормальным человеком.',
+  'Ищу кино аккуратно: мусор вынесу, мясо оставлю.',
+  'Сверяю запах запроса с тем, что TMDb способен пережить.',
+  'Каталог нервничает, но продолжает сотрудничать.',
+  'Пока всё выглядит как культурное преступление.',
+  'Развожу сатиру и бардак по разным мешкам.',
+  'Сейчас посмотрим, кто тут реально подходит по вайбу.',
+  'Алгоритм кашлянул, но к работе вернулся.',
+  'Если найду шедевр, считай это ошибкой судебной системы.'
+];
+const TMDB_TV_STATUS_CODES = {
+  returning: '0',
+  planned: '1',
+  inProduction: '2',
+  ended: '3',
+  cancelled: '4',
+  pilot: '5'
+};
 
 const tvCalendarMetaCache = new Map();
 const tvEpisodeScheduleCache = new Map();
@@ -115,6 +140,14 @@ const GENRE_LABEL_FALLBACKS = new Map([
 const main = document.getElementById('main');
 const form = document.getElementById('form');
 const search = document.getElementById('search');
+const aiSearchToggle = document.getElementById('aiSearchToggle');
+const aiSearchPanel = document.getElementById('aiSearchPanel');
+const aiSearchModeLabel = document.getElementById('aiSearchModeLabel');
+const aiSearchSummary = document.getElementById('aiSearchSummary');
+const aiSearchPlanChips = document.getElementById('aiSearchPlanChips');
+const aiSearchLog = document.getElementById('aiSearchLog');
+const aiSearchStatusPill = document.getElementById('aiSearchStatusPill');
+const aiSearchClear = document.getElementById('aiSearchClear');
 const genreMultiSelect = document.getElementById('genreMultiSelect');
 const countryExcludeMultiSelect = document.getElementById('countryExcludeMultiSelect');
 const excludeModeToggle = document.getElementById('excludeModeToggle');
@@ -183,11 +216,26 @@ const state = {
   regionsByKey: new Map(),
   appliedFilters: createDefaultFilters(),
   pendingFilters: createDefaultFilters(),
-  pendingExcludeModeSwitch: null
+  pendingExcludeModeSwitch: null,
+  aiSearch: {
+    enabled: false,
+    prompt: '',
+    plan: null,
+    lastRawResponse: '',
+    lastReasoning: [],
+    usedWebSearch: false,
+    lastPlanGeneratedAt: 0
+  }
 };
 
 let activeSlide = 0;
 let totalVideos = 0;
+let aiSearchAbortController = null;
+let aiSearchFallbackTimer = null;
+let aiSearchFallbackIndex = 0;
+let aiSearchRoastLines = [...AI_SEARCH_DEFAULT_ROASTS];
+let aiSearchRoastDeck = [];
+let aiSearchLastRoast = '';
 
 init();
 
@@ -202,9 +250,10 @@ async function init() {
   renderLoading('Подключаемся к TMDB...');
 
   try {
-    await Promise.all([initImageConfig(), loadGenres(), loadCountries()]);
+    await Promise.all([initImageConfig(), loadGenres(), loadCountries(), preloadAiSearchRoasts()]);
     loadRegions();
     syncFilterUiFromPending();
+    syncAiSearchUi();
     await loadContent(1);
   } catch (error) {
     console.error('[init]', error);
@@ -216,8 +265,45 @@ async function init() {
 function bindEvents() {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    state.query = search.value.trim();
+    const nextQuery = search.value.trim();
+
+    if (state.aiSearch.enabled && nextQuery !== state.aiSearch.prompt) {
+      resetAiSearchPlanState();
+    }
+
+    state.query = nextQuery;
+    syncAiSearchUi();
     await loadContent(1);
+  });
+
+  search.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    if (event.shiftKey && state.aiSearch.enabled) return;
+    event.preventDefault();
+    form.requestSubmit();
+  });
+
+  search.addEventListener('input', () => {
+    if (state.aiSearch.enabled) return;
+    if (!/\r?\n/.test(search.value)) return;
+    const caret = search.selectionStart;
+    search.value = search.value.replace(/\s*\r?\n+\s*/g, ' ').replace(/\s{2,}/g, ' ');
+    const safeCaret = Math.min(caret, search.value.length);
+    search.setSelectionRange(safeCaret, safeCaret);
+  });
+
+  aiSearchToggle.addEventListener('click', () => {
+    state.aiSearch.enabled = !state.aiSearch.enabled;
+    if (!state.aiSearch.enabled) {
+      resetAiSearchPlanState();
+    }
+    syncAiSearchUi();
+  });
+
+  aiSearchClear.addEventListener('click', () => {
+    resetAiSearchPlanState();
+    state.aiSearch.enabled = false;
+    syncAiSearchUi();
   });
 
   prev.addEventListener('click', async () => {
@@ -923,6 +1009,851 @@ function capitalizeFirstLetter(value) {
 }
 
 
+
+async function preloadAiSearchRoasts() {
+  try {
+    const response = await fetch(`${AI_SEARCH_ROASTS_FILE}?v=3`, { cache: 'no-store' });
+    if (!response.ok) return;
+    const text = await response.text();
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length) {
+      aiSearchRoastLines = lines;
+      aiSearchRoastDeck = [];
+    }
+  } catch (error) {
+    console.warn('[preloadAiSearchRoasts]', error);
+  }
+}
+
+function getRandomAiRoastLine() {
+  const pool = Array.isArray(aiSearchRoastLines) && aiSearchRoastLines.length ? aiSearchRoastLines : AI_SEARCH_DEFAULT_ROASTS;
+  if (!aiSearchRoastDeck.length) {
+    aiSearchRoastDeck = [...pool];
+    for (let i = aiSearchRoastDeck.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [aiSearchRoastDeck[i], aiSearchRoastDeck[j]] = [aiSearchRoastDeck[j], aiSearchRoastDeck[i]];
+    }
+    if (aiSearchRoastDeck[0] === aiSearchLastRoast && aiSearchRoastDeck.length > 1) {
+      [aiSearchRoastDeck[0], aiSearchRoastDeck[1]] = [aiSearchRoastDeck[1], aiSearchRoastDeck[0]];
+    }
+  }
+  const nextLine = aiSearchRoastDeck.shift() || pool[0];
+  aiSearchLastRoast = nextLine;
+  return nextLine;
+}
+
+function isAiSearchEnabled() {
+  return state.aiSearch.enabled && !!state.query.trim();
+}
+
+function resetAiSearchPlanState() {
+  if (aiSearchAbortController) {
+    aiSearchAbortController.abort();
+    aiSearchAbortController = null;
+  }
+  stopAiSearchFallbackLog();
+  state.aiSearch.prompt = '';
+  state.aiSearch.plan = null;
+  state.aiSearch.lastRawResponse = '';
+  state.aiSearch.lastReasoning = [];
+  state.aiSearch.usedWebSearch = false;
+  state.aiSearch.lastPlanGeneratedAt = 0;
+  aiSearchPlanChips.innerHTML = '';
+  aiSearchModeLabel.textContent = 'vibe mode';
+  aiSearchLog.textContent = 'Пока тихо. ИИ-поиск ещё не запускался.';
+  aiSearchSummary.textContent = 'Включи AI-режим, опиши настроение или сюжет — и поиск соберёт план под TMDb.';
+  setAiSearchStatus('ожидание', 'idle');
+}
+
+function shouldShowAiSearchPanel() {
+  if (!state.aiSearch.enabled) return false;
+  return Boolean(state.aiSearch.prompt || state.aiSearch.plan);
+}
+
+function syncAiSearchUi() {
+  const enabled = state.aiSearch.enabled;
+  aiSearchToggle.classList.toggle('active', enabled);
+  aiSearchToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  search.placeholder = enabled
+    ? 'Опиши сюжет, вайб или настроение. Например: грязный сатирический сериал про ублюдочных супергероев'
+    : 'Поиск по названию';
+  if (!enabled && /\r?\n/.test(search.value)) {
+    search.value = search.value.replace(/\s*\r?\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+  search.classList.toggle('ai-multiline', enabled);
+  search.rows = enabled ? 3 : 1;
+  search.style.height = enabled ? '88px' : '42px';
+  search.scrollTop = 0;
+  aiSearchPanel.classList.toggle('hidden', !shouldShowAiSearchPanel());
+}
+
+function setAiSearchStatus(label, tone = 'idle') {
+  aiSearchStatusPill.textContent = label;
+  aiSearchStatusPill.dataset.tone = tone;
+}
+
+function appendAiSearchLog(line, { replace = false } = {}) {
+  const safeLine = String(line || '').trim();
+  if (!safeLine) return;
+
+  const lines = replace
+    ? [safeLine]
+    : aiSearchLog.textContent
+        .split('\n')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .concat(safeLine);
+
+  aiSearchLog.textContent = lines.slice(-AI_SEARCH_REASONING_MAX_LINES).join('\n');
+  aiSearchLog.scrollTop = aiSearchLog.scrollHeight;
+}
+
+function stopAiSearchFallbackLog() {
+  if (aiSearchFallbackTimer) {
+    clearInterval(aiSearchFallbackTimer);
+    aiSearchFallbackTimer = null;
+  }
+}
+
+function startAiSearchFallbackLog() {
+  stopAiSearchFallbackLog();
+  aiSearchFallbackIndex = 0;
+  aiSearchFallbackTimer = setInterval(() => {
+    if (!state.aiSearch.enabled) {
+      stopAiSearchFallbackLog();
+      return;
+    }
+    const line = getRandomAiRoastLine();
+    aiSearchFallbackIndex += 1;
+    appendAiSearchLog(`• ${line}`);
+  }, 1700);
+}
+
+function buildAiGenreReferenceText() {
+  const movieLines = [];
+  const tvLines = [];
+
+  for (const genre of state.genres) {
+    for (const id of genre.movieIds || []) {
+      movieLines.push(`${id}: ${genre.label}`);
+    }
+    for (const id of genre.tvIds || []) {
+      tvLines.push(`${id}: ${genre.label}`);
+    }
+  }
+
+  return [
+    `Movie genre IDs: ${Array.from(new Set(movieLines)).join(', ')}`,
+    `TV genre IDs: ${Array.from(new Set(tvLines)).join(', ')}`
+  ].join('\n');
+}
+
+function buildAiHardConstraintText() {
+  const bits = [];
+  if (state.appliedFilters.type !== 'all') {
+    bits.push(`UI media type is fixed to ${state.appliedFilters.type}.`);
+  }
+  if (state.appliedFilters.yearFrom !== MIN_YEAR || state.appliedFilters.yearTo !== CURRENT_YEAR) {
+    bits.push(`UI year range is ${state.appliedFilters.yearFrom}-${state.appliedFilters.yearTo}.`);
+  }
+  if (state.appliedFilters.genres.length) {
+    const labels = state.appliedFilters.genres
+      .map((key) => state.genresByKey.get(key)?.label)
+      .filter(Boolean)
+      .join(', ');
+    if (labels) bits.push(`UI selected genres: ${labels}.`);
+  }
+  return bits.join(' ') || 'No extra UI hard filters selected.';
+}
+
+function buildAiSearchSystemPrompt() {
+  return [
+    'You are RMP AI Search Planner.',
+    'Convert the user\'s free-text movie/TV request into strict JSON for TMDb search and discover.',
+    'Return ONLY valid JSON. No markdown, no prose outside JSON, no code fences.',
+    'Prefer precision over variety. Avoid childish, family, or animation results when the request is clearly adult, violent, cynical, satirical, gritty, erotic, or dark unless the user explicitly asks for those genres.',
+    'Use only genre IDs from the provided reference. If unsure, leave arrays empty instead of inventing IDs.',
+    'Schema:',
+    '{',
+    '  "media_type": "movie" | "tv" | "all",',
+    '  "search_strategy": "title-first" | "hybrid" | "discover-only",',
+    '  "text_query": string,',
+    '  "title_hints": string[],',
+    '  "include_genre_ids": number[],',
+    '  "exclude_genre_ids": number[],',
+    '  "primary_year_from": number | null,',
+    '  "primary_year_to": number | null,',
+    '  "vote_average_gte": number | null,',
+    '  "vote_count_gte": number | null,',
+    '  "original_languages": string[],',
+    '  "sort_by": string,',
+    '  "must_match_terms": string[],',
+    '  "avoid_terms": string[],',
+    '  "explanation": string,',
+    '  "confidence": number,',
+    '  "for_tv": { "only_currently_airing": boolean }',
+    '}',
+    'If the user describes a known title, put it in text_query/title_hints and prefer title-first or hybrid.',
+    'If the user describes only vibe or plot fragments, prefer hybrid or discover-only and keep text_query concise.',
+    'Do not include impossible years, fake languages, fake genre IDs, or commentary.'
+  ].join('\n');
+}
+
+function buildAiSearchUserPrompt(rawQuery) {
+  return [
+    `User request: ${rawQuery}`,
+    buildAiHardConstraintText(),
+    buildAiGenreReferenceText(),
+    'No external tools are required. Focus on producing the most accurate TMDb retrieval plan from the user request and the provided genre reference.'
+  ].join('\n\n');
+}
+
+function normalizeAiSearchPlan(rawPlan) {
+  const source = rawPlan && typeof rawPlan === 'object' ? rawPlan : {};
+  const mediaType = ['movie', 'tv', 'all'].includes(source.media_type) ? source.media_type : 'all';
+  const strategy = ['title-first', 'hybrid', 'discover-only'].includes(source.search_strategy) ? source.search_strategy : 'hybrid';
+  const includeGenres = normalizeNumericIdArray(source.include_genre_ids);
+  const excludeGenres = normalizeNumericIdArray(source.exclude_genre_ids).filter((id) => !includeGenres.includes(id));
+  const titleHints = normalizeStringArray(source.title_hints, 5);
+  const textQuery = String(source.text_query || '').trim();
+  const mustMatchTerms = normalizeStringArray(source.must_match_terms, 8);
+  const avoidTerms = normalizeStringArray(source.avoid_terms, 8);
+  const yearFrom = normalizeOptionalYear(source.primary_year_from);
+  const yearTo = normalizeOptionalYear(source.primary_year_to);
+  const normalizedYearFrom = yearFrom !== null && yearTo !== null ? Math.min(yearFrom, yearTo) : yearFrom;
+  const normalizedYearTo = yearFrom !== null && yearTo !== null ? Math.max(yearFrom, yearTo) : yearTo;
+  const voteAverage = normalizeOptionalNumber(source.vote_average_gte, 0, 10, 1);
+  const voteCount = normalizeOptionalInteger(source.vote_count_gte, 0, 10000000);
+  const originalLanguages = normalizeLanguageCodes(source.original_languages, 3);
+  const confidence = normalizeOptionalNumber(source.confidence, 0, 1, 2) ?? 0.72;
+  const onlyCurrentlyAiring = Boolean(source?.for_tv?.only_currently_airing);
+
+  return {
+    mediaType,
+    searchStrategy: strategy,
+    textQuery,
+    titleHints,
+    includeGenreIds: includeGenres,
+    excludeGenreIds: excludeGenres,
+    primaryYearFrom: normalizedYearFrom,
+    primaryYearTo: normalizedYearTo,
+    voteAverageGte: voteAverage,
+    voteCountGte: voteCount,
+    originalLanguages,
+    sortBy: normalizeAiSortBy(source.sort_by, mediaType),
+    mustMatchTerms,
+    avoidTerms,
+    explanation: String(source.explanation || '').trim(),
+    confidence,
+    forTv: {
+      onlyCurrentlyAiring
+    }
+  };
+}
+
+function normalizeNumericIdArray(value) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isInteger(entry) && entry > 0)));
+}
+
+function normalizeStringArray(value, limit = 6) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean))).slice(0, limit);
+}
+
+function normalizeOptionalYear(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return clampYear(numeric);
+}
+
+function normalizeOptionalInteger(value, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  if (value === null || value === undefined || value === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return Math.max(min, Math.min(max, Math.round(numeric)));
+}
+
+function normalizeOptionalNumber(value, min = 0, max = Number.MAX_SAFE_INTEGER, precision = 1) {
+  if (value === null || value === undefined || value === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const clamped = Math.max(min, Math.min(max, numeric));
+  const factor = 10 ** precision;
+  return Math.round(clamped * factor) / factor;
+}
+
+function normalizeLanguageCodes(value, limit = 4) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value
+    .map((entry) => String(entry || '').trim().toLowerCase())
+    .filter((entry) => /^[a-z]{2,3}$/.test(entry)))).slice(0, limit);
+}
+
+function normalizeAiSortBy(value, mediaType = 'all') {
+  const raw = String(value || '').trim();
+  const common = ['popularity.desc', 'popularity.asc', 'vote_average.desc', 'vote_average.asc', 'vote_count.desc', 'vote_count.asc'];
+  const movieOnly = ['primary_release_date.desc', 'primary_release_date.asc'];
+  const tvOnly = ['first_air_date.desc', 'first_air_date.asc'];
+  const allowed = new Set([
+    ...common,
+    ...(mediaType === 'movie' ? movieOnly : []),
+    ...(mediaType === 'tv' ? tvOnly : []),
+    ...(mediaType === 'all' ? [...movieOnly, ...tvOnly] : [])
+  ]);
+  if (allowed.has(raw)) return raw;
+  return mediaType === 'tv' ? 'popularity.desc' : 'popularity.desc';
+}
+
+async function ensureAiSearchPlan() {
+  const query = state.query.trim();
+  if (!state.aiSearch.enabled || !query) return null;
+
+  if (state.aiSearch.plan && state.aiSearch.prompt === query) {
+    return state.aiSearch.plan;
+  }
+
+  return requestAiSearchPlan(query);
+}
+
+async function requestAiSearchPlan(query) {
+  if (!query) return null;
+
+  if (aiSearchAbortController) {
+    aiSearchAbortController.abort();
+  }
+
+  aiSearchAbortController = new AbortController();
+  state.aiSearch.prompt = query;
+  state.aiSearch.plan = null;
+  state.aiSearch.lastRawResponse = '';
+  state.aiSearch.lastReasoning = [];
+  state.aiSearch.usedWebSearch = false;
+  syncAiSearchUi();
+  aiSearchSummary.textContent = `Разбираю запрос: «${query}». Сейчас ИИ переведёт его в TMDb-фильтры и план поиска.`;
+  aiSearchPlanChips.innerHTML = '';
+  aiSearchLog.textContent = '• Запускаю ИИ-поиск';
+  setAiSearchStatus('анализ', 'thinking');
+  startAiSearchFallbackLog();
+
+  const payload = {
+    model: OPENROUTER_MODEL,
+    messages: [
+      { role: 'system', content: buildAiSearchSystemPrompt() },
+      { role: 'user', content: buildAiSearchUserPrompt(query) }
+    ],
+    temperature: 0.2,
+    max_completion_tokens: 900,
+    stream: true
+  };
+
+  const headers = {
+    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+    'Content-Type': 'application/json',
+    'X-OpenRouter-Title': 'RMP AI Search'
+  };
+
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    headers['HTTP-Referer'] = window.location.origin;
+  }
+
+  try {
+    const response = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: aiSearchAbortController.signal
+    });
+
+    if (!response.ok) {
+      stopAiSearchFallbackLog();
+      const errorText = await response.text().catch(() => '');
+      appendAiSearchLog(`• OpenRouter вернул ${response.status}. ${errorText.slice(0, 260)}`);
+      aiSearchSummary.textContent = 'ИИ не смог собрать план поиска. Проверь консоль и попробуй ещё раз.';
+      setAiSearchStatus('ошибка', 'error');
+      throw new Error(`OpenRouter request failed: ${response.status}`);
+    }
+
+    let rawContent = '';
+
+    if (response.body && typeof response.body.getReader === 'function') {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r/g, '');
+      const chunks = buffer.split('\n\n');
+      buffer = chunks.pop() || '';
+
+      for (const chunk of chunks) {
+        const dataLines = chunk
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .filter(Boolean);
+
+        for (const dataLine of dataLines) {
+          if (dataLine === '[DONE]') continue;
+
+          let parsed;
+          try {
+            parsed = JSON.parse(dataLine);
+          } catch (error) {
+            continue;
+          }
+
+          const choice = parsed?.choices?.[0];
+          const delta = choice?.delta || {};
+
+          if (Array.isArray(delta.tool_calls) && delta.tool_calls.length) {
+            state.aiSearch.usedWebSearch = true;
+          }
+
+          const deltaContent = typeof delta.content === 'string'
+            ? delta.content
+            : Array.isArray(delta.content)
+              ? delta.content.map((entry) => entry?.text || '').join('')
+              : '';
+
+          if (deltaContent) {
+            rawContent += deltaContent;
+          }
+        }
+      }
+    }
+  } else {
+    rawContent = await response.text();
+  }
+
+    stopAiSearchFallbackLog();
+    const parsedPlan = parseAiPlanPayload(rawContent);
+    const plan = normalizeAiSearchPlan(parsedPlan);
+
+    state.aiSearch.plan = plan;
+    state.aiSearch.lastRawResponse = rawContent;
+    state.aiSearch.lastReasoning = [];
+    state.aiSearch.lastPlanGeneratedAt = Date.now();
+
+    setAiSearchStatus('готово', 'ready');
+    updateAiPlanPresentation(plan);
+    return plan;
+  } finally {
+    stopAiSearchFallbackLog();
+    aiSearchAbortController = null;
+  }
+}
+
+function parseAiPlanPayload(rawText) {
+  const cleaned = String(rawText || '').trim();
+  if (!cleaned) {
+    throw new Error('AI search planner returned an empty response.');
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
+    throw error;
+  }
+}
+
+function updateAiPlanPresentation(plan) {
+  const parts = [];
+  if (plan.explanation) {
+    parts.push(plan.explanation);
+  }
+  parts.push(`Стратегия: ${resolveAiStrategyLabel(plan.searchStrategy)}.`);
+  if (state.aiSearch.usedWebSearch) {
+    parts.push('Модель подтягивала веб-контекст для уточнения запроса.');
+  }
+  aiSearchSummary.textContent = parts.join(' ');
+  aiSearchModeLabel.textContent = `${resolveAiMediaTypeLabel(plan.mediaType)} • ${resolveAiStrategyLabel(plan.searchStrategy)}`;
+  aiSearchPlanChips.innerHTML = buildAiPlanChipsMarkup(plan);
+}
+
+function resolveAiMediaTypeLabel(mediaType) {
+  if (mediaType === 'movie') return 'кино-фокус';
+  if (mediaType === 'tv') return 'сериальный фокус';
+  return 'смешанный фокус';
+}
+
+function resolveAiStrategyLabel(strategy) {
+  if (strategy === 'title-first') return 'точное опознание тайтла';
+  if (strategy === 'discover-only') return 'чистый vibe-discover';
+  return 'гибридный поиск';
+}
+
+function buildAiPlanChipsMarkup(plan) {
+  const chips = [];
+  chips.push(renderAiPlanChip(resolveAiMediaTypeLabel(plan.mediaType), 'accent'));
+  chips.push(renderAiPlanChip(resolveAiStrategyLabel(plan.searchStrategy), 'muted'));
+
+  if (plan.textQuery) {
+    chips.push(renderAiPlanChip(`поисковая фраза: ${plan.textQuery}`, 'muted'));
+  }
+
+  const includedGenres = resolveAiGenreLabels(plan.mediaType, plan.includeGenreIds);
+  const excludedGenres = resolveAiGenreLabels(plan.mediaType, plan.excludeGenreIds);
+
+  for (const genre of includedGenres) {
+    chips.push(renderAiPlanChip(genre, 'success'));
+  }
+  for (const genre of excludedGenres) {
+    chips.push(renderAiPlanChip(`без ${genre}`, 'danger'));
+  }
+
+  if (plan.primaryYearFrom !== null || plan.primaryYearTo !== null) {
+    const from = plan.primaryYearFrom ?? '—';
+    const to = plan.primaryYearTo ?? '—';
+    chips.push(renderAiPlanChip(`годы: ${from}–${to}`, 'muted'));
+  }
+
+  if (plan.voteAverageGte !== null) {
+    chips.push(renderAiPlanChip(`рейтинг от ${plan.voteAverageGte}`, 'muted'));
+  }
+
+  if (plan.voteCountGte !== null) {
+    chips.push(renderAiPlanChip(`голосов от ${plan.voteCountGte}`, 'muted'));
+  }
+
+  if (plan.originalLanguages.length) {
+    chips.push(renderAiPlanChip(`языки: ${plan.originalLanguages.join(', ')}`, 'muted'));
+  }
+
+  if (plan.forTv.onlyCurrentlyAiring) {
+    chips.push(renderAiPlanChip('только онгоинги', 'accent'));
+  }
+
+  return chips.join('');
+}
+
+function renderAiPlanChip(text, tone = 'muted') {
+  return `<span class="ai-search-chip" data-tone="${escapeHtml(tone)}">${escapeHtml(text)}</span>`;
+}
+
+function resolveAiGenreLabels(mediaType, ids = []) {
+  if (!Array.isArray(ids) || !ids.length) return [];
+  const labels = [];
+  for (const id of ids) {
+    const found = state.genres.find((genre) => {
+      const pool = mediaType === 'movie' ? genre.movieIds : mediaType === 'tv' ? genre.tvIds : [...genre.movieIds, ...genre.tvIds];
+      return pool.includes(Number(id));
+    });
+    labels.push(found?.label || `#${id}`);
+  }
+  return Array.from(new Set(labels));
+}
+
+async function fetchAiSearchContent(page) {
+  try {
+    const plan = await ensureAiSearchPlan();
+    if (!plan) {
+      return fetchSearchContent(page);
+    }
+
+    setAiSearchStatus('ищем', 'working');
+
+    const payload = await executeAiSearchPlan(plan, page);
+    setAiSearchStatus('готово', 'ready');
+    aiSearchLog.textContent = '• ИИ-поиск завершен';
+
+    return {
+      items: payload.items,
+      totalPages: payload.totalPages,
+      statusText: buildAiStatusText(payload.items.length, plan)
+    };
+  } catch (error) {
+    console.error('[fetchAiSearchContent]', error);
+    appendAiSearchLog('• AI-поиск остановился с ошибкой. Обычный поиск специально не подмешиваю.');
+    aiSearchSummary.textContent = 'ИИ-поиск не смог собрать рабочий план. Отключи AI-кнопку для обычного поиска по названию.';
+    setAiSearchStatus('ошибка', 'error');
+    return {
+      items: [],
+      totalPages: 1,
+      statusText: 'AI-поиск завершился ошибкой. Обычный поиск не запускался.'
+    };
+  }
+}
+
+function buildAiStatusText(count, plan) {
+  const base = count ? `AI-поиск нашёл ${count} ${count === 1 ? 'тайтл' : count < 5 ? 'тайтла' : 'тайтлов'}.` : 'AI-поиск ничего не нашёл.';
+  const extras = [];
+  if (plan.textQuery) extras.push(`TMDb query: ${plan.textQuery}`);
+  if (plan.includeGenreIds.length) extras.push(`жанры: ${resolveAiGenreLabels(plan.mediaType, plan.includeGenreIds).join(', ')}`);
+  if (plan.forTv.onlyCurrentlyAiring) extras.push('онгоинги');
+  return [base, extras.join(' • ')].filter(Boolean).join(' ');
+}
+
+async function executeAiSearchPlan(plan, page) {
+  const mediaTargets = resolveAiMediaTargets(plan);
+  const effectiveTextQuery = plan.textQuery || plan.titleHints[0] || (plan.searchStrategy === 'title-first' ? state.query.trim() : '');
+  const tasks = [];
+
+  for (const mediaType of mediaTargets) {
+    if (effectiveTextQuery) {
+      const endpoint = mediaType === 'movie' ? '/search/movie' : '/search/tv';
+      tasks.push(apiFetch(endpoint, buildAiSearchParams(mediaType, page, effectiveTextQuery, plan))
+        .then((response) => ({ source: 'search', mediaType, response })));
+    }
+
+    if (plan.searchStrategy !== 'title-first' || page === 1 || !effectiveTextQuery) {
+      const endpoint = mediaType === 'movie' ? '/discover/movie' : '/discover/tv';
+      tasks.push(apiFetch(endpoint, buildAiDiscoverParams(mediaType, page, plan))
+        .then((response) => ({ source: 'discover', mediaType, response })));
+    }
+  }
+
+  if (!tasks.length) {
+    return {
+      items: [],
+      totalPages: 1
+    };
+  }
+
+  const settled = await Promise.allSettled(tasks);
+  const collected = [];
+  let totalPages = 1;
+
+  for (const item of settled) {
+    if (item.status !== 'fulfilled') continue;
+    const response = item.value.response || {};
+    totalPages = Math.max(totalPages, Number(response.total_pages || 1));
+    const normalized = (response.results || []).map((entry) => normalizeItem(entry, item.value.mediaType));
+    collected.push(...normalized);
+  }
+
+  const deduped = dedupeItemsByMediaAndId(collected);
+  const hydrated = await hydrateItemsForClientFilters(deduped);
+  const filtered = hydrated
+    .filter(matchesClientSideFilters)
+    .filter((item) => matchesAiPlanFilters(item, plan));
+
+  const ranked = filtered
+    .map((item) => ({ item, score: scoreAiCandidate(item, plan, effectiveTextQuery) }))
+    .sort((a, b) => b.score - a.score || sortByPopularity(a.item, b.item))
+    .map((entry) => entry.item);
+
+  return {
+    items: ranked,
+    totalPages
+  };
+}
+
+function resolveAiMediaTargets(plan) {
+  const forcedType = state.appliedFilters.type;
+  if (forcedType === 'movie' || forcedType === 'tv') {
+    return [forcedType];
+  }
+  if (plan.mediaType === 'movie' || plan.mediaType === 'tv') {
+    return [plan.mediaType];
+  }
+  return ['movie', 'tv'];
+}
+
+function buildAiSearchParams(mediaType, page, query, plan) {
+  const params = {
+    api_key: API_KEY,
+    language: 'ru-RU',
+    include_adult: 'false',
+    page: String(page),
+    query
+  };
+
+  const exactYear = resolveAiYearExact(plan);
+  if (mediaType === 'movie' && exactYear !== null) {
+    params.year = String(exactYear);
+  }
+  if (mediaType === 'tv' && exactYear !== null) {
+    params.first_air_date_year = String(exactYear);
+  }
+
+  return params;
+}
+
+function resolveAiYearExact(plan) {
+  if (state.appliedFilters.yearFrom === state.appliedFilters.yearTo) {
+    return state.appliedFilters.yearFrom;
+  }
+  if (plan.primaryYearFrom !== null && plan.primaryYearTo !== null && plan.primaryYearFrom === plan.primaryYearTo) {
+    return plan.primaryYearFrom;
+  }
+  return null;
+}
+
+function buildAiDiscoverParams(mediaType, page, plan) {
+  const params = buildDiscoverParams(mediaType, page);
+
+  if (!state.appliedFilters.genres.length && plan.includeGenreIds.length) {
+    params.with_genres = plan.includeGenreIds.join('|');
+  }
+
+  if (plan.excludeGenreIds.length) {
+    params.without_genres = plan.excludeGenreIds.join('|');
+  }
+
+  if ((state.appliedFilters.yearFrom === MIN_YEAR && state.appliedFilters.yearTo === CURRENT_YEAR) && (plan.primaryYearFrom !== null || plan.primaryYearTo !== null)) {
+    const from = plan.primaryYearFrom ?? MIN_YEAR;
+    const to = plan.primaryYearTo ?? CURRENT_YEAR;
+    if (mediaType === 'movie') {
+      params['primary_release_date.gte'] = `${from}-01-01`;
+      params['primary_release_date.lte'] = `${to}-12-31`;
+      delete params.year;
+    } else {
+      params['first_air_date.gte'] = `${from}-01-01`;
+      params['first_air_date.lte'] = `${to}-12-31`;
+      delete params.first_air_date_year;
+    }
+  }
+
+  if (plan.voteAverageGte !== null) {
+    params['vote_average.gte'] = String(plan.voteAverageGte);
+  }
+  if (plan.voteCountGte !== null) {
+    params['vote_count.gte'] = String(plan.voteCountGte);
+  }
+  if (plan.originalLanguages.length) {
+    params.with_original_language = plan.originalLanguages.join('|');
+  }
+
+  if (mediaType === 'tv' && plan.forTv.onlyCurrentlyAiring) {
+    params.with_status = `${TMDB_TV_STATUS_CODES.returning}|${TMDB_TV_STATUS_CODES.inProduction}`;
+    params['air_date.gte'] = getLocalDateString();
+    params.sort_by = 'popularity.desc';
+  } else {
+    params.sort_by = coerceAiSortByForMediaType(plan.sortBy, mediaType);
+  }
+
+  return params;
+}
+
+function coerceAiSortByForMediaType(sortBy, mediaType) {
+  const value = String(sortBy || '').trim();
+  if (mediaType === 'movie' && value.startsWith('first_air_date')) return 'popularity.desc';
+  if (mediaType === 'tv' && value.startsWith('primary_release_date')) return 'popularity.desc';
+  return value || 'popularity.desc';
+}
+
+function dedupeItemsByMediaAndId(items) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const key = `${item.mediaType}:${item.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function matchesAiPlanFilters(item, plan) {
+  if (!item) return false;
+
+  if (plan.mediaType !== 'all' && item.mediaType !== plan.mediaType && state.appliedFilters.type === 'all') {
+    return false;
+  }
+
+  if (plan.includeGenreIds.length && !item.genreIds.some((id) => plan.includeGenreIds.includes(Number(id)))) {
+    return false;
+  }
+
+  if (plan.excludeGenreIds.length && item.genreIds.some((id) => plan.excludeGenreIds.includes(Number(id)))) {
+    return false;
+  }
+
+  const year = getItemYear(item.releaseDate);
+  if (year !== null) {
+    if (plan.primaryYearFrom !== null && year < plan.primaryYearFrom) return false;
+    if (plan.primaryYearTo !== null && year > plan.primaryYearTo) return false;
+  }
+
+  if (plan.voteAverageGte !== null && Number(item.voteAverage || 0) + 0.2 < plan.voteAverageGte) {
+    return false;
+  }
+
+  return true;
+}
+
+function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
+  let score = Number(item.popularity || 0) * 0.02 + Number(item.voteAverage || 0) * 4;
+  const titleText = normalizeSearchText(`${item.title} ${item.originalTitle}`);
+  const overviewText = normalizeSearchText(item.overview || '');
+  const queryText = normalizeSearchText(effectiveTextQuery || state.query);
+
+  if (plan.mediaType !== 'all' && item.mediaType === plan.mediaType) {
+    score += 70;
+  }
+
+  if (plan.includeGenreIds.length) {
+    const overlap = item.genreIds.filter((id) => plan.includeGenreIds.includes(Number(id))).length;
+    score += overlap * 38;
+  }
+
+  if (plan.excludeGenreIds.length) {
+    const excludedOverlap = item.genreIds.filter((id) => plan.excludeGenreIds.includes(Number(id))).length;
+    score -= excludedOverlap * 120;
+  }
+
+  if (queryText) {
+    if (titleText.includes(queryText)) score += 220;
+    else if (overviewText.includes(queryText)) score += 70;
+  }
+
+  for (const hint of plan.titleHints) {
+    const normalizedHint = normalizeSearchText(hint);
+    if (!normalizedHint) continue;
+    if (titleText.includes(normalizedHint)) score += 190;
+    else if (overviewText.includes(normalizedHint)) score += 55;
+  }
+
+  for (const term of plan.mustMatchTerms) {
+    const normalizedTerm = normalizeSearchText(term);
+    if (!normalizedTerm) continue;
+    if (titleText.includes(normalizedTerm)) score += 48;
+    else if (overviewText.includes(normalizedTerm)) score += 22;
+  }
+
+  for (const term of plan.avoidTerms) {
+    const normalizedTerm = normalizeSearchText(term);
+    if (!normalizedTerm) continue;
+    if (titleText.includes(normalizedTerm) || overviewText.includes(normalizedTerm)) {
+      score -= 60;
+    }
+  }
+
+  const year = getItemYear(item.releaseDate);
+  if (year !== null && plan.primaryYearFrom !== null && plan.primaryYearTo !== null) {
+    if (year >= plan.primaryYearFrom && year <= plan.primaryYearTo) {
+      score += 18;
+    }
+  }
+
+  return score;
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[^a-zа-я0-9\s]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+
 function clearTmdbRuntimeCaches() {
   itemDetailsCache.clear();
   tvCalendarMetaCache.clear();
@@ -978,7 +1909,7 @@ async function loadContent(page = 1) {
   renderLoading('Загружаем каталог...');
 
   try {
-    const payload = state.showFavoritesOnly ? await fetchFavoritesContent() : (state.query ? await fetchSearchContent(page) : await fetchDiscoverContent(page));
+    const payload = state.showFavoritesOnly ? await fetchFavoritesContent() : (state.query ? (isAiSearchEnabled() ? await fetchAiSearchContent(page) : await fetchSearchContent(page)) : await fetchDiscoverContent(page));
 
     state.totalPages = Math.max(1, payload.totalPages || 1);
     state.currentPage = Math.min(page, state.totalPages);
