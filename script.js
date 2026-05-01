@@ -1176,6 +1176,8 @@ function buildAiSearchSystemPrompt() {
     'Return ONLY valid JSON. No markdown, no prose outside JSON, no code fences.',
     'Your job is retrieval, not chatter. Build a plan that gives TMDb the highest chance to find the intended title, franchise, character, quote, or vibe.',
     'If the user paraphrases a plot, a recurring quote, a meme, a character beat, or a franchise premise, infer the most likely official title or franchise and place it into title_hints and alternate_queries.',
+    'Never turn a descriptive plot summary into a cheap literal title guess just because the words sound plausible. Prefer a famous, widely-known official title or franchise over an obscure generic literal match.',
+    'If the prompt sounds like a famous franchise, recurring catchphrase, or iconic premise, bias toward that franchise/title instead of inventing a direct translation of the quote.',
     'alternate_queries must contain short TMDb-friendly retrieval phrases. Prefer official titles, franchise names, common aliases, translated names, and concise plot anchors. Never dump the whole raw prompt there.',
     'Prefer precision over variety. Avoid childish, family, or animation results when the request is clearly adult, violent, cynical, satirical, gritty, erotic, or dark unless the user explicitly asks for those genres.',
     'Use only genre IDs from the provided reference. If unsure, leave arrays empty instead of inventing IDs.',
@@ -1320,6 +1322,115 @@ function normalizeAiSortBy(value, mediaType = 'all') {
   return mediaType === 'tv' ? 'popularity.desc' : 'popularity.desc';
 }
 
+function shouldRequestAiRescueCandidates(query, plan) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return false;
+  const tokenCount = normalizedQuery.split(' ').filter(Boolean).length;
+  const hasLooseNarrativeSignal = /\b(который|которая|которые|where|who|about|про|там|каждый|постоянно|говорит|says|organizes|устраивает|гонки|superheroes|супергероев|satirical|сатирическ|грязн|parody|парод|race|гонк|last|последн|quote|цитат)\b/i.test(query);
+  if (plan.searchStrategy === 'title-first' && plan.confidence < 0.94) return true;
+  if (hasLooseNarrativeSignal && tokenCount >= 4) return true;
+  if ((plan.titleHints || []).length <= 1 && tokenCount >= 4) return true;
+  if ((plan.alternateQueries || []).length <= 1 && tokenCount >= 5) return true;
+  return false;
+}
+
+async function requestAiRescueCandidates(query, plan) {
+  const payload = {
+    model: OPENROUTER_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'You are RMP title rescue.',
+          'The first planner may have guessed too literally. Your job is to propose likely OFFICIAL titles or franchises that the user probably means.',
+          'Prefer famous, popular, culturally-known titles over obscure literal matches.',
+          'Do NOT invent generic titles from quotes or plot phrases.',
+          'Return ONLY valid JSON with this schema:',
+          '{"candidate_titles": string[], "alternate_queries": string[], "reason": string}',
+          'candidate_titles: likely official titles or franchise names ordered by likelihood.',
+          'alternate_queries: short retrieval-friendly title variants, aliases, translations, or franchise anchors.'
+        ].join('\n')
+      },
+      {
+        role: 'user',
+        content: [
+          `User request: ${query}`,
+          `Initial plan JSON: ${JSON.stringify({
+            media_type: plan.mediaType,
+            search_strategy: plan.searchStrategy,
+            text_query: plan.textQuery,
+            title_hints: plan.titleHints,
+            alternate_queries: plan.alternateQueries,
+            include_genre_ids: plan.includeGenreIds,
+            exclude_genre_ids: plan.excludeGenreIds,
+            primary_year_from: plan.primaryYearFrom,
+            primary_year_to: plan.primaryYearTo,
+            confidence: plan.confidence
+          })}`,
+          'Return a compact rescue list of likely official titles or franchises. Avoid obscure direct-title traps.'
+        ].join('\n\n')
+      }
+    ],
+    temperature: 0.15,
+    max_completion_tokens: 220,
+    stream: false
+  };
+
+  const headers = {
+    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+    'Content-Type': 'application/json',
+    'X-OpenRouter-Title': 'RMP AI Search Rescue'
+  };
+
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    headers['HTTP-Referer'] = window.location.origin;
+  }
+
+  const response = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenRouter rescue request failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const message = data?.choices?.[0]?.message?.content;
+  const parsed = typeof message === 'string' ? parseAiPlanPayload(message) : (message && typeof message === 'object' ? message : {});
+  return {
+    candidateTitles: normalizeStringArray(parsed?.candidate_titles, 8),
+    alternateQueries: normalizeStringArray(parsed?.alternate_queries, 8),
+    reason: String(parsed?.reason || '').trim()
+  };
+}
+
+function mergeAiRescueIntoPlan(plan, rescue) {
+  if (!rescue) return plan;
+  const mergedTitleHints = Array.from(new Set([
+    ...(rescue.candidateTitles || []),
+    ...(plan.titleHints || [])
+  ])).slice(0, 8);
+  const mergedAlternateQueries = Array.from(new Set([
+    ...(rescue.alternateQueries || []),
+    ...(plan.alternateQueries || []),
+    ...(rescue.candidateTitles || [])
+  ])).slice(0, 8);
+
+  const mergedPlan = {
+    ...plan,
+    titleHints: mergedTitleHints,
+    alternateQueries: mergedAlternateQueries
+  };
+
+  if (plan.searchStrategy === 'title-first' && ((rescue.candidateTitles || []).length > 1 || (rescue.alternateQueries || []).length > 1)) {
+    mergedPlan.searchStrategy = 'hybrid';
+  }
+
+  return mergedPlan;
+}
+
 async function ensureAiSearchPlan() {
   const query = state.query.trim();
   if (!state.aiSearch.enabled || !query) return null;
@@ -1445,7 +1556,16 @@ async function requestAiSearchPlan(query) {
 
     stopAiSearchFallbackLog();
     const parsedPlan = parseAiPlanPayload(rawContent);
-    const plan = normalizeAiSearchPlan(parsedPlan);
+    let plan = normalizeAiSearchPlan(parsedPlan);
+
+    if (shouldRequestAiRescueCandidates(query, plan)) {
+      try {
+        const rescue = await requestAiRescueCandidates(query, plan);
+        plan = mergeAiRescueIntoPlan(plan, rescue);
+      } catch (rescueError) {
+        console.warn('[AI rescue candidates]', rescueError);
+      }
+    }
 
     state.aiSearch.plan = plan;
     state.aiSearch.lastRawResponse = rawContent;
@@ -1633,9 +1753,10 @@ async function executeAiSearchPlan(plan, page) {
       }
     }
 
-    if (plan.searchStrategy !== 'title-first' || !retrievalQueries.length) {
+    const shouldRunDiscover = plan.searchStrategy !== 'title-first' || !retrievalQueries.length || plan.confidence < 0.9 || isLikelyGenericLiteralTitle(primaryQuery);
+    if (shouldRunDiscover) {
       const discoverEndpoint = mediaType === 'movie' ? '/discover/movie' : '/discover/tv';
-      for (const discoverPage of resolveAiDiscoverPages(plan)) {
+      for (const discoverPage of resolveAiDiscoverPages({ ...plan, searchStrategy: shouldRunDiscover && plan.searchStrategy === 'title-first' ? 'hybrid' : plan.searchStrategy })) {
         tasks.push(apiFetch(discoverEndpoint, buildAiDiscoverParams(mediaType, discoverPage, plan))
           .then((response) => ({
             source: 'discover',
@@ -1869,8 +1990,36 @@ function matchesAiPlanFilters(item, plan) {
   return true;
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isBoundaryTitleMatch(text, phrase) {
+  const normalizedText = normalizeSearchText(text);
+  const normalizedPhrase = normalizeSearchText(phrase);
+  if (!normalizedText || !normalizedPhrase) return false;
+  const regex = new RegExp(`(^|\\s)${escapeRegex(normalizedPhrase)}(\\s|$)`, 'i');
+  return regex.test(normalizedText);
+}
+
+function isExactNormalizedTitleMatch(item, phrase) {
+  const normalizedPhrase = normalizeSearchText(phrase);
+  if (!normalizedPhrase) return false;
+  const title = normalizeSearchText(item.title || '');
+  const originalTitle = normalizeSearchText(item.originalTitle || '');
+  return title === normalizedPhrase || originalTitle === normalizedPhrase;
+}
+
+function isLikelyGenericLiteralTitle(value) {
+  const tokens = Array.from(buildAiTokenSet(value));
+  if (!tokens.length) return true;
+  const genericTokens = new Set(['last','race','final','man','white','paid','boys','superheroes','hero','heroes','life','movie','film','show','series','zaezd','последний','заезд','белый','мужик','гонки']);
+  const distinct = tokens.filter((token) => !genericTokens.has(token));
+  return distinct.length <= 1;
+}
+
 function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
-  let score = Number(item.popularity || 0) * 0.02 + Number(item.voteAverage || 0) * 4;
+  let score = Number(item.popularity || 0) * 0.12 + Number(item.voteAverage || 0) * 5 + Math.log10(Number(item.voteCount || 0) + 1) * 30;
   const titleText = normalizeSearchText(`${item.title} ${item.originalTitle}`);
   const overviewText = normalizeSearchText(item.overview || '');
   const queryText = normalizeSearchText(effectiveTextQuery || state.query);
@@ -1882,7 +2031,7 @@ function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
 
   if (plan.includeGenreIds.length) {
     const overlap = item.genreIds.filter((id) => plan.includeGenreIds.includes(Number(id))).length;
-    score += overlap * 38;
+    score += overlap * 32;
   }
 
   if (plan.excludeGenreIds.length) {
@@ -1891,8 +2040,10 @@ function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
   }
 
   if (queryText) {
-    if (titleText.includes(queryText)) score += 240;
-    else if (overviewText.includes(queryText)) score += 90;
+    if (isExactNormalizedTitleMatch(item, queryText)) score += 520;
+    else if (isBoundaryTitleMatch(titleText, queryText)) score += 300;
+    else if (titleText.includes(queryText)) score += 210;
+    else if (overviewText.includes(queryText)) score += 70;
   }
 
   const retrievalQueries = Array.from(new Set([
@@ -1904,15 +2055,31 @@ function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
   for (const hint of retrievalQueries) {
     const normalizedHint = normalizeSearchText(hint);
     if (!normalizedHint) continue;
-    if (titleText.includes(normalizedHint)) score += 230;
-    else if (overviewText.includes(normalizedHint)) score += 70;
+
+    if (isExactNormalizedTitleMatch(item, normalizedHint)) {
+      score += 620;
+    } else if (isBoundaryTitleMatch(titleText, normalizedHint)) {
+      score += 360;
+    } else if (titleText.includes(normalizedHint)) {
+      score += 220;
+    } else if (overviewText.includes(normalizedHint)) {
+      score += 55;
+    }
+
+    const hintTokens = buildAiTokenSet(normalizedHint);
+    const titleTokens = buildAiTokenSet(`${item.title} ${item.originalTitle}`);
+    const hintTokenOverlap = countSetOverlap(hintTokens, titleTokens);
+    if (hintTokenOverlap) {
+      score += hintTokenOverlap * 34;
+    }
   }
 
   for (const term of plan.mustMatchTerms) {
     const normalizedTerm = normalizeSearchText(term);
     if (!normalizedTerm) continue;
-    if (titleText.includes(normalizedTerm)) score += 52;
-    else if (overviewText.includes(normalizedTerm)) score += 28;
+    if (isBoundaryTitleMatch(titleText, normalizedTerm)) score += 64;
+    else if (titleText.includes(normalizedTerm)) score += 42;
+    else if (overviewText.includes(normalizedTerm)) score += 24;
   }
 
   for (const term of plan.avoidTerms) {
@@ -1928,33 +2095,48 @@ function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
   const overviewTokens = buildAiTokenSet(item.overview || '');
   const titleOverlap = countSetOverlap(userTokens, titleTokens);
   const overviewOverlap = countSetOverlap(userTokens, overviewTokens);
-  score += titleOverlap * 24 + overviewOverlap * 8;
+  score += titleOverlap * 22 + overviewOverlap * 6;
 
   if (aiMeta.hitCount) {
-    score += aiMeta.hitCount * 24;
+    score += aiMeta.hitCount * 20;
   }
   if (Number.isFinite(aiMeta.bestPriority)) {
-    score += Math.max(0, 44 - aiMeta.bestPriority * 9);
+    score += Math.max(0, 40 - aiMeta.bestPriority * 8);
   }
   if ((aiMeta.sources || []).includes('search')) {
-    score += 35;
+    score += 48;
   }
   if ((aiMeta.sources || []).includes('search') && (aiMeta.sources || []).includes('discover')) {
-    score += 18;
+    score += 20;
   }
   if ((aiMeta.queryKinds || []).includes('hint')) {
-    score += 30;
+    score += 40;
   }
   if ((aiMeta.queryKinds || []).includes('alt')) {
-    score += 18;
+    score += 24;
+  }
+  if ((aiMeta.queryKinds || []).includes('primary')) {
+    score += 16;
   }
 
   const year = getItemYear(item.releaseDate);
   if (year !== null && plan.primaryYearFrom !== null && plan.primaryYearTo !== null) {
     if (year >= plan.primaryYearFrom && year <= plan.primaryYearTo) {
-      score += 18;
+      score += 16;
+    } else {
+      score -= 8;
     }
   }
+
+  const strongestHint = plan.titleHints[0] || plan.textQuery || '';
+  if (plan.searchStrategy === 'title-first' && strongestHint && isLikelyGenericLiteralTitle(strongestHint)) {
+    if ((item.voteCount || 0) < 80 && (item.popularity || 0) < 20) {
+      score -= 180;
+    }
+  }
+
+  if ((item.voteCount || 0) >= 1500) score += 40;
+  else if ((item.voteCount || 0) >= 500) score += 18;
 
   return score;
 }
@@ -1998,7 +2180,32 @@ function buildAiExecutionQueries(plan) {
     });
   }
 
-  return deduped.slice(0, 6);
+  const rescueFragments = buildAiLooseQueryFragments(state.query);
+  for (const fragment of rescueFragments) {
+    const normalized = normalizeSearchText(fragment);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    deduped.push({
+      query: fragment,
+      kind: 'fragment',
+      priority: deduped.length
+    });
+  }
+
+  return deduped.slice(0, 8);
+}
+
+function buildAiLooseQueryFragments(query) {
+  const normalized = normalizeSearchText(query);
+  if (!normalized) return [];
+  const tokens = normalized.split(' ').filter((token) => token.length >= 3 && !AI_TOKEN_STOPWORDS.has(token));
+  if (tokens.length < 2) return [];
+  const fragments = [];
+  if (tokens.length >= 2) fragments.push(tokens.slice(0, 2).join(' '));
+  if (tokens.length >= 3) fragments.push(tokens.slice(0, 3).join(' '));
+  if (tokens.length >= 4) fragments.push(tokens.slice(-3).join(' '));
+  if (tokens.length >= 5) fragments.push(tokens.slice(1, 4).join(' '));
+  return Array.from(new Set(fragments)).slice(0, 4);
 }
 
 function resolveAiSearchPagesForQuery(queryEntry) {
@@ -3268,6 +3475,7 @@ function normalizeItem(item, mediaTypeHint = 'movie') {
     overview: item.overview || '',
     releaseDate,
     voteAverage: Number(item.vote_average || 0),
+    voteCount: Number(item.vote_count || 0),
     popularity: Number(item.popularity || 0),
     genreIds,
     countryCodes: extractCountryCodes(item),
