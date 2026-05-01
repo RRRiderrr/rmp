@@ -1691,10 +1691,10 @@ async function executeAiSearchPlan(plan, page) {
     .map((entry) => entry.item);
 
   const totalCount = ranked.length;
-  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const safePage = Math.min(Math.max(1, Number(page) || 1), totalPages);
-  const startIndex = (safePage - 1) * ITEMS_PER_PAGE;
-  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const startIndex = (safePage - 1) * PAGE_SIZE;
+  const endIndex = startIndex + PAGE_SIZE;
 
   return {
     items: ranked.slice(startIndex, endIndex),
