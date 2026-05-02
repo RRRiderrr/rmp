@@ -1,47 +1,81 @@
 :root {
-  --bg-color: #fafafa;
-  --text-color: #212121;
-  --muted-text: #666;
-  --button-bg: #dddddd;
-  --button-text: #000;
-  --secondary-button-bg: #c4c4c4;
-  --header-bg: #ededed;
+  --bg-color: #f4f7fb;
+  --text-color: #172033;
+  --muted-text: rgba(23, 32, 51, 0.68);
+  --button-bg: #4f8fd4;
+  --button-text: #ffffff;
+  --secondary-button-bg: #7b61ff;
+  --header-bg: #edf2f8;
   --card-bg: #ffffff;
-  --shadow-color: rgba(0, 0, 0, 0.1);
-  --tag-bg: var(--button-bg);
-  --tag-hover-bg: var(--secondary-button-bg);
-  --rating-green: #2e7d32;
-  --rating-orange: #bf6518;
-  --rating-red: #c62828;
-  --rating-text-bg: #f0f0f0;
-  --star-bg: rgba(0,0,0,0.06);
+  --shadow-color: rgba(18, 26, 42, 0.12);
+  --tag-bg: #dbe9f8;
+  --tag-hover-bg: #c9ddf3;
+  --rating-green: #248a4b;
+  --rating-orange: #bf6b1d;
+  --rating-red: #c63d3d;
+  --rating-text-bg: #eef3f8;
+  --star-bg: rgba(17, 24, 39, 0.10);
+  --favorite-accent: #f6c90e;
+  --favorite-active-text: #1b1b1b;
+  --calendar-accent: #4f8fd4;
+  --calendar-surface: rgba(18, 24, 34, 0.96);
+  --calendar-item-bg: rgba(255, 255, 255, 0.08);
+  --calendar-add-bg: #ffffff;
+  --calendar-add-text: #111111;
+  --scrollbar-track: rgba(23, 32, 51, 0.08);
+  --scrollbar-thumb: #7baee2;
+  --scrollbar-thumb-hover: #4f8fd4;
   --input-bg: #ffffff;
-  --border-color: rgba(0,0,0,0.08);
-  --slider-track: #d6d6d6;
-  --slider-range: #4b87c2;
+  --border-color: rgba(23, 32, 51, 0.10);
+  --slider-track: rgba(23, 32, 51, 0.14);
+  --slider-range: #4f8fd4;
+  --soft-surface: rgba(255,255,255,0.64);
+  --glass-surface: rgba(255,255,255,0.72);
+  --special-gradient-a: #4f8fd4;
+  --special-gradient-b: #7b61ff;
+  --special-gradient-c: #f06d9f;
+  --overlay-bg: rgba(12, 15, 23, 0.78);
+  --overlay-card-bg: rgba(17, 21, 32, 0.96);
 }
 
 :root[data-theme="dark"] {
-  --bg-color: #2b2b2b;
-  --text-color: #eaeaea;
-  --muted-text: rgba(234, 234, 234, 0.72);
-  --button-bg: #4b87c2;
-  --button-text: #fff;
-  --secondary-button-bg: #e57474;
-  --header-bg: #333333;
-  --card-bg: #333333;
-  --shadow-color: rgba(255, 255, 255, 0.05);
-  --tag-bg: var(--button-bg);
-  --tag-hover-bg: #669dcf;
-  --rating-green: #81c784;
-  --rating-orange: #ffb74d;
-  --rating-red: #ef9a9a;
-  --rating-text-bg: #484848;
-  --star-bg: #484848;
-  --input-bg: #242424;
-  --border-color: rgba(255,255,255,0.08);
-  --slider-track: #505050;
-  --slider-range: #7cb1e4;
+  --bg-color: #10131a;
+  --text-color: #edf3ff;
+  --muted-text: rgba(237, 243, 255, 0.68);
+  --button-bg: #5f9cff;
+  --button-text: #ffffff;
+  --secondary-button-bg: #8b5cf6;
+  --header-bg: #171b25;
+  --card-bg: #1b202c;
+  --shadow-color: rgba(0, 0, 0, 0.30);
+  --tag-bg: rgba(95, 156, 255, 0.22);
+  --tag-hover-bg: rgba(139, 92, 246, 0.28);
+  --rating-green: #80d69a;
+  --rating-orange: #ffc071;
+  --rating-red: #ff8c8c;
+  --rating-text-bg: rgba(255, 255, 255, 0.08);
+  --star-bg: rgba(255,255,255,0.10);
+  --favorite-accent: #f6c90e;
+  --favorite-active-text: #1b1b1b;
+  --calendar-accent: #5f9cff;
+  --calendar-surface: rgba(18, 18, 26, 0.96);
+  --calendar-item-bg: rgba(255, 255, 255, 0.08);
+  --calendar-add-bg: #ffffff;
+  --calendar-add-text: #111111;
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
+  --scrollbar-thumb: #89b7e3;
+  --scrollbar-thumb-hover: #5f9cff;
+  --input-bg: #111620;
+  --border-color: rgba(255,255,255,0.09);
+  --slider-track: rgba(255,255,255,0.14);
+  --slider-range: #5f9cff;
+  --soft-surface: rgba(255,255,255,0.05);
+  --glass-surface: rgba(24, 29, 41, 0.72);
+  --special-gradient-a: #5f9cff;
+  --special-gradient-b: #8b5cf6;
+  --special-gradient-c: #ff6fae;
+  --overlay-bg: rgba(0, 0, 0, 0.76);
+  --overlay-card-bg: rgba(18, 18, 26, 0.97);
 }
 
 * {
@@ -59,7 +93,7 @@ html {
   overflow-x: hidden;
   overflow-y: scroll;
   scrollbar-width: thin;
-  scrollbar-color: rgba(137, 183, 227, 0.72) rgba(255,255,255,0.06);
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 body {
@@ -78,18 +112,18 @@ body {
 }
 
 *::-webkit-scrollbar-track {
-  background: rgba(255,255,255,0.04);
+  background: var(--scrollbar-track);
   border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(137, 183, 227, 0.86), rgba(75, 135, 194, 0.92));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrollbar-thumb-hover) 34%, var(--scrollbar-thumb)), var(--scrollbar-thumb));
   border-radius: 999px;
-  border: 2px solid rgba(18, 18, 24, 0.12);
+  border: 2px solid color-mix(in srgb, var(--bg-color) 68%, transparent);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(154, 200, 244, 0.95), rgba(89, 151, 214, 0.98));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrollbar-thumb-hover) 78%, #ffffff), var(--scrollbar-thumb-hover));
 }
 
 .hidden {
@@ -1167,8 +1201,8 @@ main {
   max-height: 420px;
   overflow: auto;
   border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(18, 18, 24, 0.96);
+  border: 1px solid color-mix(in srgb, var(--calendar-accent) 22%, rgba(255,255,255,0.08));
+  background: var(--calendar-surface);
   color: #fff;
   box-shadow: 0 24px 70px rgba(0,0,0,0.35);
   padding: 0.95rem;
@@ -1180,7 +1214,7 @@ main {
   pointer-events: none;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: rgba(137, 183, 227, 0.72) rgba(255,255,255,0.06);
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   z-index: 80;
   backface-visibility: hidden;
   will-change: opacity, transform;
@@ -1191,18 +1225,18 @@ main {
 }
 
 .episode-calendar-popover::-webkit-scrollbar-track {
-  background: rgba(255,255,255,0.04);
+  background: var(--scrollbar-track);
   border-radius: 999px;
 }
 
 .episode-calendar-popover::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(137, 183, 227, 0.86), rgba(75, 135, 194, 0.92));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrollbar-thumb-hover) 34%, var(--scrollbar-thumb)), var(--scrollbar-thumb));
   border-radius: 999px;
-  border: 2px solid rgba(18, 18, 24, 0.96);
+  border: 2px solid color-mix(in srgb, var(--calendar-surface) 86%, transparent);
 }
 
 .episode-calendar-popover::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(154, 200, 244, 0.95), rgba(89, 151, 214, 0.98));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--scrollbar-thumb-hover) 78%, #ffffff), var(--scrollbar-thumb-hover));
 }
 
 .episode-calendar-wrapper:hover:not(.popover-force-closed) .episode-calendar-popover,
@@ -1254,8 +1288,8 @@ main {
   gap: 0.7rem;
   padding: 0.9rem;
   border-radius: 16px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--calendar-item-bg);
+  border: 1px solid color-mix(in srgb, var(--calendar-accent) 16%, rgba(255,255,255,0.08));
 }
 
 .episode-calendar-item-main {
@@ -1267,7 +1301,7 @@ main {
 .episode-calendar-item-code {
   font-size: 0.74rem;
   font-weight: 800;
-  color: #89b7e3;
+  color: color-mix(in srgb, var(--calendar-accent) 72%, #ffffff);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1292,8 +1326,8 @@ main {
   text-decoration: none;
   border-radius: 999px;
   padding: 0.56rem 0.92rem;
-  background: #fff;
-  color: #111;
+  background: var(--calendar-add-bg);
+  color: var(--calendar-add-text);
   font-size: 0.78rem;
   font-weight: 800;
   line-height: 1.2;
@@ -1303,7 +1337,7 @@ main {
 
 .episode-calendar-add-btn:hover,
 .episode-calendar-add-btn:focus-visible {
-  color: #111;
+  color: var(--calendar-add-text);
   text-decoration: none;
   transform: translateY(-1px);
   opacity: 0.94;
@@ -1884,8 +1918,8 @@ span.red { color: var(--rating-red); }
 }
 
 .decision-prompt-primary {
-  background: #fff;
-  color: #111;
+  background: var(--calendar-add-bg);
+  color: var(--calendar-add-text);
 }
 
 .decision-prompt-secondary {
@@ -2162,8 +2196,8 @@ span.red { color: var(--rating-red); }
 }
 
 .movie-roulette-watch {
-  background: #fff;
-  color: #111;
+  background: var(--calendar-add-bg);
+  color: var(--calendar-add-text);
 }
 
 .movie-roulette-again {
@@ -2200,5 +2234,556 @@ body.movie-roulette-open {
   .decision-prompt {
     right: max(16px, env(safe-area-inset-right));
     width: auto;
+  }
+}
+
+/* Unified visual polish + custom palette editor */
+body {
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--button-bg) 10%, transparent), transparent 28%),
+    radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--secondary-button-bg) 8%, transparent), transparent 30%),
+    var(--bg-color);
+}
+
+.header,
+.sidebar {
+  background: color-mix(in srgb, var(--header-bg) 88%, transparent);
+  border-color: var(--border-color);
+  backdrop-filter: blur(18px);
+}
+
+.header {
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+}
+
+.filter-section,
+.movie,
+.no-results,
+.error-box,
+.loading-box {
+  background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--shadow-color) 78%, transparent);
+}
+
+.movie {
+  border-radius: 20px;
+  overflow: visible;
+}
+
+.movie img,
+.movie-poster-placeholder {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+
+.multi-select-trigger,
+.year-inputs input,
+.search-input {
+  background: color-mix(in srgb, var(--input-bg) 94%, transparent);
+  border: 1px solid var(--border-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-color) 58%, transparent), 0 10px 24px color-mix(in srgb, var(--shadow-color) 28%, transparent);
+}
+
+.apply-filters-btn,
+.reset-filters-btn,
+.favorite-toggle,
+.know-more,
+.watch-online,
+.page,
+.current,
+.multi-select-clear-btn,
+.tag,
+.type-btn {
+  border-radius: 999px;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+}
+
+.apply-filters-btn,
+.reset-filters-btn,
+.favorite-toggle,
+.know-more,
+.watch-online,
+.page,
+.current,
+.multi-select-clear-btn {
+  background: linear-gradient(135deg, var(--button-bg), color-mix(in srgb, var(--button-bg) 72%, var(--secondary-button-bg)));
+}
+
+.reset-filters-btn,
+.know-more,
+.page:not(.disabled) {
+  background: color-mix(in srgb, var(--button-bg) 84%, var(--card-bg));
+}
+
+.apply-filters-btn:hover:not(:disabled),
+.reset-filters-btn:hover,
+.favorite-toggle:hover,
+.know-more:hover,
+.watch-online:hover,
+.page:hover:not(.disabled),
+.current:hover,
+.multi-select-clear-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--secondary-button-bg), color-mix(in srgb, var(--button-bg) 44%, var(--secondary-button-bg)));
+}
+
+.fav-btn {
+  color: var(--favorite-accent);
+  background: var(--star-bg);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--shadow-color) 80%, transparent);
+}
+
+.fav-btn:hover,
+.fav-btn.fav-active {
+  background-color: var(--favorite-accent) !important;
+  color: var(--favorite-active-text) !important;
+}
+
+.episode-calendar-btn {
+  background: color-mix(in srgb, var(--calendar-accent) 24%, rgba(15,15,20,0.82));
+  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--calendar-accent) 38%, transparent);
+}
+
+.episode-calendar-btn:hover,
+.episode-calendar-wrapper.popover-open .episode-calendar-btn,
+.episode-calendar-wrapper:focus-within .episode-calendar-btn {
+  background: var(--calendar-accent);
+  color: var(--button-text);
+}
+
+.episode-calendar-item-code {
+  color: color-mix(in srgb, var(--calendar-accent) 72%, #ffffff);
+}
+
+.episode-calendar-popover {
+  background: var(--calendar-surface);
+  border-color: color-mix(in srgb, var(--calendar-accent) 26%, rgba(255,255,255,0.08));
+}
+
+.episode-calendar-item {
+  background: var(--calendar-item-bg);
+}
+
+.episode-calendar-add-btn {
+  background: var(--calendar-add-bg);
+  color: var(--calendar-add-text);
+}
+
+.year-slider-range {
+  background: linear-gradient(90deg, var(--slider-range), color-mix(in srgb, var(--secondary-button-bg) 70%, var(--slider-range)));
+}
+
+.year-range::-webkit-slider-thumb,
+.year-range::-moz-range-thumb {
+  background: var(--slider-range);
+}
+
+.ai-search-toggle.active,
+.ai-search-panel,
+.movie-roulette-dialog {
+  background-size: 260% 260%;
+  animation: rmpAuroraShift 18s ease-in-out infinite;
+}
+
+.ai-search-toggle.active {
+  background-image: linear-gradient(135deg, var(--special-gradient-a), var(--special-gradient-b), var(--special-gradient-c), var(--special-gradient-a));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--special-gradient-a) 48%, transparent), 0 18px 42px color-mix(in srgb, var(--special-gradient-b) 34%, transparent);
+}
+
+.ai-search-panel {
+  background-image:
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--special-gradient-a) 28%, transparent), transparent 32%),
+    radial-gradient(circle at 86% 10%, color-mix(in srgb, var(--special-gradient-c) 20%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--card-bg) 84%, transparent), color-mix(in srgb, var(--special-gradient-b) 13%, var(--card-bg)), color-mix(in srgb, var(--card-bg) 88%, transparent));
+  border-color: color-mix(in srgb, var(--special-gradient-a) 18%, var(--border-color));
+}
+
+.movie-roulette-dialog {
+  background-image:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--special-gradient-a) 34%, transparent), transparent 34%),
+    radial-gradient(circle at 85% 14%, color-mix(in srgb, var(--special-gradient-c) 24%, transparent), transparent 32%),
+    linear-gradient(135deg, rgba(18,18,24,0.98), color-mix(in srgb, var(--special-gradient-b) 12%, rgba(18,18,24,0.98)), rgba(18,18,24,0.98));
+}
+
+.movie-roulette-eyebrow,
+.ai-search-badge {
+  color: color-mix(in srgb, var(--special-gradient-a) 72%, #ffffff);
+  border-color: color-mix(in srgb, var(--special-gradient-a) 38%, transparent);
+  background: color-mix(in srgb, var(--special-gradient-a) 16%, transparent);
+}
+
+.movie-roulette-stage::before {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--overlay-card-bg) 96%, transparent), transparent);
+}
+
+.movie-roulette-stage::after {
+  background: linear-gradient(270deg, color-mix(in srgb, var(--overlay-card-bg) 96%, transparent), transparent);
+}
+
+.decision-prompt {
+  background: color-mix(in srgb, var(--overlay-card-bg) 96%, transparent);
+  border-color: color-mix(in srgb, var(--button-bg) 20%, rgba(255,255,255,0.12));
+}
+
+.decision-prompt-primary,
+.movie-roulette-watch {
+  background: #ffffff;
+  color: #111111;
+}
+
+
+.sidebar-actions-panel,
+.filter-actions {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-custom-theme="true"] .theme-switch {
+  display: none !important;
+}
+
+@keyframes rmpAuroraShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.palette-editor-toggle {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--input-bg) 86%, transparent);
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 1.08rem;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.palette-editor-toggle:hover,
+.palette-editor-toggle.active {
+  transform: translateY(-1px) scale(1.04);
+  background: linear-gradient(135deg, var(--button-bg), var(--secondary-button-bg));
+  color: var(--button-text);
+  box-shadow: 0 18px 38px color-mix(in srgb, var(--button-bg) 28%, transparent);
+}
+
+.palette-editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(18px);
+  animation: overlayFadeIn 0.2s ease both;
+}
+
+.palette-editor-dialog {
+  position: relative;
+  width: min(1180px, 100%);
+  max-height: min(850px, calc(100vh - 44px));
+  overflow: auto;
+  border-radius: 30px;
+  border: 1px solid color-mix(in srgb, var(--button-bg) 18%, var(--border-color));
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--button-bg) 18%, transparent), transparent 30%),
+    radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--secondary-button-bg) 14%, transparent), transparent 32%),
+    color-mix(in srgb, var(--card-bg) 94%, transparent);
+  color: var(--text-color);
+  box-shadow: 0 34px 110px rgba(0,0,0,0.46);
+  padding: clamp(1rem, 2.2vw, 1.6rem);
+}
+
+.palette-editor-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--input-bg) 86%, transparent);
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 1.6rem;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px var(--border-color);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.palette-editor-close:hover {
+  transform: scale(1.05);
+  background: color-mix(in srgb, var(--secondary-button-bg) 18%, var(--input-bg));
+}
+
+.palette-editor-head {
+  padding-right: 52px;
+  margin-bottom: 1rem;
+}
+
+.palette-editor-eyebrow {
+  width: max-content;
+  padding: 0.32rem 0.68rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--button-bg) 18%, transparent);
+  color: color-mix(in srgb, var(--button-bg) 70%, var(--text-color));
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.palette-editor-head h2 {
+  margin: 0;
+  font-size: clamp(1.55rem, 3vw, 2.35rem);
+  line-height: 1.05;
+}
+
+.palette-editor-head p,
+.palette-editor-note {
+  margin-top: 0.55rem;
+  color: var(--muted-text);
+  line-height: 1.55;
+}
+
+.palette-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+}
+
+.palette-editor-card {
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--input-bg) 62%, transparent);
+  box-shadow: 0 16px 38px color-mix(in srgb, var(--shadow-color) 56%, transparent);
+  padding: 1rem;
+}
+
+.palette-editor-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.palette-editor-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.palette-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.palette-field span,
+.palette-editor-section-title {
+  color: var(--text-color);
+  font-weight: 850;
+  font-size: 0.9rem;
+}
+
+.palette-field input[type="text"],
+.palette-field select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--input-bg);
+  color: var(--text-color);
+  padding: 0.65rem 0.78rem;
+  outline: none;
+}
+
+.palette-field input[type="color"] {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--input-bg);
+  padding: 0.32rem;
+  cursor: pointer;
+}
+
+.palette-switch-row {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.palette-toggle-line {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--card-bg) 64%, transparent);
+  color: var(--text-color);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.palette-toggle-line input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--button-bg);
+}
+
+.palette-preview-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.palette-preview-swatch {
+  height: 74px;
+  border-radius: 18px;
+  border: 1px solid var(--border-color);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05), 0 14px 28px color-mix(in srgb, var(--shadow-color) 40%, transparent);
+}
+
+.palette-preview-bg { background: var(--bg-color); }
+.palette-preview-card { background: var(--card-bg); }
+.palette-preview-primary { background: var(--button-bg); }
+.palette-preview-secondary { background: var(--secondary-button-bg); }
+.palette-preview-ai { background: linear-gradient(135deg, var(--special-gradient-a), var(--special-gradient-b), var(--special-gradient-c)); }
+
+.palette-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.palette-action-primary,
+.palette-action-secondary {
+  border: none;
+  border-radius: 999px;
+  min-height: 42px;
+  padding: 0.7rem 1rem;
+  color: var(--button-text);
+  cursor: pointer;
+  font-weight: 850;
+  background: linear-gradient(135deg, var(--button-bg), color-mix(in srgb, var(--button-bg) 52%, var(--secondary-button-bg)));
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+  transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+}
+
+.palette-action-secondary {
+  color: var(--text-color);
+  background: color-mix(in srgb, var(--input-bg) 80%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border-color), 0 10px 22px color-mix(in srgb, var(--shadow-color) 48%, transparent);
+}
+
+.palette-action-danger {
+  color: color-mix(in srgb, #ff6262 80%, var(--text-color));
+}
+
+.palette-action-primary:hover,
+.palette-action-secondary:hover {
+  transform: translateY(-1px);
+  opacity: 0.94;
+}
+
+.palette-manual-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.palette-color-control {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.62rem;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--card-bg) 58%, transparent);
+}
+
+.palette-color-control input[type="color"] {
+  width: 42px;
+  height: 42px;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.palette-color-control-title {
+  color: var(--text-color);
+  font-weight: 850;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.palette-color-control-var {
+  margin-top: 0.18rem;
+  color: var(--muted-text);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-auto-active .palette-manual-controls {
+  opacity: 0.48;
+}
+
+.palette-auto-active .palette-color-control input {
+  pointer-events: none;
+}
+
+body.palette-editor-open {
+  overflow: hidden;
+}
+
+@media (max-width: 960px) {
+  .palette-editor-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .palette-editor-overlay {
+    padding: 10px;
+  }
+
+  .palette-editor-dialog {
+    border-radius: 22px;
+    max-height: calc(100vh - 20px);
+  }
+
+  .palette-editor-row,
+  .palette-manual-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .palette-preview-strip {
+    grid-template-columns: repeat(5, 1fr);
+  }
+
+  .palette-preview-swatch {
+    height: 52px;
   }
 }

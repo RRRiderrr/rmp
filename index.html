@@ -41,6 +41,8 @@
         </div>
       </label>
 
+      <button type="button" id="paletteEditorToggle" class="palette-editor-toggle" title="Создать свою цветовую палитру" aria-label="Создать свою цветовую палитру">🎨</button>
+
       <button id="favoriteToggle" class="favorite-toggle">Показать избранное</button>
 
       <form id="form" class="search-form">
@@ -188,6 +190,82 @@
       <div id="movieRouletteActions" class="movie-roulette-actions hidden">
         <button type="button" id="movieRouletteWatch" class="movie-roulette-watch">Смотреть</button>
         <button type="button" id="movieRouletteAgain" class="movie-roulette-again">Давай ещё</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="paletteEditorOverlay" class="palette-editor-overlay hidden" aria-hidden="true">
+    <div class="palette-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="paletteEditorTitle">
+      <button type="button" id="paletteEditorClose" class="palette-editor-close" aria-label="Закрыть редактор палитр">&times;</button>
+
+      <div class="palette-editor-head">
+        <div>
+          <div class="palette-editor-eyebrow">RMP Theme Lab</div>
+          <h2 id="paletteEditorTitle">Своя цветовая палитра</h2>
+          <p>Меняй цвета — сайт сразу показывает результат. Сохрани палитру, и она останется после перезагрузки.</p>
+        </div>
+      </div>
+
+      <div class="palette-editor-grid">
+        <section class="palette-editor-card palette-editor-card-main">
+          <div class="palette-editor-row">
+            <label class="palette-field palette-field-grow">
+              <span>Название палитры</span>
+              <input id="paletteNameInput" type="text" maxlength="40" placeholder="Например: Neon Night" />
+            </label>
+            <label class="palette-field palette-field-grow">
+              <span>Выбрать сохранённую</span>
+              <select id="paletteSavedSelect"></select>
+            </label>
+          </div>
+
+          <div class="palette-switch-row">
+            <label class="palette-toggle-line">
+              <input id="paletteCustomEnabled" type="checkbox" />
+              <span>Использовать свою палитру</span>
+            </label>
+            <label class="palette-toggle-line">
+              <input id="paletteAutoMode" type="checkbox" />
+              <span>Авто-подбор от основного цвета</span>
+            </label>
+          </div>
+
+          <div class="palette-editor-row">
+            <label class="palette-field">
+              <span>Основной цвет</span>
+              <input id="paletteBaseColor" type="color" value="#5f9cff" />
+            </label>
+            <label class="palette-field">
+              <span>База</span>
+              <select id="paletteToneSelect">
+                <option value="dark">Тёмная</option>
+                <option value="light">Светлая</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="palette-preview-strip" aria-hidden="true">
+            <span class="palette-preview-swatch palette-preview-bg"></span>
+            <span class="palette-preview-swatch palette-preview-card"></span>
+            <span class="palette-preview-swatch palette-preview-primary"></span>
+            <span class="palette-preview-swatch palette-preview-secondary"></span>
+            <span class="palette-preview-swatch palette-preview-ai"></span>
+          </div>
+
+          <div class="palette-editor-actions">
+            <button type="button" id="paletteSaveBtn" class="palette-action-primary">Сохранить</button>
+            <button type="button" id="paletteSaveAsBtn" class="palette-action-secondary">Сохранить как новую</button>
+            <button type="button" id="paletteDeleteBtn" class="palette-action-secondary palette-action-danger">Удалить</button>
+            <button type="button" id="paletteDisableBtn" class="palette-action-secondary">Отключить палитру</button>
+          </div>
+        </section>
+
+        <section class="palette-editor-card">
+          <div class="palette-editor-section-title">Ручная настройка элементов</div>
+          <p class="palette-editor-note">В ручном режиме можно отдельно менять фон, карточки, кнопки, текст, поля, слайдеры, календарь, избранное и спец-градиенты.</p>
+          <div id="paletteManualControls" class="palette-manual-controls"></div>
+        </section>
       </div>
     </div>
   </div>

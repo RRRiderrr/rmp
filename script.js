@@ -197,6 +197,78 @@ const yearToRange = document.getElementById('yearToRange');
 const yearSliderRange = document.getElementById('yearSliderRange');
 const leftArrow = document.getElementById('left-arrow');
 const rightArrow = document.getElementById('right-arrow');
+const paletteEditorToggle = document.getElementById('paletteEditorToggle');
+const paletteEditorOverlay = document.getElementById('paletteEditorOverlay');
+const paletteEditorClose = document.getElementById('paletteEditorClose');
+const paletteNameInput = document.getElementById('paletteNameInput');
+const paletteSavedSelect = document.getElementById('paletteSavedSelect');
+const paletteCustomEnabled = document.getElementById('paletteCustomEnabled');
+const paletteAutoMode = document.getElementById('paletteAutoMode');
+const paletteBaseColor = document.getElementById('paletteBaseColor');
+const paletteToneSelect = document.getElementById('paletteToneSelect');
+const paletteManualControls = document.getElementById('paletteManualControls');
+const paletteSaveBtn = document.getElementById('paletteSaveBtn');
+const paletteSaveAsBtn = document.getElementById('paletteSaveAsBtn');
+const paletteDeleteBtn = document.getElementById('paletteDeleteBtn');
+const paletteDisableBtn = document.getElementById('paletteDisableBtn');
+
+const PALETTE_STORAGE_KEYS = {
+  enabled: 'rmpCustomPaletteEnabled',
+  activeId: 'rmpActiveCustomPaletteId',
+  palettes: 'rmpCustomPalettes'
+};
+
+const PALETTE_COLOR_FIELDS = [
+  { key: 'bg-color', label: 'Фон страницы' },
+  { key: 'header-bg', label: 'Шапка и боковая панель' },
+  { key: 'card-bg', label: 'Карточки и панели' },
+  { key: 'input-bg', label: 'Поля ввода и списки' },
+  { key: 'text-color', label: 'Основной текст' },
+  { key: 'muted-text', label: 'Приглушённый текст', alpha: 0.68 },
+  { key: 'button-bg', label: 'Основные кнопки' },
+  { key: 'secondary-button-bg', label: 'Акцент и наведение' },
+  { key: 'button-text', label: 'Текст на кнопках' },
+  { key: 'tag-bg', label: 'Жанры и чипы' },
+  { key: 'tag-hover-bg', label: 'Жанры при наведении' },
+  { key: 'rating-text-bg', label: 'Фон рейтинга' },
+  { key: 'border-color', label: 'Границы элементов', alpha: 0.13 },
+  { key: 'shadow-color', label: 'Тени', alpha: 0.22 },
+  { key: 'slider-track', label: 'Трек слайдера', alpha: 0.20 },
+  { key: 'slider-range', label: 'Активный слайдер' },
+  { key: 'calendar-accent', label: 'Календарь: кнопка и акцент' },
+  { key: 'calendar-surface', label: 'Календарь: окно', alpha: 0.96 },
+  { key: 'calendar-item-bg', label: 'Календарь: карточки серий', alpha: 0.10 },
+  { key: 'calendar-add-bg', label: 'Календарь: кнопка Google' },
+  { key: 'calendar-add-text', label: 'Календарь: текст кнопки Google' },
+  { key: 'scrollbar-track', label: 'Прокрутка: фон дорожки', alpha: 0.14 },
+  { key: 'scrollbar-thumb', label: 'Прокрутка: ползунок' },
+  { key: 'scrollbar-thumb-hover', label: 'Прокрутка: наведение' },
+  { key: 'star-bg', label: 'Фон звёздочки', alpha: 0.16 },
+  { key: 'favorite-accent', label: 'Цвет избранного' },
+  { key: 'favorite-active-text', label: 'Текст на избранном' },
+  { key: 'rating-green', label: 'Рейтинг: зелёный' },
+  { key: 'rating-orange', label: 'Рейтинг: оранжевый' },
+  { key: 'rating-red', label: 'Рейтинг: красный' },
+  { key: 'special-gradient-a', label: 'AI/рулетка: цвет 1' },
+  { key: 'special-gradient-b', label: 'AI/рулетка: цвет 2' },
+  { key: 'special-gradient-c', label: 'AI/рулетка: цвет 3' },
+  { key: 'overlay-bg', label: 'Фон модальных окон', alpha: 0.78 },
+  { key: 'overlay-card-bg', label: 'Карточка модального окна', alpha: 0.96 }
+];
+
+const PALETTE_CSS_VARIABLE_KEYS = [...new Set([
+  ...PALETTE_COLOR_FIELDS.map((field) => field.key),
+  'soft-surface',
+  'glass-surface'
+])];
+
+const paletteEditorState = {
+  palettes: [],
+  activeId: '',
+  enabled: false,
+  draft: null,
+  initialized: false
+};
 
 function createDefaultFilters() {
   return {
@@ -466,6 +538,7 @@ function bindEvents() {
   movieRouletteOverlay?.addEventListener('click', (event) => {
     if (event.target === movieRouletteOverlay) {
       closeMovieRoulette();
+      closePaletteEditor();
     }
   });
 
@@ -537,13 +610,8 @@ function bindEvents() {
       if (!id || !mediaType) return;
       toggleFavorite({ id, mediaType });
       favoriteButton.classList.toggle('fav-active', isFavorite(id, mediaType));
-      if (isFavorite(id, mediaType)) {
-        favoriteButton.style.backgroundColor = 'gold';
-        favoriteButton.style.color = '#333';
-      } else {
-        favoriteButton.style.backgroundColor = 'var(--star-bg)';
-        favoriteButton.style.color = 'gold';
-      }
+      favoriteButton.style.backgroundColor = '';
+      favoriteButton.style.color = '';
 
       if (state.showFavoritesOnly) {
         await loadContent(1);
@@ -655,15 +723,603 @@ function bindEvents() {
 
 function initTheme() {
   const htmlEl = document.documentElement;
-  const currentTheme = localStorage.getItem('theme') || 'light';
+  const currentTheme = localStorage.getItem('theme') || 'dark';
   htmlEl.setAttribute('data-theme', currentTheme);
-  themeToggle.checked = currentTheme === 'dark';
+  if (themeToggle) {
+    themeToggle.checked = currentTheme === 'dark';
+    themeToggle.addEventListener('change', () => {
+      const nextTheme = themeToggle.checked ? 'dark' : 'light';
+      htmlEl.setAttribute('data-theme', nextTheme);
+      localStorage.setItem('theme', nextTheme);
+      if (!paletteEditorState.enabled) {
+        clearCustomPaletteStyle();
+      }
+    });
+  }
 
-  themeToggle.addEventListener('change', () => {
-    const nextTheme = themeToggle.checked ? 'dark' : 'light';
-    htmlEl.setAttribute('data-theme', nextTheme);
-    localStorage.setItem('theme', nextTheme);
+  initPaletteEditor();
+}
+
+function initPaletteEditor() {
+  if (paletteEditorState.initialized || !paletteEditorToggle || !paletteEditorOverlay) return;
+  paletteEditorState.initialized = true;
+  paletteEditorState.palettes = readStoredPalettes();
+  paletteEditorState.activeId = localStorage.getItem(PALETTE_STORAGE_KEYS.activeId) || '';
+  paletteEditorState.enabled = localStorage.getItem(PALETTE_STORAGE_KEYS.enabled) === 'true';
+
+  const activePalette = getActiveStoredPalette();
+  if (paletteEditorState.enabled && activePalette) {
+    paletteEditorState.draft = clonePalette(activePalette);
+    applyCustomPalette(activePalette);
+  } else {
+    paletteEditorState.enabled = false;
+    localStorage.setItem(PALETTE_STORAGE_KEYS.enabled, 'false');
+    paletteEditorState.draft = createDefaultPaletteDraft();
+    clearCustomPaletteStyle();
+  }
+
+  renderPaletteManualControls();
+  syncPaletteEditorUi();
+  updatePaletteToggleState();
+  syncThemeSwitchVisibility();
+
+  paletteEditorToggle.addEventListener('click', openPaletteEditor);
+  paletteEditorClose?.addEventListener('click', closePaletteEditor);
+  paletteEditorOverlay.addEventListener('click', (event) => {
+    if (event.target === paletteEditorOverlay) closePaletteEditor();
   });
+
+  paletteSavedSelect?.addEventListener('change', () => {
+    const selectedId = paletteSavedSelect.value;
+    const selectedPalette = paletteEditorState.palettes.find((palette) => palette.id === selectedId);
+    if (!selectedPalette) return;
+    paletteEditorState.draft = clonePalette(selectedPalette);
+    paletteEditorState.activeId = selectedPalette.id;
+    localStorage.setItem(PALETTE_STORAGE_KEYS.activeId, selectedPalette.id);
+    if (paletteEditorState.enabled) applyCustomPalette(paletteEditorState.draft);
+    syncPaletteEditorUi();
+  });
+
+  paletteNameInput?.addEventListener('input', () => {
+    ensurePaletteDraft();
+    paletteEditorState.draft.name = sanitizePaletteName(paletteNameInput.value);
+  });
+
+  paletteCustomEnabled?.addEventListener('change', () => {
+    setCustomPaletteEnabled(Boolean(paletteCustomEnabled.checked));
+  });
+
+  paletteAutoMode?.addEventListener('change', () => {
+    ensurePaletteDraft();
+    paletteEditorState.draft.auto = Boolean(paletteAutoMode.checked);
+    if (paletteEditorState.draft.auto) {
+      paletteEditorState.draft.colors = generateAutoPaletteColors(paletteEditorState.draft.baseColor, paletteEditorState.draft.tone);
+    }
+    enableCustomPaletteForPreview();
+    liveApplyDraftPalette();
+    syncPaletteEditorUi();
+  });
+
+  paletteBaseColor?.addEventListener('input', () => {
+    ensurePaletteDraft();
+    paletteEditorState.draft.baseColor = normalizeHexColor(paletteBaseColor.value, '#5f9cff');
+    if (paletteEditorState.draft.auto) {
+      paletteEditorState.draft.colors = generateAutoPaletteColors(paletteEditorState.draft.baseColor, paletteEditorState.draft.tone);
+    }
+    enableCustomPaletteForPreview();
+    liveApplyDraftPalette();
+    syncPaletteEditorUi({ preserveFocus: true });
+  });
+
+  paletteToneSelect?.addEventListener('change', () => {
+    ensurePaletteDraft();
+    paletteEditorState.draft.tone = paletteToneSelect.value === 'light' ? 'light' : 'dark';
+    if (paletteEditorState.draft.auto) {
+      paletteEditorState.draft.colors = generateAutoPaletteColors(paletteEditorState.draft.baseColor, paletteEditorState.draft.tone);
+    }
+    enableCustomPaletteForPreview();
+    liveApplyDraftPalette();
+    syncPaletteEditorUi();
+  });
+
+  paletteManualControls?.addEventListener('input', (event) => {
+    const input = event.target.closest('input[type="color"][data-palette-key]');
+    if (!input) return;
+    ensurePaletteDraft();
+    paletteEditorState.draft.auto = false;
+    paletteEditorState.draft.colors[input.dataset.paletteKey] = normalizeHexColor(input.value, '#5f9cff');
+    enableCustomPaletteForPreview();
+    liveApplyDraftPalette();
+    syncPaletteEditorUi({ preserveFocus: true });
+  });
+
+  paletteSaveBtn?.addEventListener('click', () => saveDraftPalette(false));
+  paletteSaveAsBtn?.addEventListener('click', () => saveDraftPalette(true));
+  paletteDeleteBtn?.addEventListener('click', deleteSelectedPalette);
+  paletteDisableBtn?.addEventListener('click', () => setCustomPaletteEnabled(false));
+}
+
+function openPaletteEditor() {
+  ensurePaletteDraft();
+  syncPaletteEditorUi();
+  paletteEditorOverlay.classList.remove('hidden');
+  paletteEditorOverlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('palette-editor-open');
+}
+
+function closePaletteEditor() {
+  paletteEditorOverlay?.classList.add('hidden');
+  paletteEditorOverlay?.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('palette-editor-open');
+}
+
+function updatePaletteToggleState() {
+  paletteEditorToggle?.classList.toggle('active', paletteEditorState.enabled);
+  paletteEditorToggle?.setAttribute('aria-pressed', paletteEditorState.enabled ? 'true' : 'false');
+}
+
+function setCustomPaletteEnabled(enabled) {
+  paletteEditorState.enabled = enabled;
+  localStorage.setItem(PALETTE_STORAGE_KEYS.enabled, enabled ? 'true' : 'false');
+  if (enabled) {
+    ensurePaletteDraft();
+    if (!paletteEditorState.draft.id) {
+      paletteEditorState.draft.id = createPaletteId();
+    }
+    paletteEditorState.activeId = paletteEditorState.draft.id;
+    localStorage.setItem(PALETTE_STORAGE_KEYS.activeId, paletteEditorState.activeId);
+    applyCustomPalette(paletteEditorState.draft);
+  } else {
+    clearCustomPaletteStyle();
+  }
+  syncPaletteEditorUi();
+  updatePaletteToggleState();
+}
+
+function enableCustomPaletteForPreview() {
+  ensurePaletteDraft();
+  if (paletteEditorState.enabled) return;
+  paletteEditorState.enabled = true;
+  paletteEditorState.activeId = paletteEditorState.draft.id;
+  localStorage.setItem(PALETTE_STORAGE_KEYS.enabled, 'true');
+  localStorage.setItem(PALETTE_STORAGE_KEYS.activeId, paletteEditorState.activeId);
+  updatePaletteToggleState();
+}
+
+function liveApplyDraftPalette() {
+  ensurePaletteDraft();
+  if (paletteEditorState.enabled) {
+    applyCustomPalette(paletteEditorState.draft);
+  }
+}
+
+function saveDraftPalette(forceNew) {
+  ensurePaletteDraft();
+  const draft = clonePalette(paletteEditorState.draft);
+  draft.name = sanitizePaletteName(paletteNameInput?.value || draft.name) || 'Моя палитра';
+  if (draft.auto) {
+    draft.colors = generateAutoPaletteColors(draft.baseColor, draft.tone);
+  }
+
+  if (forceNew || !paletteEditorState.palettes.some((palette) => palette.id === draft.id)) {
+    draft.id = createPaletteId();
+    draft.name = makeUniquePaletteName(draft.name, paletteEditorState.palettes);
+    paletteEditorState.palettes.push(draft);
+  } else {
+    paletteEditorState.palettes = paletteEditorState.palettes.map((palette) => palette.id === draft.id ? draft : palette);
+  }
+
+  paletteEditorState.draft = clonePalette(draft);
+  paletteEditorState.activeId = draft.id;
+  paletteEditorState.enabled = true;
+  writeStoredPalettes(paletteEditorState.palettes);
+  localStorage.setItem(PALETTE_STORAGE_KEYS.activeId, draft.id);
+  localStorage.setItem(PALETTE_STORAGE_KEYS.enabled, 'true');
+  applyCustomPalette(draft);
+  syncPaletteEditorUi();
+  updatePaletteToggleState();
+}
+
+function deleteSelectedPalette() {
+  ensurePaletteDraft();
+  const id = paletteEditorState.draft.id;
+  const beforeCount = paletteEditorState.palettes.length;
+  paletteEditorState.palettes = paletteEditorState.palettes.filter((palette) => palette.id !== id);
+  if (paletteEditorState.palettes.length === beforeCount) return;
+
+  writeStoredPalettes(paletteEditorState.palettes);
+  const nextPalette = paletteEditorState.palettes[0] || createDefaultPaletteDraft();
+  paletteEditorState.draft = clonePalette(nextPalette);
+  paletteEditorState.activeId = paletteEditorState.palettes[0]?.id || '';
+  localStorage.setItem(PALETTE_STORAGE_KEYS.activeId, paletteEditorState.activeId);
+
+  if (paletteEditorState.enabled && paletteEditorState.activeId) {
+    applyCustomPalette(paletteEditorState.draft);
+  } else {
+    setCustomPaletteEnabled(false);
+  }
+  syncPaletteEditorUi();
+  updatePaletteToggleState();
+}
+
+function renderPaletteManualControls() {
+  if (!paletteManualControls) return;
+  paletteManualControls.innerHTML = PALETTE_COLOR_FIELDS.map((field) => `
+    <label class="palette-color-control">
+      <input type="color" data-palette-key="${field.key}" value="#5f9cff" />
+      <span>
+        <span class="palette-color-control-title">${escapeHtml(field.label)}</span>
+        <span class="palette-color-control-var">--${escapeHtml(field.key)}</span>
+      </span>
+    </label>
+  `).join('');
+}
+
+function syncPaletteEditorUi(options = {}) {
+  ensurePaletteDraft();
+  const draft = paletteEditorState.draft;
+
+  if (!options.preserveFocus && paletteNameInput) paletteNameInput.value = draft.name || 'Моя палитра';
+  if (paletteCustomEnabled) paletteCustomEnabled.checked = paletteEditorState.enabled;
+  if (paletteAutoMode) paletteAutoMode.checked = Boolean(draft.auto);
+  if (!options.preserveFocus && paletteBaseColor) paletteBaseColor.value = normalizeHexColor(draft.baseColor, '#5f9cff');
+  if (paletteToneSelect) paletteToneSelect.value = draft.tone === 'light' ? 'light' : 'dark';
+
+  renderPaletteSavedOptions();
+
+  const colors = draft.auto
+    ? generateAutoPaletteColors(draft.baseColor, draft.tone)
+    : normalizePaletteColors(draft.colors, draft.baseColor, draft.tone);
+
+  paletteManualControls?.querySelectorAll('input[type="color"][data-palette-key]').forEach((input) => {
+    const key = input.dataset.paletteKey;
+    if (!options.preserveFocus || document.activeElement !== input) {
+      input.value = normalizeHexColor(colors[key], '#5f9cff');
+    }
+    input.disabled = Boolean(draft.auto);
+  });
+
+  paletteEditorOverlay?.classList.toggle('palette-auto-active', Boolean(draft.auto));
+}
+
+function renderPaletteSavedOptions() {
+  if (!paletteSavedSelect) return;
+  const currentId = paletteEditorState.draft?.id || '';
+  if (!paletteEditorState.palettes.length) {
+    paletteSavedSelect.innerHTML = '<option value="">Нет сохранённых палитр</option>';
+    paletteSavedSelect.value = '';
+    return;
+  }
+  paletteSavedSelect.innerHTML = paletteEditorState.palettes.map((palette) => {
+    const selected = palette.id === currentId ? ' selected' : '';
+    return `<option value="${escapeHtml(palette.id)}"${selected}>${escapeHtml(palette.name || 'Без названия')}</option>`;
+  }).join('');
+  if (paletteEditorState.palettes.some((palette) => palette.id === currentId)) {
+    paletteSavedSelect.value = currentId;
+  }
+}
+
+function ensurePaletteDraft() {
+  if (paletteEditorState.draft) return;
+  const active = getActiveStoredPalette();
+  paletteEditorState.draft = active ? clonePalette(active) : createDefaultPaletteDraft();
+}
+
+function getActiveStoredPalette() {
+  return paletteEditorState.palettes.find((palette) => palette.id === paletteEditorState.activeId) || null;
+}
+
+function createDefaultPaletteDraft() {
+  const tone = themeToggle?.checked ? 'dark' : (localStorage.getItem('theme') === 'dark' ? 'dark' : 'light');
+  const baseColor = tone === 'dark' ? '#5f9cff' : '#4f8fd4';
+  return {
+    id: createPaletteId(),
+    name: 'Моя палитра',
+    auto: true,
+    tone,
+    baseColor,
+    colors: generateAutoPaletteColors(baseColor, tone)
+  };
+}
+
+function clonePalette(palette) {
+  const safe = palette || createDefaultPaletteDraft();
+  return {
+    id: String(safe.id || createPaletteId()),
+    name: sanitizePaletteName(safe.name || 'Моя палитра'),
+    auto: safe.auto !== false,
+    tone: safe.tone === 'light' ? 'light' : 'dark',
+    baseColor: normalizeHexColor(safe.baseColor, '#5f9cff'),
+    colors: normalizePaletteColors(safe.colors || {}, safe.baseColor || '#5f9cff', safe.tone === 'light' ? 'light' : 'dark')
+  };
+}
+
+function readStoredPalettes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PALETTE_STORAGE_KEYS.palettes) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(0, 40).map(clonePalette);
+  } catch (error) {
+    console.warn('[palette] failed to read palettes', error);
+    return [];
+  }
+}
+
+function writeStoredPalettes(palettes) {
+  localStorage.setItem(PALETTE_STORAGE_KEYS.palettes, JSON.stringify(palettes.map(clonePalette)));
+}
+
+function applyCustomPalette(palette) {
+  const safe = clonePalette(palette);
+  const colors = safe.auto ? generateAutoPaletteColors(safe.baseColor, safe.tone) : normalizePaletteColors(safe.colors, safe.baseColor, safe.tone);
+  const vars = buildCssVarsFromPaletteColors(colors);
+  const rootStyle = document.documentElement.style;
+  Object.entries(vars).forEach(([key, value]) => {
+    rootStyle.setProperty(`--${key}`, value);
+  });
+  document.documentElement.setAttribute('data-custom-theme', 'true');
+  syncThemeSwitchVisibility();
+}
+
+function clearCustomPaletteStyle() {
+  const rootStyle = document.documentElement.style;
+  PALETTE_CSS_VARIABLE_KEYS.forEach((key) => rootStyle.removeProperty(`--${key}`));
+  document.documentElement.removeAttribute('data-custom-theme');
+  syncThemeSwitchVisibility();
+}
+
+function syncThemeSwitchVisibility() {
+  const switchEl = themeToggle?.closest?.('.theme-switch');
+  if (!switchEl) return;
+  const hidden = document.documentElement.getAttribute('data-custom-theme') === 'true';
+  switchEl.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+  switchEl.tabIndex = hidden ? -1 : 0;
+}
+
+function buildCssVarsFromPaletteColors(colors) {
+  const normalized = normalizePaletteColors(colors, colors['button-bg'] || '#5f9cff', 'dark');
+  const vars = {};
+  PALETTE_COLOR_FIELDS.forEach((field) => {
+    const hex = normalizeHexColor(normalized[field.key], '#5f9cff');
+    vars[field.key] = typeof field.alpha === 'number' ? hexToRgba(hex, field.alpha) : hex;
+  });
+  vars['soft-surface'] = hexToRgba(normalized['card-bg'], normalized['bg-color'] && isLightHex(normalized['bg-color']) ? 0.66 : 0.06);
+  vars['glass-surface'] = hexToRgba(normalized['card-bg'], normalized['bg-color'] && isLightHex(normalized['bg-color']) ? 0.76 : 0.72);
+  return vars;
+}
+
+function normalizePaletteColors(colors = {}, baseColor = '#5f9cff', tone = 'dark') {
+  const generated = generateAutoPaletteColors(baseColor, tone);
+  const normalized = { ...generated };
+  PALETTE_COLOR_FIELDS.forEach((field) => {
+    normalized[field.key] = normalizeHexColor(colors[field.key], generated[field.key] || '#5f9cff');
+  });
+  return normalized;
+}
+
+function generateAutoPaletteColors(baseColor = '#5f9cff', tone = 'dark') {
+  const base = hexToHsl(normalizeHexColor(baseColor, '#5f9cff'));
+  const s = clampNumber(base.s, 42, 88);
+  const vivid = clampNumber(Math.max(s, 56), 56, 88);
+  const accentLightness = tone === 'light' ? 48 : 63;
+  const secondaryHue = wrapHue(base.h + 42);
+  const triadHue = wrapHue(base.h + 290);
+  const warmHue = wrapHue(base.h + 32);
+  const coolHue = wrapHue(base.h + 205);
+
+  if (tone === 'light') {
+    const bg = hslToHex(base.h, clampNumber(s * 0.34, 14, 30), 96);
+    const header = hslToHex(base.h, clampNumber(s * 0.36, 16, 32), 93);
+    const card = hslToHex(base.h, clampNumber(s * 0.16, 8, 20), 100);
+    const input = hslToHex(base.h, clampNumber(s * 0.16, 8, 20), 100);
+    const accent = hslToHex(base.h, vivid, accentLightness);
+    const secondary = hslToHex(secondaryHue, clampNumber(vivid * 0.92, 52, 84), 55);
+    return {
+      'bg-color': bg,
+      'header-bg': header,
+      'card-bg': card,
+      'input-bg': input,
+      'text-color': hslToHex(base.h, 28, 16),
+      'muted-text': hslToHex(base.h, 18, 34),
+      'button-bg': accent,
+      'secondary-button-bg': secondary,
+      'button-text': pickReadableText(accent),
+      'tag-bg': hslToHex(base.h, clampNumber(s * 0.42, 18, 36), 88),
+      'tag-hover-bg': hslToHex(secondaryHue, clampNumber(s * 0.38, 18, 36), 84),
+      'rating-text-bg': hslToHex(base.h, 18, 92),
+      'border-color': hslToHex(base.h, 18, 50),
+      'shadow-color': '#121a2a',
+      'slider-track': hslToHex(base.h, 12, 70),
+      'slider-range': accent,
+      'calendar-accent': hslToHex(coolHue, clampNumber(vivid * 0.85, 50, 82), 47),
+      'calendar-surface': hslToHex(base.h, 24, 12),
+      'calendar-item-bg': hslToHex(coolHue, 28, 24),
+      'calendar-add-bg': hslToHex(coolHue, 28, 96),
+      'calendar-add-text': hslToHex(coolHue, 36, 14),
+      'scrollbar-track': hslToHex(base.h, 16, 86),
+      'scrollbar-thumb': hslToHex(base.h, clampNumber(vivid * 0.62, 38, 70), 64),
+      'scrollbar-thumb-hover': accent,
+      'star-bg': '#111827',
+      'favorite-accent': '#f6c90e',
+      'favorite-active-text': '#1b1b1b',
+      'rating-green': '#248a4b',
+      'rating-orange': hslToHex(warmHue, 70, 43),
+      'rating-red': '#c63d3d',
+      'special-gradient-a': accent,
+      'special-gradient-b': secondary,
+      'special-gradient-c': hslToHex(triadHue, clampNumber(vivid * 0.9, 54, 84), 58),
+      'overlay-bg': '#0c0f17',
+      'overlay-card-bg': hslToHex(base.h, 24, 12)
+    };
+  }
+
+  const accent = hslToHex(base.h, vivid, accentLightness);
+  const secondary = hslToHex(secondaryHue, clampNumber(vivid * 0.94, 54, 86), 62);
+  return {
+    'bg-color': hslToHex(base.h, clampNumber(s * 0.30, 14, 28), 7),
+    'header-bg': hslToHex(base.h, clampNumber(s * 0.26, 12, 26), 12),
+    'card-bg': hslToHex(base.h, clampNumber(s * 0.22, 10, 24), 15),
+    'input-bg': hslToHex(base.h, clampNumber(s * 0.24, 10, 24), 10),
+    'text-color': hslToHex(base.h, 32, 94),
+    'muted-text': hslToHex(base.h, 18, 78),
+    'button-bg': accent,
+    'secondary-button-bg': secondary,
+    'button-text': pickReadableText(accent),
+    'tag-bg': hslToHex(base.h, clampNumber(s * 0.48, 20, 44), 24),
+    'tag-hover-bg': hslToHex(secondaryHue, clampNumber(s * 0.48, 20, 44), 29),
+    'rating-text-bg': hslToHex(base.h, 18, 21),
+    'border-color': hslToHex(base.h, 18, 70),
+    'shadow-color': '#000000',
+    'slider-track': hslToHex(base.h, 12, 72),
+    'slider-range': accent,
+    'calendar-accent': hslToHex(coolHue, clampNumber(vivid * 0.82, 50, 82), 58),
+    'calendar-surface': hslToHex(base.h, 24, 10),
+    'calendar-item-bg': hslToHex(coolHue, 26, 20),
+    'calendar-add-bg': hslToHex(coolHue, 24, 94),
+    'calendar-add-text': hslToHex(coolHue, 34, 12),
+    'scrollbar-track': hslToHex(base.h, 16, 22),
+    'scrollbar-thumb': hslToHex(base.h, clampNumber(vivid * 0.60, 36, 72), 52),
+    'scrollbar-thumb-hover': accent,
+    'star-bg': '#ffffff',
+    'favorite-accent': '#f6c90e',
+    'favorite-active-text': '#1b1b1b',
+    'rating-green': '#80d69a',
+    'rating-orange': hslToHex(warmHue, 80, 68),
+    'rating-red': '#ff8c8c',
+    'special-gradient-a': accent,
+    'special-gradient-b': secondary,
+    'special-gradient-c': hslToHex(triadHue, clampNumber(vivid * 0.88, 54, 86), 66),
+    'overlay-bg': '#000000',
+    'overlay-card-bg': hslToHex(base.h, 24, 10)
+  };
+}
+
+function makeUniquePaletteName(name, palettes) {
+  const cleanName = sanitizePaletteName(name) || 'Моя палитра';
+  const names = new Set(palettes.map((palette) => (palette.name || '').trim().toLowerCase()));
+  if (!names.has(cleanName.toLowerCase())) return cleanName;
+  let index = 2;
+  while (names.has(`${cleanName} ${index}`.toLowerCase())) index += 1;
+  return `${cleanName} ${index}`;
+}
+
+function sanitizePaletteName(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
+function createPaletteId() {
+  return `palette-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeHexColor(value, fallback = '#5f9cff') {
+  const raw = String(value || '').trim();
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(raw)) {
+    return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`.toLowerCase();
+  }
+  const rgbMatch = raw.match(/^rgba?\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})/i);
+  if (rgbMatch) {
+    return rgbToHex(Number(rgbMatch[1]), Number(rgbMatch[2]), Number(rgbMatch[3]));
+  }
+  const hslMatch = raw.match(/^hsl\(([-\d.]+),\s*([-\d.]+)%?,\s*([-\d.]+)%?/i);
+  if (hslMatch) {
+    return hslToHex(Number(hslMatch[1]), Number(hslMatch[2]), Number(hslMatch[3]));
+  }
+  return /^#[0-9a-f]{6}$/i.test(fallback) ? fallback.toLowerCase() : '#5f9cff';
+}
+
+function hexToRgb(hex) {
+  const safe = normalizeHexColor(hex, '#5f9cff').slice(1);
+  return {
+    r: parseInt(safe.slice(0, 2), 16),
+    g: parseInt(safe.slice(2, 4), 16),
+    b: parseInt(safe.slice(4, 6), 16)
+  };
+}
+
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map((value) => clampNumber(Math.round(value), 0, 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function hexToRgba(hex, alpha = 1) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${clampNumber(alpha, 0, 1)})`;
+}
+
+function hexToHsl(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d !== 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case rn:
+        h = ((gn - bn) / d + (gn < bn ? 6 : 0));
+        break;
+      case gn:
+        h = ((bn - rn) / d + 2);
+        break;
+      default:
+        h = ((rn - gn) / d + 4);
+        break;
+    }
+    h *= 60;
+  }
+  return { h: wrapHue(h), s: s * 100, l: l * 100 };
+}
+
+function hslToHex(h, s, l) {
+  const hue = wrapHue(h) / 360;
+  const sat = clampNumber(s, 0, 100) / 100;
+  const light = clampNumber(l, 0, 100) / 100;
+  if (sat === 0) {
+    const value = Math.round(light * 255);
+    return rgbToHex(value, value, value);
+  }
+  const q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat;
+  const p = 2 * light - q;
+  const toRgb = (tValue) => {
+    let t = tValue;
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return rgbToHex(toRgb(hue + 1 / 3) * 255, toRgb(hue) * 255, toRgb(hue - 1 / 3) * 255);
+}
+
+function relativeLuminance(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const values = [r, g, b].map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * values[0] + 0.7152 * values[1] + 0.0722 * values[2];
+}
+
+function pickReadableText(backgroundHex) {
+  return relativeLuminance(backgroundHex) > 0.52 ? '#111111' : '#ffffff';
+}
+
+function isLightHex(hex) {
+  return relativeLuminance(hex) > 0.55;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+}
+
+function wrapHue(value) {
+  return ((Number(value) % 360) + 360) % 360;
 }
 
 function initYearControls() {
@@ -2837,8 +3493,7 @@ function renderMovies(items) {
 
     const favBtn = card.querySelector('.fav-btn');
     if (isFavorite(item.id, item.mediaType)) {
-      favBtn.style.backgroundColor = 'gold';
-      favBtn.style.color = '#333';
+      favBtn.classList.add('fav-active');
     }
 
     main.appendChild(card);
