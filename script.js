@@ -5,6 +5,9 @@ const KINOBOX_API = 'https://api.kinobox.tv/api/players';
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_YEAR = 1888;
 const PAGE_SIZE = 20;
+const CATALOG_PAGE_SIZE = 40;
+const TMDB_MAX_FETCH_PAGE = 500;
+const LOGICAL_PAGE_FETCH_BATCH_SIZE = 2;
 const GOOGLE_CALENDAR_BASE_URL = 'https://calendar.google.com/calendar/render';
 const EPISODE_CALENDAR_CONCURRENCY = 4;
 const EPISODE_CALENDAR_MAX_ITEMS = 24;
@@ -13,6 +16,11 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
 const AI_SEARCH_REASONING_MAX_LINES = 22;
 const AI_SEARCH_ROASTS_FILE = 'ai_roasts.txt';
+const DECISION_PROMPT_DELAY_MS = 180000;
+const ROULETTE_RANDOM_PAGE_CAP = 500;
+const ROULETTE_FETCH_ROUNDS = 7;
+const ROULETTE_VISIBLE_CARDS = 38;
+const ROULETTE_WINNER_INDEX = 31;
 const AI_SEARCH_DEFAULT_ROASTS = [
   'Запрос уже на столе. Снимаю отпечатки с жанров.',
   'Проверяю, не притворяется ли этот вайб нормальным человеком.',
@@ -163,6 +171,19 @@ const overlay = document.getElementById('myNav');
 const overlayContent = document.getElementById('overlay-content');
 const overlayCloseBtn = document.getElementById('overlayCloseBtn');
 const scrollBtn = document.getElementById('scrollTopBtn');
+const decisionPrompt = document.getElementById('decisionPrompt');
+const decisionPromptClose = document.getElementById('decisionPromptClose');
+const decisionPromptAccept = document.getElementById('decisionPromptAccept');
+const decisionPromptDecline = document.getElementById('decisionPromptDecline');
+const movieRouletteOverlay = document.getElementById('movieRouletteOverlay');
+const movieRouletteClose = document.getElementById('movieRouletteClose');
+const movieRouletteSubtitle = document.getElementById('movieRouletteSubtitle');
+const movieRouletteTrack = document.getElementById('movieRouletteTrack');
+const movieRouletteResult = document.getElementById('movieRouletteResult');
+const movieRouletteLoading = document.getElementById('movieRouletteLoading');
+const movieRouletteActions = document.getElementById('movieRouletteActions');
+const movieRouletteWatch = document.getElementById('movieRouletteWatch');
+const movieRouletteAgain = document.getElementById('movieRouletteAgain');
 const themeToggle = document.getElementById('themeToggleCheckbox');
 const favoriteToggle = document.getElementById('favoriteToggle');
 const typeButtons = document.getElementById('typeButtons');
@@ -201,6 +222,8 @@ function cloneFilters(filters) {
   };
 }
 
+const INITIAL_PLAYER_ROUTE_HASH = isPlayerRouteHash(window.location.hash);
+
 const state = {
   currentPage: 1,
   totalPages: 1,
@@ -217,6 +240,17 @@ const state = {
   appliedFilters: createDefaultFilters(),
   pendingFilters: createDefaultFilters(),
   pendingExcludeModeSwitch: null,
+  decisionAssistant: {
+    timer: null,
+    timerStartedAt: 0,
+    disabledByInitialRoute: INITIAL_PLAYER_ROUTE_HASH,
+    promptShown: false,
+    promptDismissed: false,
+    userMadeChoice: false,
+    lastWinnerKey: '',
+    currentWinner: null,
+    spinning: false
+  },
   aiSearch: {
     enabled: false,
     prompt: '',
@@ -243,10 +277,19 @@ window.addEventListener('beforeunload', () => {
   resetCatalogRuntimeState();
 });
 
+window.addEventListener('focus', checkDecisionPromptCountdown);
+window.addEventListener('pageshow', checkDecisionPromptCountdown);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    checkDecisionPromptCountdown();
+  }
+});
+
 async function init() {
   initTheme();
   initYearControls();
   bindEvents();
+  startDecisionPromptCountdown();
   renderLoading('Подключаемся к TMDB...');
 
   try {
@@ -401,6 +444,31 @@ function bindEvents() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
+  main.addEventListener('pointermove', noteCatalogBrowsingActivity, { passive: true });
+  main.addEventListener('wheel', noteCatalogBrowsingActivity, { passive: true });
+  main.addEventListener('touchstart', noteCatalogBrowsingActivity, { passive: true });
+
+  decisionPromptClose?.addEventListener('click', dismissDecisionPromptForSession);
+  decisionPromptDecline?.addEventListener('click', dismissDecisionPromptForSession);
+  decisionPromptAccept?.addEventListener('click', () => {
+    hideDecisionPrompt();
+    state.decisionAssistant.promptDismissed = true;
+    void openMovieRoulette();
+  });
+
+  movieRouletteClose?.addEventListener('click', closeMovieRoulette);
+  movieRouletteAgain?.addEventListener('click', () => {
+    void startRouletteSpin({ reroll: true });
+  });
+  movieRouletteWatch?.addEventListener('click', () => {
+    void watchRouletteWinner();
+  });
+  movieRouletteOverlay?.addEventListener('click', (event) => {
+    if (event.target === movieRouletteOverlay) {
+      closeMovieRoulette();
+    }
+  });
+
   document.addEventListener('click', async (event) => {
     const calendarToggleButton = event.target.closest('.episode-calendar-btn');
     if (calendarToggleButton) {
@@ -429,6 +497,7 @@ function bindEvents() {
 
     const watchButton = event.target.closest('.watch-online');
     if (watchButton) {
+      markUserMadeCatalogChoice();
       const id = Number(watchButton.dataset.id);
       const mediaType = watchButton.dataset.mediaType;
       if (!id || !mediaType) return;
@@ -509,6 +578,7 @@ function bindEvents() {
     if (event.key === 'Escape') {
       closeAllMultiSelects();
       closeRegionModeConfirmation();
+      closeMovieRoulette();
     }
   });
 
@@ -572,6 +642,8 @@ function bindEvents() {
   window.addEventListener('hashchange', async () => {
     const rawHash = window.location.hash.substring(1);
     if (!rawHash) return;
+    if (!isPlayerRouteHash(rawHash)) return;
+    markUserMadeCatalogChoice();
     try {
       const payload = await buildPlayerPayloadFromHash(rawHash);
       await openKinoBox(payload);
@@ -1601,56 +1673,51 @@ function buildAiStatusText(count, plan) {
 async function executeAiSearchPlan(plan, page) {
   const mediaTargets = resolveAiMediaTargets(plan);
   const effectiveTextQuery = plan.textQuery || plan.titleHints[0] || (plan.searchStrategy === 'title-first' ? state.query.trim() : '');
-  const tasks = [];
 
-  for (const mediaType of mediaTargets) {
-    if (effectiveTextQuery) {
-      const endpoint = mediaType === 'movie' ? '/search/movie' : '/search/tv';
-      tasks.push(apiFetch(endpoint, buildAiSearchParams(mediaType, page, effectiveTextQuery, plan))
-        .then((response) => ({ source: 'search', mediaType, response })));
+  return collectFilteredCatalogPage(page, async (rawPage) => {
+    const tasks = [];
+
+    for (const mediaType of mediaTargets) {
+      if (effectiveTextQuery) {
+        const endpoint = mediaType === 'movie' ? '/search/movie' : '/search/tv';
+        tasks.push(apiFetch(endpoint, buildAiSearchParams(mediaType, rawPage, effectiveTextQuery, plan))
+          .then((response) => ({ source: 'search', mediaType, response })));
+      }
+
+      if (plan.searchStrategy !== 'title-first' || rawPage === 1 || !effectiveTextQuery) {
+        const endpoint = mediaType === 'movie' ? '/discover/movie' : '/discover/tv';
+        tasks.push(apiFetch(endpoint, buildAiDiscoverParams(mediaType, rawPage, plan))
+          .then((response) => ({ source: 'discover', mediaType, response })));
+      }
     }
 
-    if (plan.searchStrategy !== 'title-first' || page === 1 || !effectiveTextQuery) {
-      const endpoint = mediaType === 'movie' ? '/discover/movie' : '/discover/tv';
-      tasks.push(apiFetch(endpoint, buildAiDiscoverParams(mediaType, page, plan))
-        .then((response) => ({ source: 'discover', mediaType, response })));
+    if (!tasks.length) {
+      return {
+        items: [],
+        totalPages: 1
+      };
     }
-  }
 
-  if (!tasks.length) {
+    const settled = await Promise.allSettled(tasks);
+    const collected = [];
+    let totalPages = 1;
+
+    for (const item of settled) {
+      if (item.status !== 'fulfilled') continue;
+      const response = item.value.response || {};
+      totalPages = Math.max(totalPages, Number(response.total_pages || 1));
+      const normalized = (response.results || []).map((entry) => normalizeItem(entry, item.value.mediaType));
+      collected.push(...normalized);
+    }
+
     return {
-      items: [],
-      totalPages: 1
+      items: collected,
+      totalPages
     };
-  }
-
-  const settled = await Promise.allSettled(tasks);
-  const collected = [];
-  let totalPages = 1;
-
-  for (const item of settled) {
-    if (item.status !== 'fulfilled') continue;
-    const response = item.value.response || {};
-    totalPages = Math.max(totalPages, Number(response.total_pages || 1));
-    const normalized = (response.results || []).map((entry) => normalizeItem(entry, item.value.mediaType));
-    collected.push(...normalized);
-  }
-
-  const deduped = dedupeItemsByMediaAndId(collected);
-  const hydrated = await hydrateItemsForClientFilters(deduped);
-  const filtered = hydrated
-    .filter(matchesClientSideFilters)
-    .filter((item) => matchesAiPlanFilters(item, plan));
-
-  const ranked = filtered
-    .map((item) => ({ item, score: scoreAiCandidate(item, plan, effectiveTextQuery) }))
-    .sort((a, b) => b.score - a.score || sortByPopularity(a.item, b.item))
-    .map((entry) => entry.item);
-
-  return {
-    items: ranked,
-    totalPages
-  };
+  }, {
+    extraFilter: (item) => matchesAiPlanFilters(item, plan),
+    sorter: (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b)
+  });
 }
 
 function resolveAiMediaTargets(plan) {
@@ -1872,6 +1939,387 @@ function disposeCatalogMediaResources(container = main) {
   });
 }
 
+
+function isPlayerRouteHash(hashValue = window.location.hash) {
+  const rawHash = String(hashValue || '').replace(/^#/, '').trim().toLowerCase();
+  return /^(movie|tv)-\d+$/.test(rawHash) || /^tm\d+$/.test(rawHash) || /^tt\d+/.test(rawHash);
+}
+
+function shouldBlockDecisionPromptTimer() {
+  return state.decisionAssistant.disabledByInitialRoute
+    || state.decisionAssistant.userMadeChoice
+    || state.decisionAssistant.promptShown
+    || state.decisionAssistant.promptDismissed;
+}
+
+function startDecisionPromptCountdown() {
+  if (!decisionPrompt || !movieRouletteOverlay) return;
+  if (shouldBlockDecisionPromptTimer()) return;
+
+  if (!state.decisionAssistant.timerStartedAt) {
+    state.decisionAssistant.timerStartedAt = Date.now();
+  }
+
+  armDecisionPromptTimer();
+}
+
+function armDecisionPromptTimer() {
+  if (shouldBlockDecisionPromptTimer()) return;
+  if (state.decisionAssistant.timer) return;
+
+  const startedAt = state.decisionAssistant.timerStartedAt || Date.now();
+  state.decisionAssistant.timerStartedAt = startedAt;
+  const elapsed = Date.now() - startedAt;
+  const remaining = Math.max(0, DECISION_PROMPT_DELAY_MS - elapsed);
+
+  state.decisionAssistant.timer = window.setTimeout(() => {
+    state.decisionAssistant.timer = null;
+    showDecisionPrompt();
+  }, remaining);
+}
+
+function checkDecisionPromptCountdown() {
+  if (!decisionPrompt || !movieRouletteOverlay) return;
+  if (shouldBlockDecisionPromptTimer()) return;
+
+  if (!state.decisionAssistant.timerStartedAt) {
+    startDecisionPromptCountdown();
+    return;
+  }
+
+  if (Date.now() - state.decisionAssistant.timerStartedAt >= DECISION_PROMPT_DELAY_MS) {
+    showDecisionPrompt();
+    return;
+  }
+
+  armDecisionPromptTimer();
+}
+
+function clearDecisionPromptTimer() {
+  if (state.decisionAssistant.timer) {
+    window.clearTimeout(state.decisionAssistant.timer);
+    state.decisionAssistant.timer = null;
+  }
+}
+
+function noteCatalogBrowsingActivity() {
+  checkDecisionPromptCountdown();
+}
+
+function showDecisionPrompt() {
+  clearDecisionPromptTimer();
+  if (!decisionPrompt || shouldBlockDecisionPromptTimer()) return;
+
+  state.decisionAssistant.promptShown = true;
+  decisionPrompt.classList.remove('hidden');
+}
+
+function hideDecisionPrompt() {
+  decisionPrompt?.classList.add('hidden');
+}
+
+function dismissDecisionPromptForSession() {
+  state.decisionAssistant.promptDismissed = true;
+  clearDecisionPromptTimer();
+  hideDecisionPrompt();
+}
+
+function markUserMadeCatalogChoice() {
+  state.decisionAssistant.userMadeChoice = true;
+  clearDecisionPromptTimer();
+  hideDecisionPrompt();
+}
+
+async function openMovieRoulette() {
+  if (!movieRouletteOverlay) return;
+  closeEpisodeCalendarPopovers();
+  closeAllMultiSelects();
+  movieRouletteOverlay.classList.remove('hidden');
+  movieRouletteOverlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('movie-roulette-open');
+  await startRouletteSpin({ reroll: false });
+}
+
+function closeMovieRoulette() {
+  if (!movieRouletteOverlay || movieRouletteOverlay.classList.contains('hidden')) return;
+  movieRouletteOverlay.classList.add('hidden');
+  movieRouletteOverlay.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('movie-roulette-open');
+  state.decisionAssistant.spinning = false;
+}
+
+async function startRouletteSpin({ reroll = false } = {}) {
+  if (!movieRouletteTrack || !movieRouletteResult || !movieRouletteActions || !movieRouletteLoading) return;
+  if (state.decisionAssistant.spinning) return;
+
+  state.decisionAssistant.spinning = true;
+  state.decisionAssistant.currentWinner = null;
+  movieRouletteTrack.style.transition = 'none';
+  movieRouletteTrack.style.transform = 'translateX(0px)';
+  movieRouletteTrack.innerHTML = '';
+  movieRouletteResult.classList.add('hidden');
+  movieRouletteResult.innerHTML = '';
+  movieRouletteActions.classList.add('hidden');
+  movieRouletteLoading.classList.remove('hidden');
+  movieRouletteSubtitle.textContent = reroll
+    ? 'Перемешиваем варианты ещё раз, без повторения предыдущего победителя, если есть альтернатива.'
+    : 'Собираем варианты под текущий каталог и крутим барабан.';
+
+  try {
+    const candidates = await fetchRouletteCandidates();
+    if (!candidates.length) {
+      throw new Error('No roulette candidates');
+    }
+
+    const prepared = prepareRouletteItems(candidates);
+    const winner = prepared.winner;
+    state.decisionAssistant.currentWinner = winner;
+    movieRouletteLoading.classList.add('hidden');
+    renderRouletteTrack(prepared.items, prepared.winnerIndex);
+
+    await runRouletteAnimation(prepared.winnerIndex);
+    state.decisionAssistant.lastWinnerKey = getRouletteItemKey(winner);
+    revealRouletteResult(winner);
+  } catch (error) {
+    console.error('[startRouletteSpin]', error);
+    movieRouletteLoading.classList.add('hidden');
+    movieRouletteResult.innerHTML = `
+      <div class="movie-roulette-result-title">Не смог подобрать тайтлы</div>
+      <div class="movie-roulette-result-meta">Попробуй сбросить часть фильтров или обновить каталог — выборка сейчас слишком узкая.</div>
+    `;
+    movieRouletteResult.classList.remove('hidden');
+    movieRouletteActions.classList.remove('hidden');
+    movieRouletteWatch.disabled = true;
+  } finally {
+    state.decisionAssistant.spinning = false;
+  }
+}
+
+async function fetchRouletteCandidates() {
+  if (state.showFavoritesOnly) {
+    const payload = await fetchFavoritesContent();
+    return payload.items || [];
+  }
+
+  if (isAiSearchEnabled()) {
+    const plan = await ensureAiSearchPlan();
+    if (plan) {
+      return fetchRouletteCandidatesFromAiPlan(plan);
+    }
+  }
+
+  if (state.query.trim()) {
+    return fetchRouletteCandidatesFromSearch();
+  }
+
+  return fetchRouletteCandidatesFromDiscover();
+}
+
+async function fetchRouletteCandidatesFromAiPlan(plan) {
+  const pageCap = getRoulettePageCap();
+  const pages = getRandomPageSet(pageCap, ROULETTE_FETCH_ROUNDS);
+  const settled = await Promise.allSettled(pages.map((page) => executeAiSearchPlan(plan, page)));
+  const items = settled
+    .filter((entry) => entry.status === 'fulfilled')
+    .flatMap((entry) => entry.value?.items || []);
+  return finalizeRouletteCandidates(items);
+}
+
+async function fetchRouletteCandidatesFromSearch() {
+  const { type } = state.appliedFilters;
+  const pageCap = getRoulettePageCap();
+  const pages = getRandomPageSet(pageCap, ROULETTE_FETCH_ROUNDS);
+  const tasks = [];
+
+  if (type === 'movie') {
+    pages.forEach((page) => tasks.push(apiFetch('/search/movie', buildSearchParams('movie', page)).then((response) => ({ response, mediaType: 'movie' }))));
+  } else if (type === 'tv') {
+    pages.forEach((page) => tasks.push(apiFetch('/search/tv', buildSearchParams('tv', page)).then((response) => ({ response, mediaType: 'tv' }))));
+  } else {
+    pages.forEach((page) => tasks.push(apiFetch('/search/multi', buildSearchParams('all', page)).then((response) => ({ response, mediaType: 'multi' }))));
+  }
+
+  const settled = await Promise.allSettled(tasks);
+  const rawItems = [];
+  for (const entry of settled) {
+    if (entry.status !== 'fulfilled') continue;
+    const { response, mediaType } = entry.value;
+    const normalized = (response?.results || [])
+      .filter((item) => mediaType !== 'multi' || item.media_type === 'movie' || item.media_type === 'tv')
+      .map((item) => normalizeItem(item, mediaType === 'multi' ? item.media_type : mediaType));
+    rawItems.push(...normalized);
+  }
+
+  const hydrated = await hydrateItemsForClientFilters(dedupeItemsByMediaAndId(rawItems));
+  return finalizeRouletteCandidates(hydrated.filter(matchesClientSideFilters));
+}
+
+async function fetchRouletteCandidatesFromDiscover() {
+  const { type } = state.appliedFilters;
+  const mediaTargets = type === 'movie' || type === 'tv' ? [type] : ['movie', 'tv'];
+  const pageCap = getRoulettePageCap();
+  const pages = getRandomPageSet(pageCap, Math.max(3, ROULETTE_FETCH_ROUNDS));
+  const tasks = [];
+
+  for (const mediaType of mediaTargets) {
+    if (hasImpossibleGenreCombination(mediaType)) continue;
+    pages.forEach((page) => {
+      const endpoint = mediaType === 'movie' ? '/discover/movie' : '/discover/tv';
+      tasks.push(apiFetch(endpoint, buildDiscoverParams(mediaType, page)).then((response) => ({ response, mediaType })));
+    });
+  }
+
+  const settled = await Promise.allSettled(tasks);
+  const rawItems = [];
+  for (const entry of settled) {
+    if (entry.status !== 'fulfilled') continue;
+    const { response, mediaType } = entry.value;
+    rawItems.push(...(response?.results || []).map((item) => normalizeItem(item, mediaType)));
+  }
+
+  const hydrated = await hydrateItemsForClientFilters(dedupeItemsByMediaAndId(rawItems));
+  return finalizeRouletteCandidates(hydrated.filter(matchesClientSideFilters).sort(sortByPopularity));
+}
+
+function finalizeRouletteCandidates(items) {
+  const deduped = dedupeItemsByMediaAndId(items || [])
+    .filter((item) => item?.id && item?.mediaType)
+    .filter((item) => item.posterUrl || item.title);
+
+  const lastWinnerKey = state.decisionAssistant.lastWinnerKey;
+  const withoutLastWinner = lastWinnerKey && deduped.length > 1
+    ? deduped.filter((item) => getRouletteItemKey(item) !== lastWinnerKey)
+    : deduped;
+
+  return shuffleArray(withoutLastWinner.length ? withoutLastWinner : deduped);
+}
+
+function getRoulettePageCap() {
+  const total = Number(state.totalPages || 1);
+  if (!Number.isFinite(total) || total < 1) return 1;
+  return Math.max(1, Math.min(ROULETTE_RANDOM_PAGE_CAP, Math.floor(total)));
+}
+
+function getRandomPageSet(maxPage, count) {
+  const safeMax = Math.max(1, Math.floor(Number(maxPage) || 1));
+  const result = new Set([Math.min(safeMax, Math.max(1, Number(state.currentPage) || 1))]);
+  while (result.size < Math.min(count, safeMax)) {
+    result.add(1 + Math.floor(Math.random() * safeMax));
+  }
+  return Array.from(result);
+}
+
+function prepareRouletteItems(candidates) {
+  const shuffled = shuffleArray(candidates);
+  const winner = shuffled[0];
+  const fillerSource = shuffled.length > 1 ? shuffled.slice(1) : shuffled;
+  const items = [];
+
+  for (let i = 0; i < ROULETTE_VISIBLE_CARDS; i += 1) {
+    const source = fillerSource[i % fillerSource.length] || winner;
+    items.push(source);
+  }
+
+  const winnerIndex = Math.min(ROULETTE_WINNER_INDEX, items.length - 3);
+  items[winnerIndex] = winner;
+
+  return { items, winner, winnerIndex };
+}
+
+function renderRouletteTrack(items, winnerIndex) {
+  movieRouletteTrack.innerHTML = items.map((item, index) => {
+    const safeTitle = escapeHtml(item.title || 'Без названия');
+    const poster = item.posterUrl
+      ? `<img src="${escapeHtml(item.posterUrl)}" alt="${safeTitle}" loading="eager" />`
+      : `<div class="movie-roulette-poster-placeholder">${safeTitle}</div>`;
+    return `
+      <article class="movie-roulette-card${index === winnerIndex ? ' is-target' : ''}" data-roulette-index="${index}">
+        ${poster}
+        <div class="movie-roulette-card-title">${safeTitle}</div>
+      </article>
+    `;
+  }).join('');
+}
+
+function runRouletteAnimation(winnerIndex) {
+  return new Promise((resolve) => {
+    const winnerCard = movieRouletteTrack.querySelector(`[data-roulette-index="${winnerIndex}"]`);
+    if (!winnerCard) {
+      resolve();
+      return;
+    }
+
+    movieRouletteTrack.getBoundingClientRect();
+    window.requestAnimationFrame(() => {
+      const stageRect = movieRouletteTrack.parentElement.getBoundingClientRect();
+      const winnerRect = winnerCard.getBoundingClientRect();
+      const currentTrackX = movieRouletteTrack.getBoundingClientRect().left;
+      const winnerCenterWithinTrack = (winnerRect.left - currentTrackX) + (winnerRect.width / 2);
+      const targetTranslate = (stageRect.width / 2) - winnerCenterWithinTrack;
+      const randomNudge = Math.round((Math.random() - 0.5) * Math.min(28, winnerRect.width * 0.12));
+
+      movieRouletteTrack.style.transition = 'transform 4.8s cubic-bezier(0.12, 0.78, 0.12, 1)';
+      movieRouletteTrack.style.transform = `translateX(${targetTranslate + randomNudge}px)`;
+
+      const finish = () => {
+        winnerCard.classList.add('is-winner');
+        movieRouletteTrack.removeEventListener('transitionend', finish);
+        resolve();
+      };
+
+      movieRouletteTrack.addEventListener('transitionend', finish, { once: true });
+      window.setTimeout(finish, 5400);
+    });
+  });
+}
+
+function revealRouletteResult(winner) {
+  if (!winner) return;
+  const meta = [
+    winner.mediaType === 'tv' ? 'Сериал' : 'Фильм',
+    formatFullDate(winner.releaseDate),
+    winner.voteAverage ? `Рейтинг: ${formatVote(winner.voteAverage)}` : ''
+  ].filter(Boolean).join(' • ');
+
+  movieRouletteResult.innerHTML = `
+    <div class="movie-roulette-result-title">${escapeHtml(winner.title || 'Без названия')}</div>
+    <div class="movie-roulette-result-meta">${escapeHtml(meta)}</div>
+  `;
+  movieRouletteResult.classList.remove('hidden');
+  movieRouletteWatch.disabled = false;
+  movieRouletteActions.classList.remove('hidden');
+  movieRouletteSubtitle.textContent = 'Рулетка остановилась. Можно смотреть победителя или крутануть ещё раз.';
+}
+
+async function watchRouletteWinner() {
+  const winner = state.decisionAssistant.currentWinner;
+  if (!winner?.id || !winner?.mediaType) return;
+  markUserMadeCatalogChoice();
+  closeMovieRoulette();
+
+  try {
+    const payload = await buildPlayerPayloadFromId(winner.id, winner.mediaType);
+    window.location.hash = `${winner.mediaType}-${winner.id}`;
+    await openKinoBox(payload);
+  } catch (error) {
+    console.error('[watchRouletteWinner]', error);
+    openPlayerError('Не удалось подготовить плеер для выбранного тайтла. Попробуй крутануть рулетку ещё раз.');
+  }
+}
+
+function getRouletteItemKey(item) {
+  return `${item?.mediaType || 'movie'}:${Number(item?.id || 0)}`;
+}
+
+function shuffleArray(input) {
+  const array = [...(input || [])];
+  for (let i = array.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
 function resetCatalogRuntimeState() {
   closeEpisodeCalendarPopovers();
   disposeCatalogMediaResources(main);
@@ -1923,6 +2371,7 @@ async function loadContent(page = 1) {
 
     updatePagination();
     updateResultsStatus(payload.statusText || buildStatusText(payload.items.length));
+    checkDecisionPromptCountdown();
   } catch (error) {
     console.error('[loadContent]', error);
     renderError('Ошибка сети или запроса к TMDB. Попробуй ещё раз чуть позже.');
@@ -1931,92 +2380,194 @@ async function loadContent(page = 1) {
   }
 }
 
+function normalizeCatalogPageNumber(page) {
+  const value = Number(page);
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+}
+
+function getCatalogSliceRange(page, pageSize = CATALOG_PAGE_SIZE) {
+  const safePage = normalizeCatalogPageNumber(page);
+  const start = (safePage - 1) * pageSize;
+  return {
+    start,
+    end: start + pageSize
+  };
+}
+
+function normalizeSourceTotalPages(value) {
+  const total = Number(value || 1);
+  if (!Number.isFinite(total) || total < 1) return 1;
+  return Math.min(TMDB_MAX_FETCH_PAGE, Math.floor(total));
+}
+
+async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
+  const safePage = normalizeCatalogPageNumber(page);
+  const pageSize = Number(options.pageSize || CATALOG_PAGE_SIZE);
+  const { start, end } = getCatalogSliceRange(safePage, pageSize);
+  const extraFilter = typeof options.extraFilter === 'function' ? options.extraFilter : null;
+  const sorter = typeof options.sorter === 'function' ? options.sorter : null;
+  const seen = new Set();
+  const filtered = [];
+  let nextRawPage = 1;
+  let maxRawPages = TMDB_MAX_FETCH_PAGE;
+  let reachedEnd = false;
+
+  while (nextRawPage <= maxRawPages && nextRawPage <= TMDB_MAX_FETCH_PAGE) {
+    const batchPages = [];
+    for (let offset = 0; offset < LOGICAL_PAGE_FETCH_BATCH_SIZE; offset += 1) {
+      const rawPage = nextRawPage + offset;
+      if (rawPage > maxRawPages || rawPage > TMDB_MAX_FETCH_PAGE) break;
+      batchPages.push(rawPage);
+    }
+
+    if (!batchPages.length) {
+      reachedEnd = true;
+      break;
+    }
+
+    const settled = await Promise.allSettled(batchPages.map((rawPage) => fetchRawPage(rawPage)));
+    let fulfilledCount = 0;
+    const incoming = [];
+
+    settled.forEach((item) => {
+      if (item.status !== 'fulfilled' || !item.value) return;
+      fulfilledCount += 1;
+      maxRawPages = Math.min(maxRawPages, normalizeSourceTotalPages(item.value.totalPages));
+
+      if (!Array.isArray(item.value.items) || !item.value.items.length) return;
+      for (const rawItem of item.value.items) {
+        if (!rawItem?.id || !rawItem?.mediaType) continue;
+        const key = `${rawItem.mediaType}:${rawItem.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        incoming.push(rawItem);
+      }
+    });
+
+    if (!fulfilledCount) {
+      reachedEnd = true;
+      break;
+    }
+
+    if (incoming.length) {
+      const hydrated = await hydrateItemsForClientFilters(incoming);
+      let batchFiltered = hydrated.filter(matchesClientSideFilters);
+      if (extraFilter) {
+        batchFiltered = batchFiltered.filter(extraFilter);
+      }
+      filtered.push(...batchFiltered);
+    }
+
+    const outputList = sorter ? [...filtered].sort(sorter) : filtered;
+    const lastFetchedPage = batchPages[batchPages.length - 1];
+    if (outputList.length >= end) {
+      break;
+    }
+
+    if (lastFetchedPage >= maxRawPages || lastFetchedPage >= TMDB_MAX_FETCH_PAGE) {
+      reachedEnd = true;
+      break;
+    }
+
+    nextRawPage = lastFetchedPage + 1;
+  }
+
+  const outputList = sorter ? [...filtered].sort(sorter) : filtered;
+  const items = outputList.slice(start, end);
+  const knownLogicalPages = Math.max(1, Math.ceil(outputList.length / pageSize));
+  const totalPages = reachedEnd ? knownLogicalPages : Math.max(knownLogicalPages, safePage + 1);
+
+  return {
+    items,
+    totalPages
+  };
+}
+
 async function fetchDiscoverContent(page) {
   const { type } = state.appliedFilters;
 
-  if (type === 'movie') {
-    const response = await apiFetch('/discover/movie', buildDiscoverParams('movie', page));
-    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'movie')));
-    const items = hydratedItems.filter(matchesClientSideFilters);
-    return {
-      items,
-      totalPages: response.total_pages || 1,
-      statusText: buildStatusText(items.length)
-    };
-  }
+  if (type === 'movie' || type === 'tv') {
+    const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
+    const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
+      const response = await apiFetch(endpoint, buildDiscoverParams(type, rawPage));
+      return {
+        items: (response.results || []).map((item) => normalizeItem(item, type)),
+        totalPages: response.total_pages || 1
+      };
+    });
 
-  if (type === 'tv') {
-    const response = await apiFetch('/discover/tv', buildDiscoverParams('tv', page));
-    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'tv')));
-    const items = hydratedItems.filter(matchesClientSideFilters);
     return {
-      items,
-      totalPages: response.total_pages || 1,
-      statusText: buildStatusText(items.length)
+      ...payload,
+      statusText: buildStatusText(payload.items.length)
     };
   }
 
   const movieImpossible = hasImpossibleGenreCombination('movie');
   const tvImpossible = hasImpossibleGenreCombination('tv');
 
-  const [movieResponse, tvResponse] = await Promise.all([
-    movieImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/movie', buildDiscoverParams('movie', page)),
-    tvImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/tv', buildDiscoverParams('tv', page))
-  ]);
+  if (movieImpossible && tvImpossible) {
+    return {
+      items: [],
+      totalPages: 1,
+      statusText: buildStatusText(0)
+    };
+  }
 
-  const hydratedItems = await hydrateItemsForClientFilters([
-    ...(movieResponse.results || []).map((item) => normalizeItem(item, 'movie')),
-    ...(tvResponse.results || []).map((item) => normalizeItem(item, 'tv'))
-  ]);
+  const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
+    const [movieResponse, tvResponse] = await Promise.all([
+      movieImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/movie', buildDiscoverParams('movie', rawPage)),
+      tvImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/tv', buildDiscoverParams('tv', rawPage))
+    ]);
 
-  const items = hydratedItems.filter(matchesClientSideFilters).sort(sortByPopularity);
+    return {
+      items: [
+        ...(movieResponse.results || []).map((item) => normalizeItem(item, 'movie')),
+        ...(tvResponse.results || []).map((item) => normalizeItem(item, 'tv'))
+      ],
+      totalPages: Math.max(movieResponse.total_pages || 1, tvResponse.total_pages || 1)
+    };
+  }, {
+    sorter: sortByPopularity
+  });
 
   return {
-    items,
-    totalPages: Math.max(movieResponse.total_pages || 1, tvResponse.total_pages || 1),
-    statusText: buildStatusText(items.length)
+    ...payload,
+    statusText: buildStatusText(payload.items.length)
   };
 }
 
 async function fetchSearchContent(page) {
   const { type } = state.appliedFilters;
 
-  if (type === 'movie') {
-    const response = await apiFetch('/search/movie', buildSearchParams('movie', page));
-    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'movie')));
-    const items = hydratedItems.filter(matchesClientSideFilters);
+  if (type === 'movie' || type === 'tv') {
+    const endpoint = type === 'movie' ? '/search/movie' : '/search/tv';
+    const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
+      const response = await apiFetch(endpoint, buildSearchParams(type, rawPage));
+      return {
+        items: (response.results || []).map((item) => normalizeItem(item, type)),
+        totalPages: response.total_pages || 1
+      };
+    });
 
     return {
-      items,
-      totalPages: response.total_pages || 1,
-      statusText: buildStatusText(items.length, true)
+      ...payload,
+      statusText: buildStatusText(payload.items.length, true)
     };
   }
 
-  if (type === 'tv') {
-    const response = await apiFetch('/search/tv', buildSearchParams('tv', page));
-    const hydratedItems = await hydrateItemsForClientFilters((response.results || []).map((item) => normalizeItem(item, 'tv')));
-    const items = hydratedItems.filter(matchesClientSideFilters);
-
+  const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
+    const response = await apiFetch('/search/multi', buildSearchParams('all', rawPage));
     return {
-      items,
-      totalPages: response.total_pages || 1,
-      statusText: buildStatusText(items.length, true)
+      items: (response.results || [])
+        .filter((item) => item.media_type === 'movie' || item.media_type === 'tv')
+        .map((item) => normalizeItem(item, item.media_type)),
+      totalPages: response.total_pages || 1
     };
-  }
-
-  const response = await apiFetch('/search/multi', buildSearchParams('all', page));
-  const hydratedItems = await hydrateItemsForClientFilters(
-    (response.results || [])
-      .filter((item) => item.media_type === 'movie' || item.media_type === 'tv')
-      .map((item) => normalizeItem(item, item.media_type))
-  );
-  const items = hydratedItems.filter(matchesClientSideFilters);
+  });
 
   return {
-    items,
-    totalPages: response.total_pages || 1,
-    statusText: buildStatusText(items.length, true)
+    ...payload,
+    statusText: buildStatusText(payload.items.length, true)
   };
 }
 
@@ -3418,6 +3969,7 @@ function renderKinoboxSources(sourcesData) {
 }
 
 async function openKinoBox(meta) {
+  markUserMadeCatalogChoice();
   renderPlayerShell(meta);
   showPlayerPlaceholder('Подбираем доступные источники...');
 
@@ -3451,6 +4003,8 @@ function openPlayerError(message) {
 window.addEventListener('DOMContentLoaded', async () => {
   if (!window.location.hash) return;
   const rawHash = window.location.hash.substring(1);
+  if (!isPlayerRouteHash(rawHash)) return;
+  markUserMadeCatalogChoice();
   try {
     const payload = await buildPlayerPayloadFromHash(rawHash);
     await openKinoBox(payload);

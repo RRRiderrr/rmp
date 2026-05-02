@@ -161,6 +161,37 @@
 
   <button id="scrollTopBtn" class="scroll-to-top">↑</button>
 
+
+  <div id="decisionPrompt" class="decision-prompt hidden" role="dialog" aria-live="polite" aria-label="Помощь с выбором фильма">
+    <button type="button" id="decisionPromptClose" class="decision-prompt-close" aria-label="Закрыть уведомление">&times;</button>
+    <div class="decision-prompt-text">Не можете определиться? Позвольте сайту выбрать за вас!</div>
+    <div class="decision-prompt-actions">
+      <button type="button" id="decisionPromptAccept" class="decision-prompt-primary">Выберите за меня</button>
+      <button type="button" id="decisionPromptDecline" class="decision-prompt-secondary">Отказаться</button>
+    </div>
+  </div>
+
+  <div id="movieRouletteOverlay" class="movie-roulette-overlay hidden" aria-hidden="true">
+    <div class="movie-roulette-dialog" role="dialog" aria-modal="true" aria-labelledby="movieRouletteTitle">
+      <button type="button" id="movieRouletteClose" class="movie-roulette-close" aria-label="Закрыть рулетку">&times;</button>
+      <div class="movie-roulette-head">
+        <div class="movie-roulette-eyebrow">RMP Randomizer</div>
+        <h2 id="movieRouletteTitle">Кинорулетка выбирает тайтл</h2>
+        <p id="movieRouletteSubtitle">Собираем варианты под текущий каталог и крутим барабан.</p>
+      </div>
+      <div class="movie-roulette-stage">
+        <div class="movie-roulette-marker" aria-hidden="true"></div>
+        <div id="movieRouletteTrack" class="movie-roulette-track"></div>
+      </div>
+      <div id="movieRouletteResult" class="movie-roulette-result hidden"></div>
+      <div id="movieRouletteLoading" class="movie-roulette-loading hidden">Подбираем тайтлы...</div>
+      <div id="movieRouletteActions" class="movie-roulette-actions hidden">
+        <button type="button" id="movieRouletteWatch" class="movie-roulette-watch">Смотреть</button>
+        <button type="button" id="movieRouletteAgain" class="movie-roulette-again">Давай ещё</button>
+      </div>
+    </div>
+  </div>
+
   <div id="regionConfirmOverlay" class="region-confirm-overlay hidden" aria-hidden="true">
     <div class="region-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="regionConfirmTitle" aria-describedby="regionConfirmText">
       <div class="region-confirm-title" id="regionConfirmTitle">Подтверждение переключения</div>
