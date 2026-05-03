@@ -2787,3 +2787,156 @@ body.palette-editor-open {
     height: 52px;
   }
 }
+
+/* Ksawer romantic search easter egg */
+.ksawer-easter-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  overflow: hidden;
+  pointer-events: auto;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 196, 226, 0.12), transparent 31%),
+    radial-gradient(circle at 18% 86%, rgba(255, 78, 164, 0.12), transparent 34%),
+    radial-gradient(circle at 84% 76%, rgba(104, 93, 255, 0.11), transparent 36%),
+    #020205;
+  opacity: 0;
+  animation: ksawerOverlayIn 1.05s ease forwards;
+}
+
+.ksawer-easter-overlay.is-ending {
+  animation: ksawerOverlayOut 1.35s ease forwards;
+}
+
+.ksawer-easter-overlay.is-ending-fast {
+  animation: ksawerOverlayOut 0.42s ease forwards;
+}
+
+.ksawer-heart-canvas,
+.ksawer-easter-aurora,
+.ksawer-easter-stars {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ksawer-heart-canvas {
+  z-index: 2;
+}
+
+.ksawer-easter-aurora {
+  z-index: 1;
+  opacity: 0.9;
+  background:
+    linear-gradient(118deg, transparent 0%, rgba(255, 76, 151, 0.13) 24%, transparent 48%, rgba(120, 108, 255, 0.11) 72%, transparent 100%),
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.04), transparent 45%);
+  background-size: 240% 240%, 100% 100%;
+  filter: blur(4px);
+  animation: ksawerAuroraMove 12s ease-in-out infinite alternate;
+}
+
+.ksawer-easter-stars {
+  z-index: 1;
+  opacity: 0.52;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.58) 0 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255,170,220,0.40) 0 1px, transparent 1.6px),
+    radial-gradient(circle, rgba(170,190,255,0.35) 0 1px, transparent 1.5px);
+  background-position: 0 0, 34px 52px, 81px 22px;
+  background-size: 140px 160px, 190px 230px, 260px 210px;
+  mask-image: radial-gradient(circle at 50% 44%, transparent 0 12%, #000 50%, #000 100%);
+  animation: ksawerStarsDrift 34s linear infinite;
+}
+
+.ksawer-easter-title {
+  position: absolute;
+  left: 50%;
+  top: clamp(44px, 11vh, 126px);
+  z-index: 4;
+  width: min(1180px, calc(100vw - 96px));
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+  overflow: visible;
+  padding: 0 clamp(14px, 2vw, 32px);
+  box-sizing: border-box;
+}
+
+.ksawer-easter-title span {
+  display: inline-block;
+  font-family: "Brush Script MT", "Segoe Script", "Snell Roundhand", "Apple Chancery", cursive;
+  font-size: clamp(4rem, 9.2vw, 10.8rem);
+  font-weight: 400;
+  line-height: 0.94;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: transparent;
+  background: linear-gradient(96deg, #fff8fb 0%, #ffd2ea 24%, #ff74ba 47%, #d6c3ff 70%, #ffffff 100%);
+  background-size: 220% 220%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 8px 18px rgba(255, 81, 161, 0.34)) drop-shadow(0 0 44px rgba(152, 117, 255, 0.23));
+  animation: ksawerTitleGlow 5.8s ease-in-out infinite alternate, ksawerTitleFloat 7s ease-in-out infinite;
+}
+
+.ksawer-easter-title::after {
+  content: "";
+  display: block;
+  width: min(560px, 58vw);
+  height: 1px;
+  margin: clamp(12px, 2vw, 22px) auto 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 203, 231, 0.7), rgba(160, 145, 255, 0.42), transparent);
+  box-shadow: 0 0 28px rgba(255, 116, 186, 0.45);
+  transform-origin: center;
+  animation: ksawerLineBreathe 4.8s ease-in-out infinite;
+}
+
+@keyframes ksawerOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ksawerOverlayOut {
+  from { opacity: 1; filter: blur(0); }
+  to { opacity: 0; filter: blur(10px); }
+}
+
+@keyframes ksawerAuroraMove {
+  0% { background-position: 0% 40%, 50% 50%; transform: scale(1); }
+  100% { background-position: 100% 60%, 50% 50%; transform: scale(1.04); }
+}
+
+@keyframes ksawerStarsDrift {
+  from { background-position: 0 0, 34px 52px, 81px 22px; }
+  to { background-position: 0 -520px, 34px -360px, 81px -420px; }
+}
+
+@keyframes ksawerTitleGlow {
+  0% { background-position: 0% 50%; filter: drop-shadow(0 8px 18px rgba(255, 81, 161, 0.28)) drop-shadow(0 0 32px rgba(152, 117, 255, 0.18)); }
+  100% { background-position: 100% 50%; filter: drop-shadow(0 10px 26px rgba(255, 81, 161, 0.44)) drop-shadow(0 0 58px rgba(152, 117, 255, 0.34)); }
+}
+
+@keyframes ksawerTitleFloat {
+  0%, 100% { transform: translateY(0) rotate(-0.35deg); }
+  50% { transform: translateY(8px) rotate(0.25deg); }
+}
+
+@keyframes ksawerLineBreathe {
+  0%, 100% { opacity: 0.52; transform: scaleX(0.82); }
+  50% { opacity: 1; transform: scaleX(1); }
+}
+
+@media (max-width: 720px) {
+  .ksawer-easter-title {
+    top: clamp(38px, 10vh, 86px);
+    width: calc(100vw - 36px);
+    padding: 0 10px;
+  }
+
+  .ksawer-easter-title span {
+    font-size: clamp(3.1rem, 13vw, 5.7rem);
+  }
+}

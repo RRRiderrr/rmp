@@ -16,6 +16,133 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
 const AI_SEARCH_REASONING_MAX_LINES = 22;
 const AI_SEARCH_ROASTS_FILE = 'ai_roasts.txt';
+const KSAWER_EASTER_PHRASES_FILE = 'ksawer_phrases.txt';
+const KSAWER_EASTER_FALLBACK_PHRASES = [
+  "Ты умеешь делать обычный день подозрительно красивым.",
+  "С тобой даже пауза в переписке звучит как интрига.",
+  "У тебя улыбка, которую хочется представить вживую.",
+  "Ты появляешься в мыслях слишком аккуратно, но слишком часто.",
+  "Кажется, твои сообщения знают короткую дорогу к моему настроению.",
+  "Между нами километры, но вайб упрямо сидит рядом.",
+  "Ты слишком интересная, чтобы быть просто случайным знакомством.",
+  "Твой голос в голове звучит мягче любого саундтрека.",
+  "Если бы флирт был искусством, ты бы опасно нарушала технику безопасности.",
+  "Ты как хорошая сцена после титров: неожиданно и очень вовремя.",
+  "С тобой хочется отвечать не быстро, а красиво.",
+  "Ты умеешь быть нежной даже через экран.",
+  "В тебе есть то самое тепло, которое не просит разрешения.",
+  "Ты слишком милая для моей самодисциплины.",
+  "Каждое твоё сообщение выглядит как маленькая победа вечера.",
+  "Ты не рядом, но почему-то умеешь быть ближе многих.",
+  "С тобой расстояние ведёт себя неприлично плохо.",
+  "Ты заставляешь экран казаться не таким холодным.",
+  "У тебя есть редкий талант быть и милой, и опасной одновременно.",
+  "Твои слова умеют задерживаться дольше, чем положено.",
+  "Ты как плейлист, который включаешь и случайно остаёшься до утра.",
+  "Мне нравится, как легко с тобой становится чуть теплее.",
+  "Ты умеешь делать флирт похожим на красивую игру без правил.",
+  "С тобой даже обычное «как дела» звучит подозрительно мило.",
+  "Кажется, ты случайно украшаешь всё, к чему прикасаешься словами.",
+  "Ты как хороший кадр: вроде простой, а взгляд не отпускает.",
+  "С тобой хочется спорить только для того, чтобы дольше разговаривать.",
+  "Ты слишком хорошо умеешь быть в голове без приглашения.",
+  "В тебе есть магия, которая не кричит, а тихо светится.",
+  "Твои сообщения — маленькие искры на чёрном экране.",
+  "Ты опасно уютная для человека на расстоянии.",
+  "С тобой даже ночь звучит мягче.",
+  "Ты как редкая находка, которую не хочется никому показывать.",
+  "У тебя вайб человека, ради которого хочется подбирать слова лучше.",
+  "Ты умеешь быть причиной улыбки и делать вид, что ничего не произошло.",
+  "Если бы расстояние умело ревновать, оно бы уже злилось.",
+  "Ты слишком красиво оставляешь след в мыслях.",
+  "С тобой флирт не заканчивается точкой, он ставит многоточие.",
+  "Ты как тёплый свет из окна, когда вокруг город уже спит.",
+  "Мне нравится, что с тобой хочется быть чуть смелее.",
+  "Ты делаешь молчание не неловким, а почти кинематографичным.",
+  "Твой характер звучит как искра, завёрнутая в нежность.",
+  "Ты не похожа на «просто переписку».",
+  "С тобой хочется пересматривать даже случайные моменты.",
+  "Ты как сообщение, которое перечитывают не потому, что не поняли.",
+  "В тебе есть спокойствие, рядом с которым хочется задержаться.",
+  "Ты умеешь быть красивой даже между строк.",
+  "С тобой любое расстояние выглядит как временная ошибка карты.",
+  "Ты слишком настоящая для обычного совпадения.",
+  "Кажется, у твоего имени есть собственное тепло.",
+  "Ты умеешь улыбаться словами.",
+  "С тобой даже ожидание ответа становится частью игры.",
+  "Ты как тайный уровень, который случайно оказался лучшим.",
+  "В тебе есть что-то, от чего хочется говорить честнее.",
+  "Ты слишком хорошо попадаешь в настроение.",
+  "С тобой хочется быть не идеальным, а живым.",
+  "Ты как мягкий glitch в реальности: странно, красиво, невозможно игнорировать.",
+  "Твои фразы иногда звучат так, будто мир специально стал тише.",
+  "Ты умеешь оставлять после себя свет, даже если просто написала пару слов.",
+  "С тобой флирт выглядит не как игра, а как химия с хорошим вкусом.",
+  "Ты очень красиво портишь планы быть спокойным.",
+  "Мне нравится эта наша странная, тёплая, опасная дистанция.",
+  "Ты как маленькая буря в самом красивом смысле.",
+  "Твои сообщения имеют подозрительно высокий уровень урона по скуке.",
+  "Ты умеешь быть нежностью с характером.",
+  "С тобой хочется не торопить момент, а растянуть его красиво.",
+  "Ты как песня, которую не отправляют всем подряд.",
+  "В тебе есть редкая смесь мягкости и искры.",
+  "Ты делаешь флирт тонким, но очень заметным.",
+  "Если бы я выбирал случайный повод улыбнуться, он всё равно был бы про тебя.",
+  "Ты слишком хорошо смотришься даже в моих мыслях.",
+  "С тобой хочется оставлять недосказанность, потому что она красиво горит.",
+  "Ты как красивый секрет, который сложно держать внутри.",
+  "Твои сообщения иногда звучат ближе, чем география разрешает.",
+  "Ты умеешь быть причиной хорошего настроения без официального заявления.",
+  "С тобой даже простые слова получают второе дно.",
+  "Ты опасно мило влияешь на мой пульс.",
+  "Мне нравится, как между нами всё вроде легко, но совсем не пусто.",
+  "Ты как светлая мысль, которая приходит слишком поздно ночью.",
+  "С тобой расстояние выглядит не стеной, а сценой.",
+  "Ты умеешь делать ожидание сладким, а ответ — ещё слаще.",
+  "В тебе есть искра, из-за которой хочется придумывать новые поводы написать.",
+  "Ты как кадр из фильма, где всё только начинается.",
+  "Твои слова иногда обнимают лучше, чем должны уметь слова.",
+  "С тобой хочется быть аккуратно дерзким.",
+  "Ты слишком красиво нарушаешь тишину.",
+  "В тебе есть такой вайб, что даже экран кажется ближе.",
+  "Ты как загадка, которую не хочется решать до конца.",
+  "Мне нравится, что рядом с тобой даже мысли начинают улыбаться.",
+  "Ты умеешь быть нежной ловушкой.",
+  "С тобой разговоры не заканчиваются, они просто прячутся до следующего сообщения.",
+  "Ты как рассвет, который решил появиться в переписке.",
+  "Твой стиль общения — отдельная причина задержаться.",
+  "Ты слишком тонко чувствуешь момент, и это нечестно красиво.",
+  "С тобой хочется писать не «привет», а что-то достойнее.",
+  "Ты как маленький космос с очень красивой гравитацией.",
+  "В тебе есть мягкая наглость, которая мне слишком нравится.",
+  "Ты умеешь делать расстояние смешным и почти бесполезным.",
+  "С тобой даже обычный экран становится местом встречи.",
+  "Ты как хорошая тайна: чем меньше объяснений, тем сильнее притяжение.",
+  "Твои сообщения иногда звучат как случайность, которая всё поняла заранее.",
+  "Ты очень красиво умеешь быть не рядом.",
+  "С тобой хочется выбирать слова так, будто они могут дотронуться.",
+  "Ты как тёплый шум города после полуночи.",
+  "В тебе есть что-то, что хочется беречь даже на расстоянии.",
+  "Ты умеешь быть лёгкой, но оставаться в голове надолго.",
+  "С тобой даже маленький флирт выглядит большим событием.",
+  "Ты как мягкая провокация, от которой невозможно злиться.",
+  "Твои слова умеют подходить ближе, чем я ожидал.",
+  "Ты опасно хороша в том, чтобы быть собой.",
+  "С тобой хочется случайно задержаться ещё на одно сообщение.",
+  "Ты как редкий цвет, который невозможно нормально назвать.",
+  "В тебе есть нежность, которая улыбается с хитринкой.",
+  "Ты делаешь этот маленький цифровой мир гораздо красивее.",
+  "С тобой любое «потом» хочется превратить в «ещё немного сейчас».",
+  "Ты как пароль от настроения, который я будто знал заранее.",
+  "Твои сообщения умеют тихо включать весну.",
+  "Ты слишком красиво существуешь где-то далеко.",
+  "С тобой хочется верить, что расстояние просто плохо старается.",
+  "Ты как красивое совпадение, которое подозрительно повторяется.",
+  "Мне нравится, как ты заставляешь обычные минуты выглядеть важнее.",
+  "Ты умеешь быть той самой мыслью, которая возвращается сама."
+];
+const KSAWER_EASTER_QUERY_PATTERN = /^(ksawer|ксавер)$/i;
+const KSAWER_EASTER_INPUT_DEBOUNCE_MS = 420;
 const DECISION_PROMPT_DELAY_MS = 180000;
 const ROULETTE_RANDOM_PAGE_CAP = 500;
 const ROULETTE_FETCH_ROUNDS = 7;
@@ -342,6 +469,8 @@ let aiSearchFallbackIndex = 0;
 let aiSearchRoastLines = [...AI_SEARCH_DEFAULT_ROASTS];
 let aiSearchRoastDeck = [];
 let aiSearchLastRoast = '';
+let ksawerEasterState = null;
+let ksawerEasterInputTimer = null;
 
 init();
 
@@ -382,6 +511,12 @@ function bindEvents() {
     event.preventDefault();
     const nextQuery = search.value.trim();
 
+    if (isKsawerEasterQuery(nextQuery)) {
+      search.blur();
+      await startKsawerEasterEgg();
+      return;
+    }
+
     if (state.aiSearch.enabled && nextQuery !== state.aiSearch.prompt) {
       resetAiSearchPlanState();
     }
@@ -405,6 +540,20 @@ function bindEvents() {
     search.value = search.value.replace(/\s*\r?\n+\s*/g, ' ').replace(/\s{2,}/g, ' ');
     const safeCaret = Math.min(caret, search.value.length);
     search.setSelectionRange(safeCaret, safeCaret);
+  });
+
+  search.addEventListener('input', () => {
+    if (ksawerEasterInputTimer) {
+      window.clearTimeout(ksawerEasterInputTimer);
+      ksawerEasterInputTimer = null;
+    }
+    if (!isKsawerEasterQuery(search.value)) return;
+    ksawerEasterInputTimer = window.setTimeout(async () => {
+      ksawerEasterInputTimer = null;
+      if (!isKsawerEasterQuery(search.value)) return;
+      search.blur();
+      await startKsawerEasterEgg();
+    }, KSAWER_EASTER_INPUT_DEBOUNCE_MS);
   });
 
   aiSearchToggle.addEventListener('click', () => {
@@ -4669,6 +4818,570 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+
+
+function isKsawerEasterQuery(value) {
+  return KSAWER_EASTER_QUERY_PATTERN.test(String(value || '').trim());
+}
+
+async function startKsawerEasterEgg() {
+  if (ksawerEasterState?.active) return;
+
+  const overlayEl = createKsawerEasterOverlay();
+  const canvas = overlayEl.querySelector('#ksawerHeartCanvas');
+  const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx) return;
+
+  if (typeof hideDecisionPrompt === 'function') {
+    hideDecisionPrompt();
+  }
+  if (typeof closeMovieRoulette === 'function') {
+    closeMovieRoulette();
+  }
+
+  const phrases = await loadKsawerEasterPhrases();
+  const stateObj = {
+    active: true,
+    overlayEl,
+    canvas,
+    ctx,
+    ratio: 1,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    hearts: [],
+    phrases,
+    phraseIndex: 0,
+    spawnTimer: null,
+    animationFrame: null,
+    resizeHandler: null,
+    keyHandler: null,
+    startedAt: performance.now(),
+    lastFrameAt: performance.now(),
+    finishedSpawning: false,
+    ending: false
+  };
+  ksawerEasterState = stateObj;
+
+  stateObj.resizeHandler = () => {
+    resizeKsawerCanvas(stateObj);
+    fitKsawerEasterTitle(stateObj.overlayEl);
+  };
+  stateObj.keyHandler = (event) => {
+    if (event.key === 'Escape') {
+      finishKsawerEasterEgg(true);
+    }
+  };
+
+  window.addEventListener('resize', stateObj.resizeHandler);
+  document.addEventListener('keydown', stateObj.keyHandler);
+  resizeKsawerCanvas(stateObj);
+  fitKsawerEasterTitle(stateObj.overlayEl);
+  window.requestAnimationFrame(() => fitKsawerEasterTitle(stateObj.overlayEl));
+  window.setTimeout(() => fitKsawerEasterTitle(stateObj.overlayEl), 180);
+
+  window.setTimeout(() => {
+    if (!ksawerEasterState?.active || ksawerEasterState !== stateObj) return;
+    spawnNextKsawerHeart(stateObj);
+    stateObj.spawnTimer = window.setInterval(() => spawnNextKsawerHeart(stateObj), 980);
+  }, 650);
+
+  stateObj.animationFrame = window.requestAnimationFrame((timestamp) => animateKsawerEaster(stateObj, timestamp));
+}
+
+function createKsawerEasterOverlay() {
+  const oldOverlay = document.getElementById('ksawerEasterOverlay');
+  if (oldOverlay) {
+    oldOverlay.remove();
+  }
+
+  const overlayEl = document.createElement('div');
+  overlayEl.id = 'ksawerEasterOverlay';
+  overlayEl.className = 'ksawer-easter-overlay';
+  overlayEl.setAttribute('aria-live', 'polite');
+  overlayEl.setAttribute('aria-label', 'Романтическая пасхалка');
+  overlayEl.innerHTML = `
+    <canvas id="ksawerHeartCanvas" class="ksawer-heart-canvas"></canvas>
+    <div class="ksawer-easter-aurora" aria-hidden="true"></div>
+    <div class="ksawer-easter-stars" aria-hidden="true"></div>
+    <div class="ksawer-easter-title" aria-label="Я люблю тебя!">
+      <span>Я люблю тебя!</span>
+    </div>
+  `;
+  document.body.appendChild(overlayEl);
+  return overlayEl;
+}
+
+function fitKsawerEasterTitle(overlayEl) {
+  const title = overlayEl?.querySelector?.('.ksawer-easter-title');
+  const titleText = title?.querySelector?.('span');
+  if (!title || !titleText) return;
+
+  const viewportWidth = Math.max(320, window.innerWidth || document.documentElement.clientWidth || 320);
+  const viewportHeight = Math.max(420, window.innerHeight || document.documentElement.clientHeight || 420);
+  const sidePadding = Math.min(104, Math.max(30, viewportWidth * 0.07));
+  const safeWidth = Math.max(260, viewportWidth - sidePadding * 2);
+  const maxFontSize = Math.min(viewportHeight * 0.22, Math.max(68, viewportWidth * 0.118));
+  const minFontSize = Math.max(42, Math.min(66, viewportWidth * 0.13));
+
+  title.style.width = `${safeWidth}px`;
+  titleText.style.fontSize = `${maxFontSize}px`;
+  titleText.style.whiteSpace = 'nowrap';
+
+  const rect = titleText.getBoundingClientRect();
+  if (rect.width > safeWidth) {
+    const fittedSize = Math.max(minFontSize, maxFontSize * (safeWidth / rect.width) * 0.92);
+    titleText.style.fontSize = `${fittedSize}px`;
+  }
+
+  const finalRect = titleText.getBoundingClientRect();
+  const overflowLeft = Math.max(0, sidePadding - finalRect.left);
+  const overflowRight = Math.max(0, finalRect.right - (viewportWidth - sidePadding));
+  if (overflowLeft || overflowRight) {
+    const currentSize = parseFloat(titleText.style.fontSize) || maxFontSize;
+    const widthToKeep = Math.max(220, safeWidth - overflowLeft - overflowRight - 18);
+    const saferSize = Math.max(minFontSize * 0.88, currentSize * (widthToKeep / Math.max(1, finalRect.width)));
+    titleText.style.fontSize = `${saferSize}px`;
+  }
+}
+
+async function loadKsawerEasterPhrases() {
+  try {
+    const response = await fetch(KSAWER_EASTER_PHRASES_FILE, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const text = await response.text();
+    const phrases = text
+      .split(/\r?\n/g)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+    if (phrases.length) {
+      return phrases;
+    }
+  } catch (error) {
+    console.warn('[ksawer easter] cannot read phrase file, using fallback', error);
+  }
+  return [...KSAWER_EASTER_FALLBACK_PHRASES];
+}
+
+function resizeKsawerCanvas(stateObj) {
+  if (!stateObj?.canvas || !stateObj.ctx) return;
+  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  stateObj.ratio = ratio;
+  stateObj.width = Math.max(1, window.innerWidth);
+  stateObj.height = Math.max(1, window.innerHeight);
+  stateObj.canvas.width = Math.floor(stateObj.width * ratio);
+  stateObj.canvas.height = Math.floor(stateObj.height * ratio);
+  stateObj.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+}
+
+function spawnNextKsawerHeart(stateObj) {
+  if (!stateObj?.active || stateObj.ending) return;
+
+  if (stateObj.phraseIndex >= stateObj.phrases.length) {
+    stateObj.finishedSpawning = true;
+    if (stateObj.spawnTimer) {
+      window.clearInterval(stateObj.spawnTimer);
+      stateObj.spawnTimer = null;
+    }
+    return;
+  }
+
+  const phrase = stateObj.phrases[stateObj.phraseIndex];
+  const heart = createKsawerHeartParticle(phrase, stateObj);
+  if (!heart) {
+    return;
+  }
+
+  stateObj.phraseIndex += 1;
+  stateObj.hearts.push(heart);
+}
+
+function createKsawerHeartParticle(phrase, stateObj) {
+  const width = Math.max(320, stateObj.width || window.innerWidth);
+  const height = Math.max(480, stateObj.height || window.innerHeight);
+  const sizeFloor = width < 560 ? 182 : 218;
+  const sizeCeiling = Math.min(width < 560 ? 260 : 352, Math.max(236, width * 0.225));
+  const attempts = width < 560 ? 46 : 64;
+  const palette = getKsawerHeartPalette();
+  let bestCandidate = null;
+  let bestClearance = -Infinity;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const sizeBase = sizeFloor + Math.random() * Math.max(1, sizeCeiling - sizeFloor);
+    const size = Math.round(sizeBase);
+    const margin = Math.max(44, size * 0.58);
+    const x = pickKsawerHeartX(width, margin, attempt, size);
+    const y = height + size * (0.88 + Math.random() * 0.28);
+    const candidate = buildKsawerHeartParticle(phrase, x, y, size, palette);
+    const clearance = getKsawerHeartSpawnClearance(candidate, stateObj.hearts, height);
+
+    if (clearance > bestClearance) {
+      bestClearance = clearance;
+      bestCandidate = candidate;
+    }
+    if (clearance >= 0) {
+      return candidate;
+    }
+  }
+
+  return bestClearance > Math.max(24, (bestCandidate?.size || sizeFloor) * 0.08) ? bestCandidate : null;
+}
+
+function pickKsawerHeartX(width, margin, attempt, size) {
+  const usableWidth = Math.max(1, width - margin * 2);
+  if (attempt < 10) {
+    const laneStep = Math.max(size * 1.36, 220);
+    const laneCount = Math.max(1, Math.floor(usableWidth / laneStep));
+    const laneGap = usableWidth / laneCount;
+    const laneIndex = (attempt + Math.floor(Math.random() * laneCount)) % laneCount;
+    const laneCenter = margin + laneGap * (laneIndex + 0.5);
+    const jitter = (Math.random() - 0.5) * Math.min(laneGap * 0.24, size * 0.28);
+    return Math.min(width - margin, Math.max(margin, laneCenter + jitter));
+  }
+  return margin + Math.random() * usableWidth;
+}
+
+function buildKsawerHeartParticle(phrase, x, y, size, palette) {
+  return {
+    phrase,
+    x,
+    y,
+    size,
+    vx: (Math.random() - 0.5) * 0.12,
+    vy: -(0.70 + Math.random() * 0.28),
+    boost: 0.00045 + Math.random() * 0.00065,
+    sway: 0.28 + Math.random() * 0.58,
+    swayPhase: Math.random() * Math.PI * 2,
+    rotation: (Math.random() - 0.5) * 0.14,
+    rotationSpeed: (Math.random() - 0.5) * 0.0007,
+    bornAt: performance.now(),
+    opacity: 0,
+    life: 0,
+    colors: palette
+  };
+}
+
+function getKsawerHeartBounds(heart, extraPadding = 0) {
+  const halfWidth = heart.size * 0.62 + extraPadding;
+  const top = heart.y - heart.size * 0.68 - extraPadding;
+  const bottom = heart.y + heart.size * 0.64 + extraPadding;
+  return {
+    left: heart.x - halfWidth,
+    right: heart.x + halfWidth,
+    top,
+    bottom,
+    width: halfWidth * 2,
+    height: bottom - top
+  };
+}
+
+function doKsawerBoundsOverlap(first, second) {
+  return !(
+    first.right <= second.left ||
+    first.left >= second.right ||
+    first.bottom <= second.top ||
+    first.top >= second.bottom
+  );
+}
+
+function getKsawerHeartSpawnClearance(candidate, hearts, viewportHeight) {
+  const candidateBounds = getKsawerHeartBounds(candidate, Math.max(18, candidate.size * 0.08));
+  let minClearance = Infinity;
+
+  for (const heart of hearts) {
+    if (!heart || heart.opacity <= 0.03) continue;
+    const heartBounds = getKsawerHeartBounds(heart, Math.max(18, heart.size * 0.08));
+    const overlapX = Math.min(candidateBounds.right, heartBounds.right) - Math.max(candidateBounds.left, heartBounds.left);
+    const overlapY = Math.min(candidateBounds.bottom, heartBounds.bottom) - Math.max(candidateBounds.top, heartBounds.top);
+
+    if (overlapX > 0 && overlapY > 0) {
+      return -Math.max(overlapX, overlapY);
+    }
+
+    const horizontalGap = Math.max(0, Math.max(heartBounds.left - candidateBounds.right, candidateBounds.left - heartBounds.right));
+    const verticalGap = Math.max(0, Math.max(heartBounds.top - candidateBounds.bottom, candidateBounds.top - heartBounds.bottom));
+    const gap = horizontalGap || verticalGap ? Math.sqrt(horizontalGap * horizontalGap + verticalGap * verticalGap) : 0;
+    minClearance = Math.min(minClearance, gap);
+  }
+
+  const bottomClearance = Math.max(0, candidateBounds.top - viewportHeight);
+  return Math.min(minClearance, bottomClearance || Infinity);
+}
+
+function resolveKsawerHeartCollisions(hearts, width) {
+  if (!Array.isArray(hearts) || hearts.length < 2) return;
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let i = 0; i < hearts.length; i += 1) {
+      const first = hearts[i];
+      if (!first || first.opacity <= 0.02) continue;
+
+      for (let j = i + 1; j < hearts.length; j += 1) {
+        const second = hearts[j];
+        if (!second || second.opacity <= 0.02) continue;
+
+        const firstBounds = getKsawerHeartBounds(first, 10);
+        const secondBounds = getKsawerHeartBounds(second, 10);
+        if (!doKsawerBoundsOverlap(firstBounds, secondBounds)) continue;
+
+        const overlapX = Math.min(firstBounds.right, secondBounds.right) - Math.max(firstBounds.left, secondBounds.left);
+        const overlapY = Math.min(firstBounds.bottom, secondBounds.bottom) - Math.max(firstBounds.top, secondBounds.top);
+
+        if (overlapX < overlapY) {
+          const shift = Math.min(14, overlapX / 2 + 2);
+          const direction = first.x <= second.x ? -1 : 1;
+          first.x = Math.max(first.size * 0.58, Math.min(width - first.size * 0.58, first.x + direction * shift));
+          second.x = Math.max(second.size * 0.58, Math.min(width - second.size * 0.58, second.x - direction * shift));
+          first.vx *= 0.35;
+          second.vx *= 0.35;
+        } else {
+          const shift = Math.min(11, overlapY / 2 + 1.5);
+          if (first.y < second.y) {
+            first.y -= shift;
+            second.y += shift;
+          } else {
+            first.y += shift;
+            second.y -= shift;
+          }
+        }
+      }
+    }
+  }
+}
+
+function getKsawerHeartPalette() {
+  const palettes = [
+    ['#ff7fcf', '#a86bff', '#5ee7df'],
+    ['#ffd1e8', '#ff6fae', '#7b61ff'],
+    ['#fef3c7', '#fb7185', '#c084fc'],
+    ['#ffb3c7', '#ff5e9c', '#60a5fa'],
+    ['#d8b4fe', '#f472b6', '#f9a8d4'],
+    ['#c4b5fd', '#38bdf8', '#f0abfc'],
+    ['#ffe4e6', '#fb7185', '#f97316']
+  ];
+  return palettes[Math.floor(Math.random() * palettes.length)];
+}
+
+function animateKsawerEaster(stateObj, timestamp) {
+  if (!stateObj?.active || stateObj.ending) return;
+  const ctx = stateObj.ctx;
+  const delta = Math.min(2.2, Math.max(0.4, (timestamp - stateObj.lastFrameAt) / 16.6667));
+  stateObj.lastFrameAt = timestamp;
+
+  ctx.clearRect(0, 0, stateObj.width, stateObj.height);
+  drawKsawerAmbientGlow(ctx, stateObj, timestamp);
+
+  for (let index = stateObj.hearts.length - 1; index >= 0; index -= 1) {
+    const heart = stateObj.hearts[index];
+    updateKsawerHeartParticle(heart, delta, timestamp);
+  }
+
+  resolveKsawerHeartCollisions(stateObj.hearts, stateObj.width);
+
+  for (let index = stateObj.hearts.length - 1; index >= 0; index -= 1) {
+    const heart = stateObj.hearts[index];
+    drawKsawerHeart(ctx, heart);
+
+    const heartAgeMs = timestamp - heart.bornAt;
+    const passedTop = heart.y < -heart.size * 1.35;
+    const fadedAfterLife = heartAgeMs > 1500 && heart.opacity <= 0.01;
+    if (passedTop || fadedAfterLife) {
+      stateObj.hearts.splice(index, 1);
+    }
+  }
+
+  if (stateObj.finishedSpawning && stateObj.hearts.length === 0) {
+    finishKsawerEasterEgg(false);
+    return;
+  }
+
+  stateObj.animationFrame = window.requestAnimationFrame((nextTimestamp) => animateKsawerEaster(stateObj, nextTimestamp));
+}
+
+function updateKsawerHeartParticle(heart, delta, timestamp) {
+  heart.life += delta;
+  heart.vy -= heart.boost * delta;
+  heart.vx *= Math.pow(0.996, delta);
+  heart.x += (heart.vx + Math.sin((timestamp / 1450) + heart.swayPhase) * heart.sway * 0.09) * delta;
+  heart.y += heart.vy * delta;
+  heart.rotation += heart.rotationSpeed * delta * 16;
+
+  const ageMs = timestamp - heart.bornAt;
+  const fadeIn = Math.min(1, ageMs / 1400);
+  const nearTopFade = heart.y < heart.size * 0.35 ? Math.max(0, heart.y / Math.max(1, heart.size * 0.35)) : 1;
+  heart.opacity = Math.min(0.96, fadeIn) * nearTopFade;
+}
+
+function drawKsawerAmbientGlow(ctx, stateObj, timestamp) {
+  const t = timestamp / 1000;
+  const spots = [
+    { x: stateObj.width * (0.22 + Math.sin(t * 0.22) * 0.04), y: stateObj.height * 0.86, r: stateObj.width * 0.42, c: 'rgba(255, 88, 164, 0.085)' },
+    { x: stateObj.width * (0.78 + Math.cos(t * 0.18) * 0.04), y: stateObj.height * 0.78, r: stateObj.width * 0.36, c: 'rgba(117, 96, 255, 0.075)' },
+    { x: stateObj.width * 0.50, y: stateObj.height * (0.16 + Math.sin(t * 0.14) * 0.03), r: stateObj.width * 0.34, c: 'rgba(255, 228, 242, 0.045)' }
+  ];
+
+  spots.forEach((spot) => {
+    const gradient = ctx.createRadialGradient(spot.x, spot.y, 0, spot.x, spot.y, spot.r);
+    gradient.addColorStop(0, spot.c);
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, stateObj.width, stateObj.height);
+  });
+}
+
+function drawKsawerHeart(ctx, heart) {
+  ctx.save();
+  ctx.globalAlpha = heart.opacity;
+  ctx.translate(heart.x, heart.y);
+  ctx.rotate(heart.rotation);
+
+  const scale = heart.size / 34;
+  const path = buildKsawerHeartPath(scale);
+  const gradient = ctx.createLinearGradient(-heart.size * 0.58, -heart.size * 0.56, heart.size * 0.58, heart.size * 0.58);
+  gradient.addColorStop(0, heart.colors[0]);
+  gradient.addColorStop(0.54, heart.colors[1]);
+  gradient.addColorStop(1, heart.colors[2]);
+
+  ctx.shadowColor = heart.colors[1];
+  ctx.shadowBlur = Math.max(18, heart.size * 0.14);
+  ctx.fillStyle = gradient;
+  ctx.fill(path);
+
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = Math.max(1, heart.size * 0.008);
+  ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+  ctx.stroke(path);
+  ctx.restore();
+
+  drawKsawerHeartText(ctx, heart);
+}
+
+function buildKsawerHeartPath(scale) {
+  const path = new Path2D();
+  const steps = 144;
+  for (let i = 0; i <= steps; i += 1) {
+    const t = (Math.PI * 2 * i) / steps;
+    const x = 16 * Math.pow(Math.sin(t), 3) * scale;
+    const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) * scale;
+    const shiftedY = y + scale * 1.15;
+    if (i === 0) {
+      path.moveTo(x, shiftedY);
+    } else {
+      path.lineTo(x, shiftedY);
+    }
+  }
+  path.closePath();
+  return path;
+}
+
+function drawKsawerHeartText(ctx, heart) {
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, heart.opacity * 1.08);
+  ctx.translate(heart.x, heart.y + heart.size * 0.045);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255,255,255,0.97)';
+  ctx.shadowColor = 'rgba(50,0,34,0.62)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 2;
+  drawKsawerFittedHeartText(ctx, heart.phrase, heart.size);
+  ctx.restore();
+}
+
+function getKsawerWrappedLines(ctx, text, maxWidth) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+
+  words.forEach((word) => {
+    const testLine = line ? `${line} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+      if (ctx.measureText(line).width > maxWidth) {
+        const chars = [...line];
+        let part = '';
+        line = '';
+        chars.forEach((char) => {
+          const testPart = `${part}${char}`;
+          if (ctx.measureText(testPart).width > maxWidth && part) {
+            lines.push(part);
+            part = char;
+          } else {
+            part = testPart;
+          }
+        });
+        line = part;
+      }
+    } else {
+      line = testLine;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawKsawerFittedHeartText(ctx, text, heartSize) {
+  const maxWidth = heartSize * 0.74;
+  const maxHeight = heartSize * 0.54;
+  const maxFontSize = Math.max(18, Math.min(27, heartSize * 0.086));
+  const minFontSize = Math.max(9.5, Math.min(13, heartSize * 0.041));
+  let best = null;
+
+  for (let fontSize = maxFontSize; fontSize >= minFontSize; fontSize -= 0.75) {
+    ctx.font = `850 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    const lineHeight = fontSize * 1.17;
+    const lines = getKsawerWrappedLines(ctx, text, maxWidth);
+    if (lines.length * lineHeight <= maxHeight) {
+      best = { fontSize, lineHeight, lines };
+      break;
+    }
+    best = { fontSize, lineHeight, lines };
+  }
+
+  if (!best) return;
+  ctx.font = `850 ${best.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  const totalHeight = best.lines.length * best.lineHeight;
+  let startY = -totalHeight / 2 + best.lineHeight / 2;
+  if (best.lines.length > 7) {
+    ctx.font = `800 ${Math.max(8, minFontSize * 0.92)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    best.lineHeight = Math.max(10.5, minFontSize * 1.08);
+    startY = -(best.lines.length * best.lineHeight) / 2 + best.lineHeight / 2;
+  }
+
+  best.lines.forEach((lineText, index) => {
+    ctx.fillText(lineText, 0, startY + index * best.lineHeight);
+  });
+}
+
+function finishKsawerEasterEgg(force = false) {
+  const stateObj = ksawerEasterState;
+  if (!stateObj || stateObj.ending) return;
+  stateObj.ending = true;
+  stateObj.finishedSpawning = true;
+
+  if (stateObj.spawnTimer) {
+    window.clearInterval(stateObj.spawnTimer);
+    stateObj.spawnTimer = null;
+  }
+  if (stateObj.animationFrame) {
+    window.cancelAnimationFrame(stateObj.animationFrame);
+    stateObj.animationFrame = null;
+  }
+  if (stateObj.resizeHandler) {
+    window.removeEventListener('resize', stateObj.resizeHandler);
+  }
+  if (stateObj.keyHandler) {
+    document.removeEventListener('keydown', stateObj.keyHandler);
+  }
+
+  stateObj.overlayEl.classList.add(force ? 'is-ending-fast' : 'is-ending');
+  window.setTimeout(() => {
+    stateObj.overlayEl.remove();
+    if (ksawerEasterState === stateObj) {
+      ksawerEasterState = null;
+    }
+  }, force ? 420 : 1350);
+}
 
 function initializePopcornEasterEgg() {
   const existingCanvas = document.getElementById('popcornCanvas');
