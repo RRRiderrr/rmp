@@ -4,6 +4,9 @@ const DEFAULT_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 const KINOBOX_API = 'https://api.kinobox.tv/api/players';
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_YEAR = 1888;
+const MIN_RATING = 0;
+const MAX_RATING = 10;
+const RATING_STEP = 0.1;
 const PAGE_SIZE = 20;
 const CATALOG_PAGE_SIZE = 40;
 const TMDB_MAX_FETCH_PAGE = 500;
@@ -322,6 +325,11 @@ const yearToInput = document.getElementById('yearToInput');
 const yearFromRange = document.getElementById('yearFromRange');
 const yearToRange = document.getElementById('yearToRange');
 const yearSliderRange = document.getElementById('yearSliderRange');
+const ratingFromInput = document.getElementById('ratingFromInput');
+const ratingToInput = document.getElementById('ratingToInput');
+const ratingFromRange = document.getElementById('ratingFromRange');
+const ratingToRange = document.getElementById('ratingToRange');
+const ratingSliderRange = document.getElementById('ratingSliderRange');
 const leftArrow = document.getElementById('left-arrow');
 const rightArrow = document.getElementById('right-arrow');
 const paletteEditorToggle = document.getElementById('paletteEditorToggle');
@@ -402,6 +410,8 @@ function createDefaultFilters() {
     type: 'all',
     yearFrom: MIN_YEAR,
     yearTo: CURRENT_YEAR,
+    ratingFrom: MIN_RATING,
+    ratingTo: MAX_RATING,
     genres: [],
     excludeMode: 'countries',
     excludedCountries: [],
@@ -414,6 +424,8 @@ function cloneFilters(filters) {
     type: filters.type,
     yearFrom: filters.yearFrom,
     yearTo: filters.yearTo,
+    ratingFrom: clampRating(filters.ratingFrom ?? MIN_RATING),
+    ratingTo: clampRating(filters.ratingTo ?? MAX_RATING),
     genres: [...(filters.genres || [])].sort(),
     excludeMode: filters.excludeMode === 'regions' ? 'regions' : 'countries',
     excludedCountries: [...(filters.excludedCountries || [])].sort(),
@@ -489,6 +501,7 @@ document.addEventListener('visibilitychange', () => {
 async function init() {
   initTheme();
   initYearControls();
+  initRatingControls();
   bindEvents();
   startDecisionPromptCountdown();
   renderLoading('Подключаемся к TMDB...');
@@ -1523,6 +1536,59 @@ function initYearControls() {
   });
 }
 
+function initRatingControls() {
+  [ratingFromInput, ratingToInput, ratingFromRange, ratingToRange].forEach((input) => {
+    input.min = String(MIN_RATING);
+    input.max = String(MAX_RATING);
+    input.step = String(RATING_STEP);
+  });
+
+  ratingFromInput.value = formatRatingControlValue(state.pendingFilters.ratingFrom);
+  ratingToInput.value = formatRatingControlValue(state.pendingFilters.ratingTo);
+  ratingFromRange.value = formatRatingControlValue(state.pendingFilters.ratingFrom);
+  ratingToRange.value = formatRatingControlValue(state.pendingFilters.ratingTo);
+
+  ratingFromRange.addEventListener('input', () => {
+    const nextValue = clampRating(Number(ratingFromRange.value));
+    state.pendingFilters.ratingFrom = Math.min(nextValue, state.pendingFilters.ratingTo);
+    if (state.pendingFilters.ratingFrom > state.pendingFilters.ratingTo) {
+      state.pendingFilters.ratingTo = state.pendingFilters.ratingFrom;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+
+  ratingToRange.addEventListener('input', () => {
+    const nextValue = clampRating(Number(ratingToRange.value));
+    state.pendingFilters.ratingTo = Math.max(nextValue, state.pendingFilters.ratingFrom);
+    if (state.pendingFilters.ratingTo < state.pendingFilters.ratingFrom) {
+      state.pendingFilters.ratingFrom = state.pendingFilters.ratingTo;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+
+  ratingFromInput.addEventListener('input', () => {
+    const nextValue = clampRating(Number(String(ratingFromInput.value).replace(',', '.') || MIN_RATING));
+    state.pendingFilters.ratingFrom = nextValue;
+    if (state.pendingFilters.ratingFrom > state.pendingFilters.ratingTo) {
+      state.pendingFilters.ratingTo = state.pendingFilters.ratingFrom;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+
+  ratingToInput.addEventListener('input', () => {
+    const nextValue = clampRating(Number(String(ratingToInput.value).replace(',', '.') || MAX_RATING));
+    state.pendingFilters.ratingTo = nextValue;
+    if (state.pendingFilters.ratingTo < state.pendingFilters.ratingFrom) {
+      state.pendingFilters.ratingFrom = state.pendingFilters.ratingTo;
+    }
+    syncFilterUiFromPending();
+    markFiltersDirty();
+  });
+}
+
 function syncFilterUiFromPending() {
   syncTypeButtons();
   syncExcludeModeToggleUi();
@@ -1539,6 +1605,17 @@ function syncFilterUiFromPending() {
   const toPercent = ((state.pendingFilters.yearTo - MIN_YEAR) / range) * 100;
   yearSliderRange.style.left = `${fromPercent}%`;
   yearSliderRange.style.width = `${Math.max(0, toPercent - fromPercent)}%`;
+
+  ratingFromInput.value = formatRatingControlValue(state.pendingFilters.ratingFrom);
+  ratingToInput.value = formatRatingControlValue(state.pendingFilters.ratingTo);
+  ratingFromRange.value = formatRatingControlValue(state.pendingFilters.ratingFrom);
+  ratingToRange.value = formatRatingControlValue(state.pendingFilters.ratingTo);
+
+  const ratingRange = MAX_RATING - MIN_RATING;
+  const ratingFromPercent = ((state.pendingFilters.ratingFrom - MIN_RATING) / ratingRange) * 100;
+  const ratingToPercent = ((state.pendingFilters.ratingTo - MIN_RATING) / ratingRange) * 100;
+  ratingSliderRange.style.left = `${ratingFromPercent}%`;
+  ratingSliderRange.style.width = `${Math.max(0, ratingToPercent - ratingFromPercent)}%`;
 }
 
 function syncTypeButtons() {
@@ -2035,6 +2112,9 @@ function buildAiHardConstraintText() {
   }
   if (state.appliedFilters.yearFrom !== MIN_YEAR || state.appliedFilters.yearTo !== CURRENT_YEAR) {
     bits.push(`UI year range is ${state.appliedFilters.yearFrom}-${state.appliedFilters.yearTo}.`);
+  }
+  if (state.appliedFilters.ratingFrom !== MIN_RATING || state.appliedFilters.ratingTo !== MAX_RATING) {
+    bits.push(`UI rating range is ${formatRatingControlValue(state.appliedFilters.ratingFrom)}-${formatRatingControlValue(state.appliedFilters.ratingTo)}.`);
   }
   if (state.appliedFilters.genres.length) {
     const labels = state.appliedFilters.genres
@@ -3443,6 +3523,8 @@ function buildDiscoverParams(mediaType, page) {
     }
   }
 
+  addRatingParams(params);
+
   return params;
 }
 
@@ -3499,6 +3581,11 @@ function matchesClientSideFilters(item) {
 
   const year = getItemYear(item.releaseDate);
   if (year && (year < yearFrom || year > yearTo)) {
+    return false;
+  }
+
+  const voteAverage = Number(item.voteAverage || 0);
+  if (voteAverage < state.appliedFilters.ratingFrom || voteAverage > state.appliedFilters.ratingTo) {
     return false;
   }
 
@@ -4188,6 +4275,10 @@ function buildStatusText(count, searchMode = false) {
     parts.push(`годы: ${state.appliedFilters.yearFrom}–${state.appliedFilters.yearTo}`);
   }
 
+  if (state.appliedFilters.ratingFrom !== MIN_RATING || state.appliedFilters.ratingTo !== MAX_RATING) {
+    parts.push(`рейтинг: ${formatRatingControlValue(state.appliedFilters.ratingFrom)}–${formatRatingControlValue(state.appliedFilters.ratingTo)}`);
+  }
+
   if (state.appliedFilters.genres.length) {
     const labels = state.appliedFilters.genres
       .map((key) => state.genresByKey.get(key)?.label)
@@ -4469,6 +4560,29 @@ async function apiFetch(path, params = {}) {
     throw new Error(`TMDB request failed: ${response.status}`);
   }
   return response.json();
+}
+
+function clampRating(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return MIN_RATING;
+  const rounded = Math.round(number * 10) / 10;
+  return Math.max(MIN_RATING, Math.min(MAX_RATING, rounded));
+}
+
+function formatRatingControlValue(value) {
+  const rating = clampRating(value);
+  return Number.isInteger(rating) ? String(rating) : rating.toFixed(1);
+}
+
+function addRatingParams(params) {
+  const from = clampRating(state.appliedFilters.ratingFrom);
+  const to = clampRating(state.appliedFilters.ratingTo);
+  if (from > MIN_RATING) {
+    params['vote_average.gte'] = formatRatingControlValue(from);
+  }
+  if (to < MAX_RATING) {
+    params['vote_average.lte'] = formatRatingControlValue(to);
+  }
 }
 
 function clampYear(year) {

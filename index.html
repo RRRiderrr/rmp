@@ -109,6 +109,28 @@
           <div class="year-hint">Если значения совпадают — поиск идёт по конкретному году.</div>
         </div>
 
+        <div class="filter-block">
+          <div class="filter-label">Рейтинг</div>
+          <div class="year-inputs rating-inputs">
+            <label>
+              <span>От</span>
+              <input id="ratingFromInput" type="number" inputmode="decimal" step="0.1" />
+            </label>
+            <label>
+              <span>До</span>
+              <input id="ratingToInput" type="number" inputmode="decimal" step="0.1" />
+            </label>
+          </div>
+
+          <div class="year-slider-box rating-slider-box">
+            <div class="year-slider-track"></div>
+            <div id="ratingSliderRange" class="year-slider-range rating-slider-range"></div>
+            <input id="ratingFromRange" class="year-range rating-range rating-range-from" type="range" step="0.1" />
+            <input id="ratingToRange" class="year-range rating-range rating-range-to" type="range" step="0.1" />
+          </div>
+          <div class="year-hint">Диапазон от 0 до 10 по рейтингу TMDB.</div>
+        </div>
+
       </section>
 
       <div class="sidebar-actions-panel">
