@@ -4891,3 +4891,52 @@ body.light-theme .kinowall-share-status.warning {
     width: 100%;
   }
 }
+
+/* ===== RMP patch: kinowall URL + file image editor ===== */
+.kinowall-image-field-body.file-enabled {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "preview preview preview"
+    "url upload clear";
+  align-items: end;
+}
+
+.kinowall-image-field-body.file-enabled > .kinowall-field {
+  grid-area: url;
+  min-width: 0;
+}
+
+.kinowall-image-field-body.file-enabled > .kw-file-label {
+  grid-area: upload;
+  align-self: end;
+  white-space: nowrap;
+}
+
+.kinowall-image-field-body.file-enabled > .kw-image-clear {
+  grid-area: clear;
+  align-self: end;
+  white-space: nowrap;
+}
+
+.kinowall-image-field input[name="avatarUrl"],
+.kinowall-image-field input[name="bannerUrl"] {
+  font-family: inherit;
+  font-size: .9rem;
+}
+
+@media (max-width: 760px) {
+  .kinowall-image-field-body.file-enabled {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "preview"
+      "url"
+      "upload"
+      "clear";
+  }
+
+  .kinowall-image-field-body.file-enabled > .kw-file-label,
+  .kinowall-image-field-body.file-enabled > .kw-image-clear {
+    width: 100%;
+    justify-content: center;
+  }
+}

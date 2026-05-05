@@ -8483,3 +8483,203 @@ function bindKinoWallShareEvents(data) {
     }
   });
 }
+
+/* ===== RMP patch: kinowall URL + embedded file images restored ===== */
+function sanitizeKinoWallUrl(value) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(url)) return url.slice(0, 750000);
+  if (/^https?:\/\//i.test(url)) return url.slice(0, 2200);
+  return '';
+}
+
+function compactKinoWallProfile(profile) {
+  const normalized = normalizeKinoWallProfile(profile);
+  const compactEntry = (entry) => [entry.mediaType === 'tv' ? 't' : 'm', Number(entry.id || 0), entry.addedAt || ''];
+  return {
+    v: KINOWALL_VERSION,
+    n: normalized.name,
+    h: normalized.handle,
+    s: normalized.status,
+    b: normalized.bio,
+    vb: normalized.vibe,
+    av: sanitizeKinoWallUrl(normalized.avatarUrl),
+    bn: sanitizeKinoWallUrl(normalized.bannerUrl),
+    ac: normalized.accentColor,
+    sh: normalized.showcase.slice(0, 60).map(compactEntry),
+    w: normalized.watched.slice(0, 140).map(compactEntry),
+    f: getFavorites().slice(0, 140).map(compactEntry),
+    a: normalized.actors.map((person) => [person.tmdbId || 0, person.name || '', person.note || '', sanitizeKinoWallUrl(person.imageUrl || '')]),
+    sc: normalized.scenes.map((scene) => [scene.title || '', scene.note || '', sanitizeKinoWallUrl(scene.imageUrl || '')]),
+    st: normalized.soundtracks.map((track) => [track.title || '', track.artist || '', track.url || '']),
+    r: normalized.reviews.map((review) => [review.mediaType === 'tv' ? 't' : 'm', Number(review.id || 0), Number(review.rating || 0), review.text || '', review.addedAt || '']),
+    u: normalized.updatedAt || new Date().toISOString()
+  };
+}
+
+function getKinoWallImagePlaceholder(kind) {
+  return kind === 'banner' ? 'Баннер' : 'Аватар';
+}
+
+function renderKinoWallImageField(name, label, value, kind) {
+  const safeValue = sanitizeKinoWallUrl(value || '');
+  const preview = safeValue
+    ? `<div class="kinowall-image-field-preview ${kind === 'banner' ? 'banner' : 'avatar'} has-image"><img src="${escapeHtml(safeValue)}" alt="" onerror="this.closest('.kinowall-image-field-preview').classList.remove('has-image');this.remove();"></div>`
+    : `<div class="kinowall-image-field-preview ${kind === 'banner' ? 'banner' : 'avatar'}"><span>${getKinoWallImagePlaceholder(kind)}</span></div>`;
+  return `
+    <div class="kinowall-image-field wide" data-kw-image-field="${escapeHtml(name)}" data-kw-image-kind="${escapeHtml(kind)}">
+      <div>
+        <span>${escapeHtml(label)}</span>
+        <p>Можно вставить URL или загрузить файл. Файл сразу сжимается, превращается в base64 и записывается прямо в ссылку киностены, чтобы картинка точно открылась на другом устройстве.</p>
+      </div>
+      <div class="kinowall-image-field-body file-enabled">
+        ${preview}
+        <label class="kinowall-field"><span>URL / base64</span><input name="${escapeHtml(name)}" type="text" maxlength="750000" placeholder="https://... или загруженный base64" value="${escapeHtml(safeValue)}"></label>
+        <label class="kw-btn kw-secondary kw-file-label">Загрузить файл<input name="${escapeHtml(name)}File" type="file" accept="image/png,image/jpeg,image/webp,image/avif" hidden></label>
+        <button type="button" class="kw-btn kw-secondary kw-image-clear" data-kw-image-clear="${escapeHtml(name)}">Очистить</button>
+      </div>
+    </div>`;
+}
+
+function updateKinoWallImageFieldPreviewFromValue(input) {
+  const root = input?.closest?.('.kinowall-image-field');
+  if (!root) return;
+  const kind = root.dataset.kwImageKind || (root.querySelector('.kinowall-image-field-preview')?.classList.contains('banner') ? 'banner' : 'avatar');
+  const preview = root.querySelector('.kinowall-image-field-preview');
+  const value = sanitizeKinoWallUrl(input.value || '');
+  if (!preview) return;
+  if (value) {
+    preview.classList.add('has-image');
+    preview.innerHTML = `<img src="${escapeHtml(value)}" alt="" onerror="this.closest('.kinowall-image-field-preview').classList.remove('has-image');this.remove();">`;
+  } else {
+    preview.classList.remove('has-image');
+    preview.innerHTML = `<span>${getKinoWallImagePlaceholder(kind)}</span>`;
+  }
+}
+
+function setKinoWallImageFieldValue(fieldName, value) {
+  const root = document.querySelector(`[data-kw-image-field="${fieldName}"]`);
+  if (!root) return;
+  const input = root.querySelector(`input[name="${fieldName}"]`);
+  const fileInput = root.querySelector(`input[name="${fieldName}File"]`);
+  if (input) {
+    input.value = sanitizeKinoWallUrl(value || '');
+    updateKinoWallImageFieldPreviewFromValue(input);
+  }
+  if (fileInput) fileInput.value = '';
+}
+
+function bindKinoWallEditorEvents(data) {
+  bindKinoWallOverviewEvents(data);
+  const formEl = document.getElementById('kinoWallEditorForm');
+  if (!formEl) return;
+
+  formEl.querySelectorAll('.kinowall-image-field input[type="text"][name$="Url"]').forEach((input) => {
+    input.addEventListener('input', () => updateKinoWallImageFieldPreviewFromValue(input));
+    input.addEventListener('change', () => updateKinoWallImageFieldPreviewFromValue(input));
+  });
+
+  formEl.querySelectorAll('.kinowall-image-field input[type="file"][name$="File"]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const fieldName = input.name.replace(/File$/, '');
+      const root = input.closest('.kinowall-image-field');
+      const label = root?.querySelector('.kw-file-label');
+      if (label) label.classList.add('is-loading');
+      try {
+        const isBanner = fieldName === 'bannerUrl';
+        const dataUrl = await compressKinoWallImageFile(file, isBanner
+          ? { maxWidth: 1500, maxHeight: 520, quality: 0.74 }
+          : { maxWidth: 420, maxHeight: 420, quality: 0.82 });
+        setKinoWallImageFieldValue(fieldName, dataUrl);
+      } catch (error) {
+        console.warn('[kinowall image upload]', error);
+      } finally {
+        input.value = '';
+        if (label) label.classList.remove('is-loading');
+      }
+    });
+  });
+
+  formEl.querySelectorAll('[data-kw-image-clear]').forEach((button) => {
+    button.addEventListener('click', () => setKinoWallImageFieldValue(button.dataset.kwImageClear, ''));
+  });
+
+  formEl.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(formEl);
+    const current = readKinoWallProfile();
+    const submitButton = formEl.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Сохраняю...';
+    }
+    try {
+      const nextProfile = saveKinoWallProfile({
+        ...current,
+        name: formData.get('name'),
+        handle: formData.get('handle'),
+        status: formData.get('status'),
+        vibe: formData.get('vibe'),
+        avatarUrl: sanitizeKinoWallUrl(formData.get('avatarUrl')),
+        bannerUrl: sanitizeKinoWallUrl(formData.get('bannerUrl')),
+        accentColor: formData.get('accentColor'),
+        bio: sanitizeKinoWallLongText(formData.get('bio'), 420),
+        actors: parsePipeList(formData.get('actorsRaw'), ([tmdbIdOrName, nameOrNote, noteOrImage, imageMaybe]) => {
+          const maybeId = Number(tmdbIdOrName || 0);
+          if (Number.isFinite(maybeId) && maybeId > 0) return { tmdbId: maybeId, name: nameOrNote, note: noteOrImage, imageUrl: sanitizeKinoWallUrl(imageMaybe) };
+          return { tmdbId: 0, name: tmdbIdOrName, note: nameOrNote, imageUrl: sanitizeKinoWallUrl(noteOrImage) };
+        }),
+        scenes: parsePipeList(formData.get('scenesRaw'), ([title, note, imageUrl]) => ({ title, note, imageUrl: sanitizeKinoWallUrl(imageUrl) })),
+        soundtracks: parsePipeList(formData.get('soundtracksRaw'), ([title, artist, url]) => ({ title, artist, url }))
+      });
+      await openKinoWall({ profile: nextProfile });
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Сохранить киностену';
+      }
+    }
+  });
+
+  kinoWallContent.querySelector('[data-kw-editor-action="reset-demo"]')?.addEventListener('click', async () => {
+    const profile = readKinoWallProfile();
+    const demo = createDefaultKinoWallProfile();
+    profile.actors = demo.actors;
+    profile.scenes = demo.scenes;
+    profile.soundtracks = demo.soundtracks;
+    saveKinoWallProfile(profile);
+    await openKinoWall();
+  });
+}
+
+function renderKinoWallShareTab(data) {
+  const longLink = buildKinoWallShareLink(data.profile);
+  const hasEmbeddedImages = /^data:image\//i.test(data.profile.avatarUrl || '') || /^data:image\//i.test(data.profile.bannerUrl || '');
+  const shareText = data.readOnly
+    ? `Это профиль, открытый по ссылке. Актуальность: ${getKinoWallTimestampLabel(data.profile.updatedAt)}. Чтобы увидеть свежую версию, попросите владельца отправить ссылку повторно.`
+    : `RMP сначала попробует создать короткую внешнюю ссылку. Если сокращатель не ответит или стена слишком большая${hasEmbeddedImages ? ' из-за встроенных изображений' : ''}, будет доступна длинная RMP-ссылка и .txt-файл с ней.`;
+  const embeddedWarning = hasEmbeddedImages && !data.readOnly
+    ? '<p class="kinowall-share-warning">В аватаре или баннере есть встроенный base64. Это надёжнее для открытия на другом устройстве, но ссылка становится длиннее, поэтому сокращатель может отказаться её принимать.</p>'
+    : '';
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Красивый шаринг</div>
+      <p class="kinowall-muted">${escapeHtml(shareText)}</p>
+      ${embeddedWarning}
+      <div class="kinowall-share-box" data-kw-long-link="${escapeHtml(longLink)}">
+        <label class="kinowall-field wide kinowall-short-link-field">
+          <span id="kinoWallShareLabel">Ссылка на киностену</span>
+          <input id="kinoWallShareLink" readonly value="Пробую создать короткую ссылку...">
+        </label>
+        <div class="kinowall-share-actions">
+          <button type="button" class="kw-btn kw-primary" data-kw-share-action="copy" disabled>Скопировать ссылку</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="download-txt" hidden>Скачать .txt с RMP-ссылкой</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="export">Экспорт JSON</button>
+          ${data.readOnly ? '' : '<label class="kw-btn kw-secondary kw-file-label">Импорт JSON<input id="kinoWallImportFile" type="file" accept="application/json,.json" hidden></label>'}
+        </div>
+        <div id="kinoWallShareStatus" class="kinowall-share-status">Пробую создать короткую ссылку...</div>
+      </div>
+    </section>`;
+}
