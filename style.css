@@ -4571,3 +4571,272 @@ body.kinowall-open {
     min-height: 36px !important;
   }
 }
+
+/* ===== RMP patch: kinowall shared images + overwrite confirm ===== */
+.kinowall-avatar::after {
+  content: attr(data-fallback);
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.kinowall-avatar:has(img)::after {
+  display: none;
+}
+
+.kinowall-image-form-grid {
+  margin-top: 1rem;
+}
+
+.kinowall-image-field {
+  display: grid;
+  gap: .8rem;
+  padding: 1rem;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 20px;
+  background: rgba(255,255,255,.045);
+}
+
+body.light-theme .kinowall-image-field {
+  border-color: rgba(15,23,42,.10);
+  background: rgba(15,23,42,.035);
+}
+
+.kinowall-image-field > div:first-child span {
+  display: block;
+  font-weight: 900;
+  margin-bottom: .25rem;
+}
+
+.kinowall-image-field > div:first-child p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: .88rem;
+  line-height: 1.45;
+}
+
+.kinowall-image-field-body {
+  display: grid;
+  grid-template-columns: minmax(110px, 160px) 1fr auto;
+  align-items: end;
+  gap: .8rem;
+}
+
+.kinowall-image-field-preview {
+  min-height: 112px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(95,156,255,.35), rgba(255,122,182,.25));
+  color: rgba(255,255,255,.9);
+  font-weight: 900;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+}
+
+.kinowall-image-field-preview.avatar {
+  aspect-ratio: 1 / 1;
+  border-radius: 26px;
+}
+
+.kinowall-image-field-preview.banner {
+  aspect-ratio: 2.7 / 1;
+}
+
+.kinowall-image-field-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kw-file-label.is-loading {
+  pointer-events: none;
+  opacity: .7;
+}
+
+.kw-file-label.is-loading::after {
+  content: '...';
+}
+
+.kw-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0,0,0,.62);
+  backdrop-filter: blur(18px);
+  animation: kwConfirmFade .18s ease both;
+}
+
+.kw-confirm-dialog {
+  width: min(520px, 100%);
+  border-radius: 28px;
+  padding: 1.35rem;
+  background: linear-gradient(135deg, rgba(25,31,48,.96), rgba(18,18,28,.96));
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.13);
+  box-shadow: 0 32px 110px rgba(0,0,0,.52);
+}
+
+body.light-theme .kw-confirm-dialog {
+  background: linear-gradient(135deg, rgba(255,255,255,.98), rgba(241,245,249,.98));
+  color: #111827;
+  border-color: rgba(15,23,42,.12);
+}
+
+.kw-confirm-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  margin-bottom: .8rem;
+  background: linear-gradient(135deg, var(--button-bg), #ff7ab6);
+  box-shadow: 0 16px 38px rgba(0,0,0,.22);
+}
+
+.kw-confirm-dialog h3 {
+  margin: 0 0 .55rem;
+  font-size: clamp(1.3rem, 2.5vw, 1.75rem);
+}
+
+.kw-confirm-dialog p {
+  margin: 0;
+  color: rgba(255,255,255,.72);
+  line-height: 1.55;
+}
+
+body.light-theme .kw-confirm-dialog p {
+  color: rgba(15,23,42,.68);
+}
+
+.kw-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: .7rem;
+  margin-top: 1.2rem;
+}
+
+.kinowall-save-shared-note,
+.kinowall-share-warning {
+  border-radius: 16px;
+  padding: .7rem .85rem;
+  background: rgba(255,209,102,.13);
+  border: 1px solid rgba(255,209,102,.25);
+  color: var(--text-color);
+  font-size: .9rem;
+  line-height: 1.45;
+}
+
+.kinowall-save-shared-note {
+  color: #fff;
+}
+
+@keyframes kwConfirmFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 760px) {
+  .kinowall-image-field-body {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .kinowall-image-field-preview.avatar {
+    width: 132px;
+    max-width: 100%;
+  }
+
+  .kinowall-image-field-preview.banner {
+    aspect-ratio: 2.2 / 1;
+  }
+
+  .kw-confirm-dialog {
+    border-radius: 22px;
+    padding: 1.05rem;
+  }
+
+  .kw-confirm-actions .kw-btn {
+    flex: 1 1 140px;
+  }
+}
+
+/* ===== RMP patch: fix kinowall image editor layout overlap ===== */
+.kinowall-image-form-grid,
+.kinowall-image-field,
+.kinowall-image-field > *,
+.kinowall-image-field-body,
+.kinowall-image-field-body > * {
+  min-width: 0;
+}
+
+.kinowall-image-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+
+.kinowall-image-field-body {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "preview preview"
+    "url upload";
+  align-items: end;
+}
+
+.kinowall-image-field-preview {
+  grid-area: preview;
+  width: 100%;
+  min-width: 0;
+}
+
+.kinowall-image-field-preview.avatar {
+  width: 132px;
+  justify-self: start;
+}
+
+.kinowall-image-field-preview.banner {
+  width: 100%;
+  min-height: 118px;
+  max-height: 184px;
+  aspect-ratio: 3.2 / 1;
+}
+
+.kinowall-image-field-body > .kinowall-field {
+  grid-area: url;
+  min-width: 0;
+}
+
+.kinowall-image-field-body > .kw-file-label {
+  grid-area: upload;
+  align-self: end;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .kinowall-image-field-body {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "preview"
+      "url"
+      "upload";
+  }
+
+  .kinowall-image-field-preview.avatar {
+    width: 128px;
+    justify-self: start;
+  }
+
+  .kinowall-image-field-preview.banner {
+    min-height: 104px;
+    aspect-ratio: 2.35 / 1;
+  }
+
+  .kinowall-image-field-body > .kw-file-label {
+    width: 100%;
+    justify-content: center;
+  }
+}

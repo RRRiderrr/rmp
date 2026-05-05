@@ -7652,3 +7652,341 @@ function serializeKinoWallPeople(items = []) {
     return parts.filter((value, index) => index < (hasId ? 3 : 2) || value).join(' | ');
   }).join('\n');
 }
+
+/* ===== RMP patch: shared kinowall image persistence + overwrite confirm ===== */
+function sanitizeKinoWallUrl(value) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(url)) return url.slice(0, 650000);
+  if (/^https?:\/\//i.test(url)) return url.slice(0, 2200);
+  return '';
+}
+
+function escapeKinoWallCssUrl(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, '');
+}
+
+function renderKinoWallAvatar(profile, initial) {
+  const src = sanitizeKinoWallUrl(profile.avatarUrl || '');
+  if (!src) return `<div class="kinowall-avatar" data-fallback="${escapeHtml(initial)}"></div>`;
+  return `<div class="kinowall-avatar" data-fallback="${escapeHtml(initial)}"><img src="${escapeHtml(src)}" alt="${escapeHtml(profile.name || '')}" loading="eager" decoding="async" onerror="this.remove();"></div>`;
+}
+
+function renderKinoWall(data, activeTab = 'overview') {
+  const { profile, readOnly } = data;
+  const bannerUrl = sanitizeKinoWallUrl(profile.bannerUrl || '');
+  const heroStyle = `--kw-accent:${escapeHtml(profile.accentColor)};${bannerUrl ? `--kw-banner-image:url('${escapeKinoWallCssUrl(bannerUrl)}');` : ''}`;
+  const initial = escapeHtml((profile.name || 'К').slice(0, 1).toUpperCase());
+  const freshness = readOnly ? `<div class="kinowall-freshness">Актуальность киностены: ${escapeHtml(getKinoWallTimestampLabel(profile.updatedAt))}. Чтобы получить свежие данные, попросите владельца отправить ссылку повторно.</div>` : '';
+  kinoWallContent.dataset.kwMode = readOnly ? 'shared' : 'local';
+  kinoWallContent.innerHTML = `
+    <section class="kinowall-hero" style="${heroStyle}">
+      <div class="kinowall-hero-bg"></div>
+      ${renderKinoWallAvatar(profile, initial)}
+      <div class="kinowall-hero-text">
+        <div class="kinowall-kicker">${readOnly ? 'shared kinowall' : 'local kinowall'}</div>
+        <h1 id="kinoWallTitle">${escapeHtml(profile.name)}</h1>
+        <p>${escapeHtml(profile.status)}</p>
+        <div class="kinowall-vibe">${escapeHtml(profile.vibe)}</div>
+        ${freshness}
+      </div>
+      <div class="kinowall-hero-actions">
+        ${readOnly ? '<button type="button" class="kw-btn kw-secondary" data-kw-action="save-shared">Сохранить себе</button>' : '<button type="button" class="kw-btn kw-primary" data-kw-action="edit">Редактировать</button>'}
+        <button type="button" class="kw-btn kw-secondary" data-kw-action="share">Поделиться</button>
+      </div>
+    </section>
+
+    <nav class="kinowall-tabs" aria-label="Разделы киностены">
+      <button type="button" class="kinowall-tab ${activeTab === 'overview' ? 'active' : ''}" data-kw-tab="overview">Обзор</button>
+      <button type="button" class="kinowall-tab ${activeTab === 'achievements' ? 'active' : ''}" data-kw-tab="achievements">Достижения</button>
+      ${readOnly ? '' : `<button type="button" class="kinowall-tab ${activeTab === 'edit' ? 'active' : ''}" data-kw-tab="edit">Редактор</button>`}
+      <button type="button" class="kinowall-tab ${activeTab === 'share' ? 'active' : ''}" data-kw-tab="share">Шаринг</button>
+    </nav>
+
+    <div class="kinowall-tab-body" id="kinoWallTabBody"></div>
+  `;
+  bindKinoWallShellEvents(data);
+  renderKinoWallTab(data, activeTab);
+}
+
+function bindKinoWallShellEvents(data) {
+  kinoWallContent.querySelectorAll('[data-kw-tab]').forEach((button) => {
+    button.addEventListener('click', () => renderKinoWall(data, button.dataset.kwTab));
+  });
+  kinoWallContent.querySelectorAll('[data-kw-action]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.kwAction;
+      if (action === 'edit') renderKinoWall(data, 'edit');
+      if (action === 'share') renderKinoWall(data, 'share');
+      if (action === 'save-shared') {
+        openKinoWallOverwriteConfirm(async () => {
+          saveKinoWallProfile(data.profile);
+          button.textContent = 'Сохранено локально';
+          button.disabled = true;
+          const status = document.createElement('div');
+          status.className = 'kinowall-save-shared-note';
+          status.textContent = 'Киностена записана на это устройство.';
+          button.closest('.kinowall-hero-actions')?.appendChild(status);
+        });
+      }
+    });
+  });
+}
+
+function openKinoWallOverwriteConfirm(onConfirm) {
+  const old = document.querySelector('.kw-confirm-backdrop');
+  if (old) old.remove();
+  const modal = document.createElement('div');
+  modal.className = 'kw-confirm-backdrop';
+  modal.innerHTML = `
+    <div class="kw-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="kwOverwriteTitle">
+      <div class="kw-confirm-icon">👤</div>
+      <h3 id="kwOverwriteTitle">Сохранить эту киностену себе?</h3>
+      <p>Данные открытой киностены будут записаны поверх киностены, которая сейчас хранится на этом устройстве. Старый локальный профиль, витрина, актёры, отзывы и оформление будут заменены.</p>
+      <div class="kw-confirm-actions">
+        <button type="button" class="kw-btn kw-secondary" data-kw-confirm="cancel">Отмена</button>
+        <button type="button" class="kw-btn kw-primary" data-kw-confirm="continue">Продолжить</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal || event.target.closest('[data-kw-confirm="cancel"]')) close();
+    if (event.target.closest('[data-kw-confirm="continue"]')) {
+      Promise.resolve(onConfirm?.()).finally(close);
+    }
+  });
+  const escHandler = (event) => {
+    if (event.key === 'Escape') {
+      close();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+function renderKinoWallImageField(name, label, value, kind) {
+  const previewClass = value ? 'has-image' : '';
+  const preview = value
+    ? `<div class="kinowall-image-field-preview ${kind === 'banner' ? 'banner' : 'avatar'} ${previewClass}"><img src="${escapeHtml(value)}" alt="" onerror="this.closest('.kinowall-image-field-preview').classList.remove('has-image');this.remove();"></div>`
+    : `<div class="kinowall-image-field-preview ${kind === 'banner' ? 'banner' : 'avatar'}"><span>${kind === 'banner' ? 'Баннер' : 'Аватар'}</span></div>`;
+  return `
+    <div class="kinowall-image-field wide" data-kw-image-field="${escapeHtml(name)}">
+      <div>
+        <span>${escapeHtml(label)}</span>
+        <p>Можно вставить URL или загрузить файл. Загруженный файл сжимается и встраивается в ссылку киностены, поэтому аватар/баннер нормально откроются на другом устройстве.</p>
+      </div>
+      <div class="kinowall-image-field-body">
+        ${preview}
+        <label class="kinowall-field"><span>URL</span><input name="${escapeHtml(name)}" type="text" maxlength="650000" value="${escapeHtml(value || '')}"></label>
+        <label class="kw-btn kw-secondary kw-file-label">Загрузить файл<input name="${escapeHtml(name)}File" type="file" accept="image/png,image/jpeg,image/webp,image/avif" hidden></label>
+      </div>
+    </div>`;
+}
+
+function renderKinoWallEditorTab(data) {
+  const profile = data.profile;
+  return `
+    <form id="kinoWallEditorForm" class="kinowall-editor-form">
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Профиль</div>
+        <div class="kinowall-form-grid">
+          ${renderKinoWallInput('name', 'Имя на стене', profile.name, 42)}
+          ${renderKinoWallInput('handle', 'Короткий ник для шаринга', profile.handle, 32)}
+          ${renderKinoWallInput('status', 'Статус', profile.status, 90)}
+          ${renderKinoWallInput('vibe', 'Любимый вайб', profile.vibe, 120)}
+          <label class="kinowall-field"><span>Акцент профиля</span><input name="accentColor" type="color" value="${escapeHtml(profile.accentColor)}"></label>
+        </div>
+        <div class="kinowall-form-grid kinowall-image-form-grid">
+          ${renderKinoWallImageField('avatarUrl', 'Аватар киностены', profile.avatarUrl, 'avatar')}
+          ${renderKinoWallImageField('bannerUrl', 'Баннер киностены', profile.bannerUrl, 'banner')}
+        </div>
+        <label class="kinowall-field wide"><span>Обо мне</span><textarea name="bio" rows="4" maxlength="420">${escapeHtml(profile.bio)}</textarea></label>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Витрина тайтлов</div>
+        <p class="kinowall-muted">Нажимай кнопку 👤 на карточках каталога, чтобы добавлять/убирать тайтлы. Здесь можно быстро убрать лишнее.</p>
+        <div class="kinowall-title-rail editor">${data.showcase.length ? data.showcase.map((item) => renderKinoWallTitleCard(item, 'showcase', false)).join('') : renderKinoWallEmpty('Пока пусто. Добавь тайтлы кнопкой 👤 в каталоге.')}</div>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые актёры / люди кино</div>
+        <p class="kinowall-muted">Формат строки: TMDB ID | Имя | заметка | URL картинки. ID и картинка необязательны. Из «Подробнее» актёры добавляются автоматически.</p>
+        <textarea name="actorsRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallPeople(profile.actors))}</textarea>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые сцены / кадры</div>
+        <p class="kinowall-muted">Формат строки: Название сцены | описание | URL кадра. Можно добавлять свои ссылки на изображения.</p>
+        <textarea name="scenesRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallCards(profile.scenes))}</textarea>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Саундтреки</div>
+        <p class="kinowall-muted">Формат строки: Название | исполнитель/фильм | ссылка.</p>
+        <textarea name="soundtracksRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallSoundtracks(profile.soundtracks))}</textarea>
+      </section>
+
+      <div class="kinowall-editor-actions">
+        <button type="submit" class="kw-btn kw-primary">Сохранить киностену</button>
+        <button type="button" class="kw-btn kw-secondary" data-kw-editor-action="reset-demo">Вернуть демо-блоки</button>
+      </div>
+    </form>`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Не удалось прочитать файл'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function compressKinoWallImageFile(file, options = {}) {
+  if (!file || !/^image\//i.test(file.type || '')) return '';
+  const maxWidth = Number(options.maxWidth || 1200);
+  const maxHeight = Number(options.maxHeight || 600);
+  const quality = Number(options.quality || 0.78);
+  const rawDataUrl = await readFileAsDataUrl(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = rawDataUrl;
+    });
+    const ratio = Math.min(1, maxWidth / Math.max(1, img.naturalWidth || img.width), maxHeight / Math.max(1, img.naturalHeight || img.height));
+    const width = Math.max(1, Math.round((img.naturalWidth || img.width) * ratio));
+    const height = Math.max(1, Math.round((img.naturalHeight || img.height) * ratio));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, width, height);
+    let dataUrl = canvas.toDataURL('image/webp', quality);
+    if (!/^data:image\/webp/i.test(dataUrl) || dataUrl.length > 620000) dataUrl = canvas.toDataURL('image/jpeg', Math.min(0.86, quality + 0.04));
+    return sanitizeKinoWallUrl(dataUrl) || rawDataUrl;
+  } catch (error) {
+    console.warn('[kinowall image compress failed]', error);
+    return sanitizeKinoWallUrl(rawDataUrl);
+  }
+}
+
+function updateKinoWallImageFieldPreview(fieldName, dataUrl) {
+  const root = document.querySelector(`[data-kw-image-field="${fieldName}"]`);
+  if (!root) return;
+  const input = root.querySelector(`input[name="${fieldName}"]`);
+  if (input) input.value = dataUrl;
+  const preview = root.querySelector('.kinowall-image-field-preview');
+  if (preview) {
+    preview.classList.add('has-image');
+    preview.innerHTML = `<img src="${escapeHtml(dataUrl)}" alt="">`;
+  }
+}
+
+function bindKinoWallEditorEvents(data) {
+  bindKinoWallOverviewEvents(data);
+  const formEl = document.getElementById('kinoWallEditorForm');
+  formEl?.querySelectorAll('input[type="file"][name$="File"]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      input.closest('.kw-file-label')?.classList.add('is-loading');
+      try {
+        const isBanner = input.name === 'bannerUrlFile';
+        const dataUrl = await compressKinoWallImageFile(file, isBanner
+          ? { maxWidth: 1500, maxHeight: 520, quality: 0.74 }
+          : { maxWidth: 420, maxHeight: 420, quality: 0.82 });
+        updateKinoWallImageFieldPreview(isBanner ? 'bannerUrl' : 'avatarUrl', dataUrl);
+      } finally {
+        input.closest('.kw-file-label')?.classList.remove('is-loading');
+      }
+    });
+  });
+
+  formEl?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(formEl);
+    const current = readKinoWallProfile();
+    const avatarFile = formEl.querySelector('input[name="avatarUrlFile"]')?.files?.[0];
+    const bannerFile = formEl.querySelector('input[name="bannerUrlFile"]')?.files?.[0];
+    const submitButton = formEl.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Сохраняю...';
+    }
+    try {
+      const avatarUrl = avatarFile
+        ? await compressKinoWallImageFile(avatarFile, { maxWidth: 420, maxHeight: 420, quality: 0.82 })
+        : formData.get('avatarUrl');
+      const bannerUrl = bannerFile
+        ? await compressKinoWallImageFile(bannerFile, { maxWidth: 1500, maxHeight: 520, quality: 0.74 })
+        : formData.get('bannerUrl');
+      const nextProfile = saveKinoWallProfile({
+        ...current,
+        name: formData.get('name'),
+        handle: formData.get('handle'),
+        status: formData.get('status'),
+        vibe: formData.get('vibe'),
+        avatarUrl,
+        bannerUrl,
+        accentColor: formData.get('accentColor'),
+        bio: sanitizeKinoWallLongText(formData.get('bio'), 420),
+        actors: parsePipeList(formData.get('actorsRaw'), ([tmdbIdOrName, nameOrNote, noteOrImage, imageMaybe]) => {
+          const maybeId = Number(tmdbIdOrName || 0);
+          if (Number.isFinite(maybeId) && maybeId > 0) return { tmdbId: maybeId, name: nameOrNote, note: noteOrImage, imageUrl: imageMaybe };
+          return { tmdbId: 0, name: tmdbIdOrName, note: nameOrNote, imageUrl: noteOrImage };
+        }),
+        scenes: parsePipeList(formData.get('scenesRaw'), ([title, note, imageUrl]) => ({ title, note, imageUrl })),
+        soundtracks: parsePipeList(formData.get('soundtracksRaw'), ([title, artist, url]) => ({ title, artist, url }))
+      });
+      await openKinoWall({ profile: nextProfile });
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Сохранить киностену';
+      }
+    }
+  });
+
+  kinoWallContent.querySelector('[data-kw-editor-action="reset-demo"]')?.addEventListener('click', async () => {
+    const profile = readKinoWallProfile();
+    const demo = createDefaultKinoWallProfile();
+    profile.actors = demo.actors;
+    profile.scenes = demo.scenes;
+    profile.soundtracks = demo.soundtracks;
+    saveKinoWallProfile(profile);
+    await openKinoWall();
+  });
+}
+
+function renderKinoWallShareTab(data) {
+  const link = buildKinoWallShareLink(data.profile);
+  const hasEmbeddedImages = /^data:image\//i.test(data.profile.avatarUrl || '') || /^data:image\//i.test(data.profile.bannerUrl || '');
+  const shareText = data.readOnly
+    ? `Это профиль, открытый по ссылке. Актуальность: ${getKinoWallTimestampLabel(data.profile.updatedAt)}. Чтобы увидеть свежую версию, попросите владельца отправить ссылку повторно.`
+    : `RMP делает компактную ссылку без серверов: внутри ID тайтлов, текст, оформление, отзывы, дата актуальности${hasEmbeddedImages ? ' и встроенные аватар/баннер' : ''}. Для надёжного шаринга между устройствами лучше загрузить аватар и баннер файлом в редакторе.`;
+  const lengthNote = link.length > 12000
+    ? '<p class="kinowall-share-warning">Ссылка получилась длинной из-за встроенных изображений. Она рабочая, но некоторые мессенджеры могут её обрезать. На всякий случай можно ещё сделать экспорт JSON.</p>'
+    : '';
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Красивый шаринг</div>
+      <p class="kinowall-muted">${escapeHtml(shareText)}</p>
+      ${lengthNote}
+      <div class="kinowall-share-box">
+        <textarea id="kinoWallShareLink" readonly rows="4">${escapeHtml(link)}</textarea>
+        <div class="kinowall-share-actions">
+          <button type="button" class="kw-btn kw-primary" data-kw-share-action="copy">Скопировать ссылку</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="shorten">Сделать внешне короткой</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="export">Экспорт JSON</button>
+          ${data.readOnly ? '' : '<label class="kw-btn kw-secondary kw-file-label">Импорт JSON<input id="kinoWallImportFile" type="file" accept="application/json,.json" hidden></label>'}
+        </div>
+        <div id="kinoWallShareStatus" class="kinowall-share-status"></div>
+      </div>
+    </section>`;
+}
