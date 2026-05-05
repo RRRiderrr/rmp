@@ -20,6 +20,9 @@ const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
 const AI_SEARCH_REASONING_MAX_LINES = 22;
 const AI_SEARCH_ROASTS_FILE = 'ai_roasts.txt';
 const KSAWER_EASTER_PHRASES_FILE = 'ksawer_phrases.txt';
+const KINOWALL_STORAGE_KEY = 'rmpKinoWallProfile';
+const KINOWALL_VERSION = 1;
+const KINOWALL_SHARE_HASH_PREFIX = 'wall=';
 const KSAWER_EASTER_FALLBACK_PHRASES = [
   "Ты умеешь делать обычный день подозрительно красивым.",
   "С тобой даже пауза в переписке звучит как интрига.",
@@ -330,8 +333,6 @@ const ratingToInput = document.getElementById('ratingToInput');
 const ratingFromRange = document.getElementById('ratingFromRange');
 const ratingToRange = document.getElementById('ratingToRange');
 const ratingSliderRange = document.getElementById('ratingSliderRange');
-const leftArrow = document.getElementById('left-arrow');
-const rightArrow = document.getElementById('right-arrow');
 const paletteEditorToggle = document.getElementById('paletteEditorToggle');
 const paletteEditorOverlay = document.getElementById('paletteEditorOverlay');
 const paletteEditorClose = document.getElementById('paletteEditorClose');
@@ -346,6 +347,10 @@ const paletteSaveBtn = document.getElementById('paletteSaveBtn');
 const paletteSaveAsBtn = document.getElementById('paletteSaveAsBtn');
 const paletteDeleteBtn = document.getElementById('paletteDeleteBtn');
 const paletteDisableBtn = document.getElementById('paletteDisableBtn');
+const kinoWallToggle = document.getElementById('kinoWallToggle');
+const kinoWallOverlay = document.getElementById('kinoWallOverlay');
+const kinoWallClose = document.getElementById('kinoWallClose');
+const kinoWallContent = document.getElementById('kinoWallContent');
 
 const PALETTE_STORAGE_KEYS = {
   enabled: 'rmpCustomPaletteEnabled',
@@ -433,7 +438,7 @@ function cloneFilters(filters) {
   };
 }
 
-const INITIAL_PLAYER_ROUTE_HASH = isPlayerRouteHash(window.location.hash);
+const INITIAL_PLAYER_ROUTE_HASH = isPlayerRouteHash(window.location.hash) || isKinoWallShareHash(window.location.hash);
 
 const state = {
   currentPage: 1,
@@ -512,6 +517,7 @@ async function init() {
     syncFilterUiFromPending();
     syncAiSearchUi();
     await loadContent(1);
+    await openKinoWallFromHashIfNeeded();
   } catch (error) {
     console.error('[init]', error);
     renderError('Не удалось инициализировать каталог. Попробуй обновить страницу чуть позже.');
@@ -655,15 +661,6 @@ function bindEvents() {
   });
 
   overlayCloseBtn.addEventListener('click', closeNav);
-  leftArrow.addEventListener('click', () => {
-    activeSlide = activeSlide > 0 ? activeSlide - 1 : totalVideos - 1;
-    showVideos();
-  });
-  rightArrow.addEventListener('click', () => {
-    activeSlide = activeSlide < totalVideos - 1 ? activeSlide + 1 : 0;
-    showVideos();
-  });
-
   window.addEventListener('click', (event) => {
     if (event.target === overlay) {
       closeNav();
@@ -702,6 +699,14 @@ function bindEvents() {
       closeMovieRoulette();
       closePaletteEditor();
     }
+  });
+
+  kinoWallToggle?.addEventListener('click', () => {
+    void openKinoWall();
+  });
+  kinoWallClose?.addEventListener('click', closeKinoWall);
+  kinoWallOverlay?.addEventListener('click', (event) => {
+    if (event.target === kinoWallOverlay) closeKinoWall();
   });
 
   document.addEventListener('click', async (event) => {
@@ -745,6 +750,19 @@ function bindEvents() {
         console.error('[watch-online]', error);
         openPlayerError('Не удалось подготовить плеер. Попробуй ещё раз чуть позже.');
       }
+      return;
+    }
+
+    const wallButton = event.target.closest('.kinowall-card-btn');
+    if (wallButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const id = Number(wallButton.dataset.id);
+      const mediaType = wallButton.dataset.mediaType;
+      if (!id || !mediaType) return;
+      toggleKinoWallShowcase({ id, mediaType });
+      wallButton.classList.toggle('wall-active', isInKinoWallShowcase(id, mediaType));
+      wallButton.title = isInKinoWallShowcase(id, mediaType) ? 'Убрать с киностены' : 'Добавить на киностену';
       return;
     }
 
@@ -809,6 +827,7 @@ function bindEvents() {
       closeAllMultiSelects();
       closeRegionModeConfirmation();
       closeMovieRoulette();
+      closeKinoWall();
     }
   });
 
@@ -872,6 +891,10 @@ function bindEvents() {
   window.addEventListener('hashchange', async () => {
     const rawHash = window.location.hash.substring(1);
     if (!rawHash) return;
+    if (isKinoWallShareHash(rawHash)) {
+      await openKinoWallFromHashIfNeeded();
+      return;
+    }
     if (!isPlayerRouteHash(rawHash)) return;
     markUserMadeCatalogChoice();
     try {
@@ -3709,6 +3732,7 @@ function renderMovies(items) {
       <div class="movie-poster-wrap">
         ${poster}
         ${calendarMarkup}
+        <button class="kinowall-card-btn" data-id="${item.id}" data-media-type="${item.mediaType}" title="Добавить на киностену" aria-label="Добавить на киностену">👤</button>
         <button class="fav-btn" data-id="${item.id}" data-media-type="${item.mediaType}" title="Добавить в избранное">★</button>
       </div>
       <div class="movie-body">
@@ -3730,6 +3754,12 @@ function renderMovies(items) {
     const favBtn = card.querySelector('.fav-btn');
     if (isFavorite(item.id, item.mediaType)) {
       favBtn.classList.add('fav-active');
+    }
+
+    const wallBtn = card.querySelector('.kinowall-card-btn');
+    if (wallBtn && isInKinoWallShowcase(item.id, item.mediaType)) {
+      wallBtn.classList.add('wall-active');
+      wallBtn.title = 'Убрать с киностены';
     }
 
     main.appendChild(card);
@@ -4888,6 +4918,7 @@ function renderKinoboxSources(sourcesData) {
 
 async function openKinoBox(meta) {
   markUserMadeCatalogChoice();
+  recordKinoWallWatched(meta);
   renderPlayerShell(meta);
   showPlayerPlaceholder('Подбираем доступные источники...');
 
@@ -4921,6 +4952,10 @@ function openPlayerError(message) {
 window.addEventListener('DOMContentLoaded', async () => {
   if (!window.location.hash) return;
   const rawHash = window.location.hash.substring(1);
+  if (isKinoWallShareHash(rawHash)) {
+    await openKinoWallFromHashIfNeeded();
+    return;
+  }
   if (!isPlayerRouteHash(rawHash)) return;
   markUserMadeCatalogChoice();
   try {
@@ -4933,6 +4968,870 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 
+
+
+function isKinoWallShareHash(hashValue = window.location.hash) {
+  const rawHash = String(hashValue || '').replace(/^#/, '').trim();
+  return rawHash.startsWith(KINOWALL_SHARE_HASH_PREFIX);
+}
+
+function createDefaultKinoWallProfile() {
+  return {
+    version: KINOWALL_VERSION,
+    name: 'Киноман',
+    handle: 'rmp-user',
+    status: 'выбираю кино по вайбу, а не по совести',
+    bio: 'Моя личная киностена: любимые тайтлы, сцены, саундтреки и статистика просмотров.',
+    vibe: 'ночной кинотеатр, неон и “ещё одну серию”',
+    avatarUrl: '',
+    bannerUrl: '',
+    accentColor: '#5f9cff',
+    showcase: [],
+    watched: [],
+    favorites: [],
+    actors: [
+      { name: 'Любимый актёр', note: 'сюда можно вписать своих людей кино', imageUrl: '' }
+    ],
+    scenes: [
+      { title: 'Сцена, которую хочется пересматривать', note: 'коротко опиши момент или вставь ссылку на кадр', imageUrl: '' }
+    ],
+    soundtracks: [
+      { title: 'Тот самый саундтрек', artist: 'исполнитель / фильм', url: '' }
+    ],
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function normalizeKinoWallProfile(profile = {}) {
+  const fallback = createDefaultKinoWallProfile();
+  const normalized = {
+    ...fallback,
+    ...profile,
+    name: sanitizeKinoWallText(profile.name || fallback.name, 42),
+    handle: sanitizeKinoWallHandle(profile.handle || fallback.handle),
+    status: sanitizeKinoWallText(profile.status || fallback.status, 90),
+    bio: sanitizeKinoWallText(profile.bio || fallback.bio, 420),
+    vibe: sanitizeKinoWallText(profile.vibe || fallback.vibe, 120),
+    avatarUrl: sanitizeKinoWallUrl(profile.avatarUrl || ''),
+    bannerUrl: sanitizeKinoWallUrl(profile.bannerUrl || ''),
+    accentColor: normalizeHexColor(profile.accentColor || fallback.accentColor, fallback.accentColor),
+    showcase: normalizeKinoWallEntries(profile.showcase || []),
+    watched: normalizeKinoWallEntries(profile.watched || []),
+    favorites: normalizeKinoWallEntries(profile.favorites || []),
+    actors: normalizeKinoWallPeople(profile.actors || []),
+    scenes: normalizeKinoWallTextCards(profile.scenes || []),
+    soundtracks: normalizeKinoWallSoundtracks(profile.soundtracks || []),
+    updatedAt: profile.updatedAt || fallback.updatedAt
+  };
+  return normalized;
+}
+
+function sanitizeKinoWallText(value, maxLength = 240) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function sanitizeKinoWallLongText(value, maxLength = 1200) {
+  return String(value || '').replace(/\r\n/g, '\n').trim().slice(0, maxLength);
+}
+
+function sanitizeKinoWallHandle(value) {
+  const handle = String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  return handle || 'rmp-user';
+}
+
+function sanitizeKinoWallUrl(value) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (/^(https?:\/\/|data:image\/)/i.test(url)) return url.slice(0, 900);
+  return '';
+}
+
+function normalizeKinoWallEntries(entries = []) {
+  const seen = new Set();
+  const result = [];
+  entries.forEach((entry) => {
+    const id = Number(entry?.id || entry?.tmdb || 0);
+    const mediaType = entry?.mediaType === 'tv' ? 'tv' : 'movie';
+    if (!id) return;
+    const key = `${mediaType}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push({
+      id,
+      mediaType,
+      addedAt: entry?.addedAt || new Date().toISOString(),
+      note: sanitizeKinoWallText(entry?.note || '', 140)
+    });
+  });
+  return result;
+}
+
+function normalizeKinoWallPeople(items = []) {
+  return items
+    .map((item) => ({
+      name: sanitizeKinoWallText(item?.name || '', 60),
+      note: sanitizeKinoWallText(item?.note || '', 160),
+      imageUrl: sanitizeKinoWallUrl(item?.imageUrl || '')
+    }))
+    .filter((item) => item.name || item.note || item.imageUrl)
+    .slice(0, 40);
+}
+
+function normalizeKinoWallTextCards(items = []) {
+  return items
+    .map((item) => ({
+      title: sanitizeKinoWallText(item?.title || '', 80),
+      note: sanitizeKinoWallText(item?.note || '', 220),
+      imageUrl: sanitizeKinoWallUrl(item?.imageUrl || '')
+    }))
+    .filter((item) => item.title || item.note || item.imageUrl)
+    .slice(0, 60);
+}
+
+function normalizeKinoWallSoundtracks(items = []) {
+  return items
+    .map((item) => ({
+      title: sanitizeKinoWallText(item?.title || '', 90),
+      artist: sanitizeKinoWallText(item?.artist || '', 90),
+      url: sanitizeKinoWallUrl(item?.url || '')
+    }))
+    .filter((item) => item.title || item.artist || item.url)
+    .slice(0, 80);
+}
+
+function readKinoWallProfile() {
+  try {
+    const raw = localStorage.getItem(KINOWALL_STORAGE_KEY);
+    if (!raw) return createDefaultKinoWallProfile();
+    return normalizeKinoWallProfile(JSON.parse(raw));
+  } catch (error) {
+    console.warn('[kinowall] profile read failed', error);
+    return createDefaultKinoWallProfile();
+  }
+}
+
+function saveKinoWallProfile(profile) {
+  const normalized = normalizeKinoWallProfile({ ...profile, updatedAt: new Date().toISOString() });
+  localStorage.setItem(KINOWALL_STORAGE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function isSameKinoWallEntry(a, b) {
+  return Number(a?.id) === Number(b?.id) && (a?.mediaType === 'tv' ? 'tv' : 'movie') === (b?.mediaType === 'tv' ? 'tv' : 'movie');
+}
+
+function isInKinoWallShowcase(id, mediaType) {
+  const profile = readKinoWallProfile();
+  return profile.showcase.some((entry) => isSameKinoWallEntry(entry, { id, mediaType }));
+}
+
+function toggleKinoWallShowcase(entry) {
+  const profile = readKinoWallProfile();
+  const index = profile.showcase.findIndex((item) => isSameKinoWallEntry(item, entry));
+  if (index === -1) {
+    profile.showcase.unshift({ id: Number(entry.id), mediaType: entry.mediaType === 'tv' ? 'tv' : 'movie', addedAt: new Date().toISOString() });
+  } else {
+    profile.showcase.splice(index, 1);
+  }
+  saveKinoWallProfile(profile);
+}
+
+function recordKinoWallWatched(meta = {}) {
+  const id = Number(meta.tmdb || meta.id || 0);
+  const mediaType = meta.mediaType === 'tv' ? 'tv' : 'movie';
+  if (!id) return;
+  const profile = readKinoWallProfile();
+  const existingIndex = profile.watched.findIndex((entry) => isSameKinoWallEntry(entry, { id, mediaType }));
+  const nextEntry = { id, mediaType, addedAt: new Date().toISOString() };
+  if (existingIndex !== -1) {
+    profile.watched.splice(existingIndex, 1);
+  }
+  profile.watched.unshift(nextEntry);
+  saveKinoWallProfile(profile);
+}
+
+function closeKinoWall() {
+  if (!kinoWallOverlay) return;
+  kinoWallOverlay.classList.add('hidden');
+  kinoWallOverlay.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('kinowall-open');
+}
+
+async function openKinoWall(options = {}) {
+  if (!kinoWallOverlay || !kinoWallContent) return;
+  state.decisionAssistant.promptDismissed = true;
+  hideDecisionPrompt();
+  const profile = options.profile ? normalizeKinoWallProfile(options.profile) : readKinoWallProfile();
+  const readOnly = Boolean(options.readOnly);
+  kinoWallOverlay.classList.remove('hidden');
+  kinoWallOverlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('kinowall-open');
+  renderKinoWallLoading(profile, readOnly);
+
+  try {
+    const data = await buildKinoWallRenderData(profile, readOnly);
+    renderKinoWall(data);
+  } catch (error) {
+    console.error('[kinowall] render failed', error);
+    kinoWallContent.innerHTML = `
+      <div class="kinowall-error">
+        <h2>Киностена споткнулась</h2>
+        <p>Не удалось собрать данные TMDB. Локальный профиль цел, попробуй открыть ещё раз.</p>
+        <button type="button" class="kw-btn kw-primary" data-kw-action="overview">Повторить</button>
+      </div>
+    `;
+  }
+}
+
+function renderKinoWallLoading(profile, readOnly = false) {
+  const initial = escapeHtml((profile.name || 'К').slice(0, 1).toUpperCase());
+  kinoWallContent.innerHTML = `
+    <section class="kinowall-hero is-loading" style="--kw-accent:${escapeHtml(profile.accentColor)};${profile.bannerUrl ? `--kw-banner-image:url('${escapeHtml(profile.bannerUrl)}');` : ''}">
+      <div class="kinowall-hero-bg"></div>
+      <div class="kinowall-avatar">${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="">` : `<span>${initial}</span>`}</div>
+      <div class="kinowall-hero-text">
+        <div class="kinowall-kicker">${readOnly ? 'shared kinowall' : 'local kinowall'}</div>
+        <h1>${escapeHtml(profile.name)}</h1>
+        <p>Собираю тайтлы, статистику и достижения...</p>
+      </div>
+    </section>
+    <div class="kinowall-loading-card"><span class="loader"></span><b>Загрузка киностены</b></div>
+  `;
+}
+
+async function buildKinoWallRenderData(profile, readOnly = false) {
+  const favorites = readOnly ? normalizeKinoWallEntries(profile.favorites || []) : getFavorites();
+  const allEntries = dedupeKinoWallEntries([
+    ...profile.showcase,
+    ...profile.watched,
+    ...favorites
+  ]);
+
+  const details = await fetchKinoWallDetailsBatch(allEntries);
+  const detailsByKey = new Map(details.map((item) => [buildKinoWallEntryKey(item), item]));
+  const showcase = profile.showcase.map((entry) => detailsByKey.get(buildKinoWallEntryKey(entry))).filter(Boolean);
+  const watched = profile.watched.map((entry) => detailsByKey.get(buildKinoWallEntryKey(entry))).filter(Boolean);
+  const favoriteItems = favorites.map((entry) => detailsByKey.get(buildKinoWallEntryKey(entry))).filter(Boolean);
+  const stats = buildKinoWallStats(profile, { showcase, watched, favorites: favoriteItems, all: details });
+  const achievements = buildKinoWallAchievements(stats, details);
+
+  return { profile, readOnly, showcase, watched, favorites: favoriteItems, stats, achievements, allDetails: details };
+}
+
+function buildKinoWallEntryKey(entry) {
+  return `${entry?.mediaType === 'tv' ? 'tv' : 'movie'}:${Number(entry?.id || 0)}`;
+}
+
+function dedupeKinoWallEntries(entries = []) {
+  const map = new Map();
+  entries.forEach((entry) => {
+    const id = Number(entry?.id || 0);
+    const mediaType = entry?.mediaType === 'tv' ? 'tv' : 'movie';
+    if (!id) return;
+    const key = `${mediaType}:${id}`;
+    if (!map.has(key)) {
+      map.set(key, { id, mediaType, addedAt: entry.addedAt || new Date().toISOString() });
+    }
+  });
+  return Array.from(map.values());
+}
+
+async function fetchKinoWallDetailsBatch(entries = []) {
+  const result = [];
+  await runTasksWithConcurrency(entries.slice(0, 160), 6, async (entry) => {
+    const details = await fetchKinoWallEntryDetails(entry).catch((error) => {
+      console.warn('[kinowall] details failed', entry, error);
+      return null;
+    });
+    if (details) result.push(details);
+  });
+  return result;
+}
+
+async function fetchKinoWallEntryDetails(entry) {
+  const id = Number(entry?.id || 0);
+  const mediaType = entry?.mediaType === 'tv' ? 'tv' : 'movie';
+  if (!id) return null;
+  const cacheKey = `kw:${mediaType}:${id}`;
+  if (!itemDetailsCache.has(cacheKey)) {
+    itemDetailsCache.set(cacheKey, (async () => {
+      const details = await apiFetch(`/${mediaType}/${id}`, { language: 'ru-RU' });
+      const title = details.title || details.name || details.original_title || details.original_name || (mediaType === 'tv' ? 'Сериал' : 'Фильм');
+      const releaseDate = details.release_date || details.first_air_date || '';
+      return {
+        id,
+        mediaType,
+        title,
+        originalTitle: details.original_title || details.original_name || title,
+        overview: details.overview || '',
+        releaseDate,
+        year: getItemYear(releaseDate) || '',
+        voteAverage: Number(details.vote_average || 0),
+        voteCount: Number(details.vote_count || 0),
+        popularity: Number(details.popularity || 0),
+        posterUrl: details.poster_path ? buildImageUrl(details.poster_path) : '',
+        backdropUrl: details.backdrop_path ? `${state.imageBackdropBaseUrl}${details.backdrop_path}` : '',
+        genres: resolveGenreLabelsForItem(mediaType, details.genres || [], []),
+        genreIds: Array.isArray(details.genres) ? details.genres.map((genre) => Number(genre.id)).filter(Boolean) : [],
+        runtime: mediaType === 'tv' ? Number(details.number_of_episodes || 0) : Number(details.runtime || 0),
+        collection: details.belongs_to_collection?.name || '',
+        status: details.status || ''
+      };
+    })().catch((error) => {
+      itemDetailsCache.delete(cacheKey);
+      throw error;
+    }));
+  }
+  const cached = await itemDetailsCache.get(cacheKey);
+  return { ...cached, addedAt: entry.addedAt || '' };
+}
+
+function buildKinoWallStats(profile, lists) {
+  const watched = lists.watched || [];
+  const favorites = lists.favorites || [];
+  const all = dedupeKinoWallDetails([...(lists.all || []), ...watched, ...favorites]);
+  const genreCounts = new Map();
+  const yearCounts = new Map();
+  const collectionCounts = new Map();
+  let movieCount = 0;
+  let tvCount = 0;
+  let totalRating = 0;
+  let ratedCount = 0;
+
+  watched.forEach((item) => {
+    if (item.mediaType === 'tv') tvCount += 1;
+    else movieCount += 1;
+    if (item.voteAverage) {
+      totalRating += item.voteAverage;
+      ratedCount += 1;
+    }
+    item.genres.forEach((genre) => genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1));
+    if (item.year) yearCounts.set(String(item.year), (yearCounts.get(String(item.year)) || 0) + 1);
+    if (item.collection) collectionCounts.set(item.collection, (collectionCounts.get(item.collection) || 0) + 1);
+  });
+
+  const topGenres = Array.from(genreCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const years = Array.from(yearCounts.entries()).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const avgRating = ratedCount ? totalRating / ratedCount : 0;
+  const collectionMax = Math.max(0, ...Array.from(collectionCounts.values()));
+
+  return {
+    watchedTotal: watched.length,
+    favoriteTotal: favorites.length,
+    showcaseTotal: profile.showcase.length,
+    movieCount,
+    tvCount,
+    avgRating,
+    topGenres,
+    years,
+    collectionMax,
+    actorsTotal: profile.actors.length,
+    scenesTotal: profile.scenes.length,
+    soundtracksTotal: profile.soundtracks.length,
+    all
+  };
+}
+
+function dedupeKinoWallDetails(items = []) {
+  const map = new Map();
+  items.forEach((item) => {
+    if (item?.id) map.set(buildKinoWallEntryKey(item), item);
+  });
+  return Array.from(map.values());
+}
+
+function buildKinoWallAchievements(stats, allDetails = []) {
+  const countGenre = (needle) => stats.topGenres.reduce((sum, [genre, count]) => sum + (genre.toLowerCase().includes(needle) ? count : 0), 0);
+  const movie = allDetails.find((item) => item.mediaType === 'movie');
+  const tv = allDetails.find((item) => item.mediaType === 'tv');
+  const highRated = allDetails.find((item) => item.voteAverage >= 8);
+  const posterFrom = (item) => item?.backdropUrl || item?.posterUrl || '';
+  const defs = [
+    { id: 'first-watch', title: 'Первый сеанс', level: 'Общее', target: 1, value: stats.watchedTotal, text: 'На киностене появился первый просмотр. Дальше хуже: каталог уже знает дорогу.', image: posterFrom(movie || tv) },
+    { id: 'ten-watch', title: 'Уже не случайность', level: 'Общее', target: 10, value: stats.watchedTotal, text: '10 просмотренных тайтлов. Это уже не фон, это стиль жизни.', image: posterFrom(highRated || movie || tv) },
+    { id: 'fifty-watch', title: 'Киноман честной судьбы', level: 'Общее', target: 50, value: stats.watchedTotal, text: '50 тайтлов в истории. Пульт можно выдавать как официальный документ.', image: posterFrom(highRated || movie || tv) },
+    { id: 'hundred-watch', title: 'Архивариус ночных сеансов', level: 'Общее', target: 100, value: stats.watchedTotal, text: '100 просмотренных тайтлов. Сон пытался, но проиграл.', image: posterFrom(highRated || movie || tv) },
+    { id: 'serial-hostage', title: 'Сериальный заложник', level: 'Формат', target: 10, value: stats.tvCount, text: 'Сериалы уже не смотрятся — они держат в плену сезонами.', image: posterFrom(tv) },
+    { id: 'movie-core', title: 'Фильм вместо ужина', level: 'Формат', target: 20, value: stats.movieCount, text: 'Фильмы стали надёжным планом на вечер, даже если плана не было.', image: posterFrom(movie) },
+    { id: 'comedy', title: 'Смеховой иммунитет', level: 'Жанровые', target: 10, value: countGenre('комед'), text: 'Комедия прокачана. Сарказм теперь идёт в комплекте.', image: posterFrom(stats.all.find((item) => item.genres.join(' ').toLowerCase().includes('комед'))) },
+    { id: 'horror', title: 'Ночной хоррорщик', level: 'Жанровые', target: 10, value: countGenre('ужас') + countGenre('хоррор'), text: 'Страшное больше не пугает. Максимум — просит рекомендацию.', image: posterFrom(stats.all.find((item) => item.genres.join(' ').toLowerCase().includes('ужас'))) },
+    { id: 'drama', title: 'Грустно, вкусно, больно', level: 'Жанровые', target: 10, value: countGenre('драм'), text: 'Драма прокачана. Душа получила субтитры.', image: posterFrom(stats.all.find((item) => item.genres.join(' ').toLowerCase().includes('драм'))) },
+    { id: 'fantasy', title: 'Портал открыт', level: 'Жанровые', target: 8, value: countGenre('фэнтези') + countGenre('фантаст'), text: 'Фантастика и фэнтези уже подозрительно похожи на домашний адрес.', image: posterFrom(stats.all.find((item) => /фэнтези|фантаст/i.test(item.genres.join(' ')))) },
+    { id: 'collector', title: 'Франшизный псих', level: 'Франшизы', target: 4, value: stats.collectionMax, text: 'Несколько частей одной франшизы подряд. Назад дороги уже нет.', image: posterFrom(stats.all.find((item) => item.collection)) },
+    { id: 'favorites', title: 'Полка любимого', level: 'Профиль', target: 12, value: stats.favoriteTotal, text: 'Избранное перестало быть списком. Это уже личный музей.', image: posterFrom(stats.all[0]) },
+    { id: 'showcase', title: 'Витрина вкуса', level: 'Профиль', target: 8, value: stats.showcaseTotal, text: 'Киностена оформлена тайтлами, за которые не стыдно спорить.', image: posterFrom(stats.all[1] || stats.all[0]) },
+    { id: 'soundtracks', title: 'Саундтрек в крови', level: 'Профиль', target: 5, value: stats.soundtracksTotal, text: 'Музыка на стене есть. Значит, у профиля появился пульс.', image: '' },
+    { id: 'scenes', title: 'Кадр, который остался', level: 'Профиль', target: 5, value: stats.scenesTotal, text: 'Любимые сцены собраны. Теперь память работает в формате widescreen.', image: '' }
+  ];
+
+  return defs.map((achievement) => ({
+    ...achievement,
+    value: Math.max(0, Number(achievement.value || 0)),
+    target: Math.max(1, Number(achievement.target || 1)),
+    progress: Math.max(0, Math.min(100, Math.round((Number(achievement.value || 0) / Math.max(1, Number(achievement.target || 1))) * 100))),
+    unlocked: Number(achievement.value || 0) >= Number(achievement.target || 1)
+  }));
+}
+
+function renderKinoWall(data, activeTab = 'overview') {
+  const { profile, readOnly, stats } = data;
+  const heroStyle = `--kw-accent:${escapeHtml(profile.accentColor)};${profile.bannerUrl ? `--kw-banner-image:url('${escapeHtml(profile.bannerUrl)}');` : ''}`;
+  const initial = escapeHtml((profile.name || 'К').slice(0, 1).toUpperCase());
+  kinoWallContent.dataset.kwMode = readOnly ? 'shared' : 'local';
+  kinoWallContent.innerHTML = `
+    <section class="kinowall-hero" style="${heroStyle}">
+      <div class="kinowall-hero-bg"></div>
+      <div class="kinowall-avatar">${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="${escapeHtml(profile.name)}">` : `<span>${initial}</span>`}</div>
+      <div class="kinowall-hero-text">
+        <div class="kinowall-kicker">${readOnly ? 'shared kinowall' : 'local kinowall'}</div>
+        <h1 id="kinoWallTitle">${escapeHtml(profile.name)}</h1>
+        <p>${escapeHtml(profile.status)}</p>
+        <div class="kinowall-vibe">${escapeHtml(profile.vibe)}</div>
+      </div>
+      <div class="kinowall-hero-actions">
+        ${readOnly ? '<button type="button" class="kw-btn kw-secondary" data-kw-action="save-shared">Сохранить себе</button>' : '<button type="button" class="kw-btn kw-primary" data-kw-action="edit">Редактировать</button>'}
+        <button type="button" class="kw-btn kw-secondary" data-kw-action="share">Поделиться</button>
+      </div>
+    </section>
+
+    <nav class="kinowall-tabs" aria-label="Разделы киностены">
+      <button type="button" class="kinowall-tab ${activeTab === 'overview' ? 'active' : ''}" data-kw-tab="overview">Обзор</button>
+      <button type="button" class="kinowall-tab ${activeTab === 'achievements' ? 'active' : ''}" data-kw-tab="achievements">Достижения</button>
+      ${readOnly ? '' : `<button type="button" class="kinowall-tab ${activeTab === 'edit' ? 'active' : ''}" data-kw-tab="edit">Редактор</button>`}
+      <button type="button" class="kinowall-tab ${activeTab === 'share' ? 'active' : ''}" data-kw-tab="share">Шаринг</button>
+    </nav>
+
+    <div class="kinowall-tab-body" id="kinoWallTabBody"></div>
+  `;
+  bindKinoWallShellEvents(data);
+  renderKinoWallTab(data, activeTab);
+}
+
+function bindKinoWallShellEvents(data) {
+  kinoWallContent.querySelectorAll('[data-kw-tab]').forEach((button) => {
+    button.addEventListener('click', () => renderKinoWall(data, button.dataset.kwTab));
+  });
+  kinoWallContent.querySelectorAll('[data-kw-action]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.kwAction;
+      if (action === 'edit') renderKinoWall(data, 'edit');
+      if (action === 'share') renderKinoWall(data, 'share');
+      if (action === 'save-shared') {
+        saveKinoWallProfile(data.profile);
+        button.textContent = 'Сохранено локально';
+        button.disabled = true;
+      }
+    });
+  });
+}
+
+function renderKinoWallTab(data, tab) {
+  const body = document.getElementById('kinoWallTabBody');
+  if (!body) return;
+  if (tab === 'achievements') {
+    body.innerHTML = renderKinoWallAchievementsTab(data);
+  } else if (tab === 'edit' && !data.readOnly) {
+    body.innerHTML = renderKinoWallEditorTab(data);
+    bindKinoWallEditorEvents(data);
+  } else if (tab === 'share') {
+    body.innerHTML = renderKinoWallShareTab(data);
+    bindKinoWallShareEvents(data);
+  } else {
+    body.innerHTML = renderKinoWallOverviewTab(data);
+    bindKinoWallOverviewEvents(data);
+  }
+}
+
+function renderKinoWallOverviewTab(data) {
+  const { profile, stats, showcase, watched, favorites } = data;
+  return `
+    <section class="kinowall-grid-top">
+      <div class="kinowall-about-card">
+        <div class="kinowall-section-title">Обо мне</div>
+        <p>${escapeHtml(profile.bio)}</p>
+        <div class="kinowall-mini-stats">
+          ${renderKinoWallMetric('Просмотрено', stats.watchedTotal)}
+          ${renderKinoWallMetric('Избранное', stats.favoriteTotal)}
+          ${renderKinoWallMetric('На стене', stats.showcaseTotal)}
+          ${renderKinoWallMetric('Средний рейтинг', stats.avgRating ? stats.avgRating.toFixed(1) : '—')}
+        </div>
+      </div>
+      <div class="kinowall-chart-card">
+        <div class="kinowall-section-title">Активность просмотров</div>
+        ${renderKinoWallYearChart(stats.years)}
+      </div>
+    </section>
+
+    ${renderKinoWallTitleRail('Витрина вкуса', showcase, 'showcase', data.readOnly)}
+    ${renderKinoWallTitleRail('История просмотров', watched.slice(0, 18), 'watched', data.readOnly)}
+    ${renderKinoWallTitleRail('Избранное из каталога', favorites.slice(0, 18), 'favorites', data.readOnly)}
+
+    <section class="kinowall-columns">
+      <div class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые актёры / люди кино</div>
+        <div class="kinowall-people-grid">${profile.actors.length ? profile.actors.map(renderKinoWallPerson).join('') : renderKinoWallEmpty('Добавь актёров в редакторе.')}</div>
+      </div>
+      <div class="kinowall-panel">
+        <div class="kinowall-section-title">Саундтреки</div>
+        <div class="kinowall-soundtrack-list">${profile.soundtracks.length ? profile.soundtracks.map(renderKinoWallSoundtrack).join('') : renderKinoWallEmpty('Сюда можно добавить треки, которые держат вайб.')}</div>
+      </div>
+    </section>
+
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Любимые сцены и кадры</div>
+      <div class="kinowall-scene-grid">${profile.scenes.length ? profile.scenes.map(renderKinoWallScene).join('') : renderKinoWallEmpty('Добавь сцены, кадры или моменты в редакторе.')}</div>
+    </section>
+  `;
+}
+
+function renderKinoWallMetric(label, value) {
+  return `<div class="kinowall-metric"><b>${escapeHtml(String(value))}</b><span>${escapeHtml(label)}</span></div>`;
+}
+
+function renderKinoWallYearChart(years = []) {
+  if (!years.length) return '<div class="kinowall-empty-small">История появится после нажатия «Смотреть».</div>';
+  const max = Math.max(1, ...years.map(([, count]) => Number(count || 0)));
+  return `<div class="kinowall-year-chart">${years.map(([year, count]) => {
+    const height = Math.max(16, Math.round((Number(count || 0) / max) * 96));
+    return `<div class="kinowall-year-bar" title="${escapeHtml(year)}: ${count}" style="height:${height}px"><span>${escapeHtml(year)}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function renderKinoWallTitleRail(title, items = [], listType = '', readOnly = false) {
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-head-row">
+        <div class="kinowall-section-title">${escapeHtml(title)}</div>
+        <span>${items.length}</span>
+      </div>
+      ${items.length ? `<div class="kinowall-title-rail">${items.map((item) => renderKinoWallTitleCard(item, listType, readOnly)).join('')}</div>` : renderKinoWallEmpty(listType === 'showcase' ? 'Нажми 👤 на карточке тайтла, чтобы добавить его сюда.' : 'Пока пусто.')}
+    </section>
+  `;
+}
+
+function renderKinoWallTitleCard(item, listType = '', readOnly = false) {
+  const poster = item.posterUrl ? `<img src="${escapeHtml(item.posterUrl)}" alt="${escapeHtml(item.title)}" loading="lazy">` : `<div class="kinowall-poster-fallback">${escapeHtml(item.title)}</div>`;
+  return `
+    <article class="kinowall-title-card" data-id="${item.id}" data-media-type="${item.mediaType}">
+      <div class="kinowall-title-poster">${poster}</div>
+      <div class="kinowall-title-info">
+        <b>${escapeHtml(item.title)}</b>
+        <span>${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'}${item.year ? ` • ${escapeHtml(String(item.year))}` : ''}${item.voteAverage ? ` • ${formatVote(item.voteAverage)}` : ''}</span>
+      </div>
+      <div class="kinowall-title-actions">
+        <button type="button" class="kw-mini-btn" data-kw-watch="${item.id}" data-media-type="${item.mediaType}">Смотреть</button>
+        ${!readOnly && listType === 'showcase' ? `<button type="button" class="kw-mini-btn danger" data-kw-remove-showcase="${item.id}" data-media-type="${item.mediaType}">Убрать</button>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+function renderKinoWallPerson(item) {
+  const avatar = item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}">` : `<span>${escapeHtml((item.name || '?').slice(0, 1).toUpperCase())}</span>`;
+  return `<article class="kinowall-person"><div>${avatar}</div><b>${escapeHtml(item.name || 'Без имени')}</b><span>${escapeHtml(item.note || '')}</span></article>`;
+}
+
+function renderKinoWallScene(item) {
+  const visual = item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.title)}">` : '<div class="kinowall-scene-gradient"></div>';
+  return `<article class="kinowall-scene"><div class="kinowall-scene-image">${visual}</div><div><b>${escapeHtml(item.title || 'Сцена')}</b><p>${escapeHtml(item.note || '')}</p></div></article>`;
+}
+
+function renderKinoWallSoundtrack(item) {
+  const content = `<b>${escapeHtml(item.title || 'Саундтрек')}</b><span>${escapeHtml(item.artist || '')}</span>`;
+  return item.url
+    ? `<a class="kinowall-soundtrack" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${content}</a>`
+    : `<div class="kinowall-soundtrack">${content}</div>`;
+}
+
+function renderKinoWallEmpty(text) {
+  return `<div class="kinowall-empty-small">${escapeHtml(text)}</div>`;
+}
+
+function bindKinoWallOverviewEvents(data) {
+  kinoWallContent.querySelectorAll('[data-kw-watch]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = Number(button.dataset.kwWatch);
+      const mediaType = button.dataset.mediaType === 'tv' ? 'tv' : 'movie';
+      const payload = await buildPlayerPayloadFromId(id, mediaType);
+      window.location.hash = `${mediaType}-${id}`;
+      await openKinoBox(payload);
+    });
+  });
+  kinoWallContent.querySelectorAll('[data-kw-remove-showcase]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const profile = readKinoWallProfile();
+      const id = Number(button.dataset.kwRemoveShowcase);
+      const mediaType = button.dataset.mediaType === 'tv' ? 'tv' : 'movie';
+      profile.showcase = profile.showcase.filter((entry) => !isSameKinoWallEntry(entry, { id, mediaType }));
+      saveKinoWallProfile(profile);
+      await openKinoWall();
+      await loadContent(state.currentPage).catch(() => {});
+    });
+  });
+}
+
+function renderKinoWallAchievementsTab(data) {
+  const unlocked = data.achievements.filter((item) => item.unlocked).length;
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-head-row">
+        <div>
+          <div class="kinowall-section-title">Достижения</div>
+          <p class="kinowall-muted">Открыто ${unlocked} из ${data.achievements.length}. Прогресс считается локально по просмотрам, избранному и оформлению профиля.</p>
+        </div>
+        <div class="kinowall-achievement-score">${unlocked}/${data.achievements.length}</div>
+      </div>
+      <div class="kinowall-achievement-grid">
+        ${data.achievements.map(renderKinoWallAchievement).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderKinoWallAchievement(item) {
+  const image = item.image ? `style="--kw-achievement-image:url('${escapeHtml(item.image)}')"` : '';
+  return `
+    <article class="kinowall-achievement ${item.unlocked ? 'unlocked' : 'locked'}" ${image}>
+      <div class="kinowall-achievement-image"></div>
+      <div class="kinowall-achievement-body">
+        <div class="kinowall-achievement-level">${escapeHtml(item.level)} • ${item.progress}%</div>
+        <h3>${escapeHtml(item.title)}</h3>
+        <p>${escapeHtml(item.text)}</p>
+        <div class="kinowall-progress"><span style="width:${item.progress}%"></span></div>
+        <small>${item.value}/${item.target}</small>
+      </div>
+    </article>
+  `;
+}
+
+function renderKinoWallEditorTab(data) {
+  const profile = data.profile;
+  return `
+    <form id="kinoWallEditorForm" class="kinowall-editor-form">
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Профиль</div>
+        <div class="kinowall-form-grid">
+          ${renderKinoWallInput('name', 'Имя на стене', profile.name, 42)}
+          ${renderKinoWallInput('handle', 'Короткий ник для шаринга', profile.handle, 32)}
+          ${renderKinoWallInput('status', 'Статус', profile.status, 90)}
+          ${renderKinoWallInput('vibe', 'Любимый вайб', profile.vibe, 120)}
+          ${renderKinoWallInput('avatarUrl', 'URL аватара', profile.avatarUrl, 900)}
+          ${renderKinoWallInput('bannerUrl', 'URL баннера', profile.bannerUrl, 900)}
+          <label class="kinowall-field"><span>Акцент профиля</span><input name="accentColor" type="color" value="${escapeHtml(profile.accentColor)}"></label>
+        </div>
+        <label class="kinowall-field wide"><span>Обо мне</span><textarea name="bio" rows="4" maxlength="420">${escapeHtml(profile.bio)}</textarea></label>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Витрина тайтлов</div>
+        <p class="kinowall-muted">Нажимай кнопку 👤 на карточках каталога, чтобы добавлять/убирать тайтлы. Здесь можно быстро убрать лишнее.</p>
+        <div class="kinowall-title-rail editor">${data.showcase.length ? data.showcase.map((item) => renderKinoWallTitleCard(item, 'showcase', false)).join('') : renderKinoWallEmpty('Пока пусто. Добавь тайтлы кнопкой 👤 в каталоге.')}</div>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые актёры / люди кино</div>
+        <p class="kinowall-muted">Формат строки: Имя | короткая заметка | URL картинки. Картинка необязательна.</p>
+        <textarea name="actorsRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallPeople(profile.actors))}</textarea>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые сцены / кадры</div>
+        <p class="kinowall-muted">Формат строки: Название сцены | описание | URL кадра. Можно добавлять свои ссылки на изображения.</p>
+        <textarea name="scenesRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallCards(profile.scenes))}</textarea>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Саундтреки</div>
+        <p class="kinowall-muted">Формат строки: Название | исполнитель/фильм | ссылка.</p>
+        <textarea name="soundtracksRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallSoundtracks(profile.soundtracks))}</textarea>
+      </section>
+
+      <div class="kinowall-editor-actions">
+        <button type="submit" class="kw-btn kw-primary">Сохранить киностену</button>
+        <button type="button" class="kw-btn kw-secondary" data-kw-editor-action="reset-demo">Вернуть демо-блоки</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderKinoWallInput(name, label, value, maxLength) {
+  return `<label class="kinowall-field"><span>${escapeHtml(label)}</span><input name="${escapeHtml(name)}" type="text" maxlength="${maxLength}" value="${escapeHtml(value || '')}"></label>`;
+}
+
+function serializeKinoWallPeople(items = []) {
+  return items.map((item) => [item.name, item.note, item.imageUrl].filter((value, index) => index < 2 || value).join(' | ')).join('\n');
+}
+
+function serializeKinoWallCards(items = []) {
+  return items.map((item) => [item.title, item.note, item.imageUrl].filter((value, index) => index < 2 || value).join(' | ')).join('\n');
+}
+
+function serializeKinoWallSoundtracks(items = []) {
+  return items.map((item) => [item.title, item.artist, item.url].filter((value, index) => index < 2 || value).join(' | ')).join('\n');
+}
+
+function parsePipeList(raw, mapper) {
+  return String(raw || '').split(/\r?\n/g).map((line) => line.trim()).filter(Boolean).map((line) => mapper(line.split('|').map((part) => part.trim()))).filter(Boolean);
+}
+
+function bindKinoWallEditorEvents(data) {
+  bindKinoWallOverviewEvents(data);
+  const formEl = document.getElementById('kinoWallEditorForm');
+  formEl?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(formEl);
+    const current = readKinoWallProfile();
+    const nextProfile = saveKinoWallProfile({
+      ...current,
+      name: formData.get('name'),
+      handle: formData.get('handle'),
+      status: formData.get('status'),
+      vibe: formData.get('vibe'),
+      avatarUrl: formData.get('avatarUrl'),
+      bannerUrl: formData.get('bannerUrl'),
+      accentColor: formData.get('accentColor'),
+      bio: sanitizeKinoWallLongText(formData.get('bio'), 420),
+      actors: parsePipeList(formData.get('actorsRaw'), ([name, note, imageUrl]) => ({ name, note, imageUrl })),
+      scenes: parsePipeList(formData.get('scenesRaw'), ([title, note, imageUrl]) => ({ title, note, imageUrl })),
+      soundtracks: parsePipeList(formData.get('soundtracksRaw'), ([title, artist, url]) => ({ title, artist, url }))
+    });
+    await openKinoWall({ profile: nextProfile });
+  });
+
+  kinoWallContent.querySelector('[data-kw-editor-action="reset-demo"]')?.addEventListener('click', async () => {
+    const profile = readKinoWallProfile();
+    const demo = createDefaultKinoWallProfile();
+    profile.actors = demo.actors;
+    profile.scenes = demo.scenes;
+    profile.soundtracks = demo.soundtracks;
+    saveKinoWallProfile(profile);
+    await openKinoWall();
+  });
+}
+
+function renderKinoWallShareTab(data) {
+  const shareText = data.readOnly ? 'Это профиль, открытый по ссылке. Его можно сохранить себе или скопировать дальше.' : 'Ссылка хранит только лёгкие данные профиля: ID тайтлов, текстовые блоки и оформление. Картинки тайтлов подтянутся через TMDB.';
+  const link = buildKinoWallShareLink(data.profile);
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Красивый шаринг</div>
+      <p class="kinowall-muted">${escapeHtml(shareText)}</p>
+      <div class="kinowall-share-box">
+        <textarea id="kinoWallShareLink" readonly rows="4">${escapeHtml(link)}</textarea>
+        <div class="kinowall-share-actions">
+          <button type="button" class="kw-btn kw-primary" data-kw-share-action="copy">Скопировать ссылку</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="export">Экспорт JSON</button>
+          ${data.readOnly ? '' : '<label class="kw-btn kw-secondary kw-file-label">Импорт JSON<input id="kinoWallImportFile" type="file" accept="application/json,.json" hidden></label>'}
+        </div>
+        <div id="kinoWallShareStatus" class="kinowall-share-status"></div>
+      </div>
+    </section>
+  `;
+}
+
+function bindKinoWallShareEvents(data) {
+  const status = document.getElementById('kinoWallShareStatus');
+  const shareField = document.getElementById('kinoWallShareLink');
+  kinoWallContent.querySelector('[data-kw-share-action="copy"]')?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(shareField.value);
+      if (status) status.textContent = 'Ссылка скопирована.';
+    } catch (error) {
+      shareField.select();
+      if (status) status.textContent = 'Не удалось скопировать автоматически. Ссылка выделена — скопируй вручную.';
+    }
+  });
+
+  kinoWallContent.querySelector('[data-kw-share-action="export"]')?.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(data.profile, null, 2)], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `rmp-kinowall-${sanitizeKinoWallHandle(data.profile.handle)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  document.getElementById('kinoWallImportFile')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const profile = saveKinoWallProfile(JSON.parse(text));
+      if (status) status.textContent = 'Профиль импортирован.';
+      await openKinoWall({ profile });
+    } catch (error) {
+      if (status) status.textContent = 'Не удалось импортировать JSON.';
+    }
+  });
+}
+
+function buildKinoWallShareLink(profile) {
+  const payload = minimizeKinoWallProfile(profile);
+  const encoded = base64UrlEncode(JSON.stringify(payload));
+  const url = new URL(window.location.href);
+  url.hash = `${KINOWALL_SHARE_HASH_PREFIX}${encoded}`;
+  return url.toString();
+}
+
+function minimizeKinoWallProfile(profile) {
+  const normalized = normalizeKinoWallProfile(profile);
+  return {
+    version: KINOWALL_VERSION,
+    name: normalized.name,
+    handle: normalized.handle,
+    status: normalized.status,
+    bio: normalized.bio,
+    vibe: normalized.vibe,
+    avatarUrl: normalized.avatarUrl,
+    bannerUrl: normalized.bannerUrl,
+    accentColor: normalized.accentColor,
+    showcase: normalized.showcase.slice(0, 60),
+    watched: normalized.watched.slice(0, 120),
+    favorites: getFavorites().slice(0, 120),
+    actors: normalized.actors,
+    scenes: normalized.scenes,
+    soundtracks: normalized.soundtracks,
+    updatedAt: normalized.updatedAt
+  };
+}
+
+function base64UrlEncode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecode(text) {
+  const normalized = String(text || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function parseKinoWallProfileFromHash(hashValue = window.location.hash) {
+  const rawHash = String(hashValue || '').replace(/^#/, '').trim();
+  if (!rawHash.startsWith(KINOWALL_SHARE_HASH_PREFIX)) return null;
+  const encoded = rawHash.slice(KINOWALL_SHARE_HASH_PREFIX.length);
+  if (!encoded) return null;
+  return normalizeKinoWallProfile(JSON.parse(base64UrlDecode(encoded)));
+}
+
+async function openKinoWallFromHashIfNeeded() {
+  if (!isKinoWallShareHash(window.location.hash)) return false;
+  try {
+    const profile = parseKinoWallProfileFromHash(window.location.hash);
+    if (!profile) return false;
+    await openKinoWall({ profile, readOnly: true });
+    return true;
+  } catch (error) {
+    console.error('[kinowall share]', error);
+    return false;
+  }
+}
 
 function isKsawerEasterQuery(value) {
   return KSAWER_EASTER_QUERY_PATTERN.test(String(value || '').trim());
@@ -5609,3 +6508,1147 @@ function initializePopcornEasterEgg() {
 }
 
 window.addEventListener('DOMContentLoaded', initializePopcornEasterEgg);
+
+/* ===== RMP patch: kinowall actors, reviews, compact share, details redesign ===== */
+
+function getKinoWallTimestampLabel(isoValue) {
+  const date = new Date(isoValue || '');
+  if (Number.isNaN(date.getTime())) return 'дата неизвестна';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+}
+
+function compactKinoWallProfile(profile) {
+  const normalized = normalizeKinoWallProfile(profile);
+  const compactEntry = (entry) => [entry.mediaType === 'tv' ? 't' : 'm', Number(entry.id || 0), entry.addedAt || ''];
+  return {
+    v: KINOWALL_VERSION,
+    n: normalized.name,
+    h: normalized.handle,
+    s: normalized.status,
+    b: normalized.bio,
+    vb: normalized.vibe,
+    av: normalized.avatarUrl,
+    bn: normalized.bannerUrl,
+    ac: normalized.accentColor,
+    sh: normalized.showcase.slice(0, 60).map(compactEntry),
+    w: normalized.watched.slice(0, 140).map(compactEntry),
+    f: getFavorites().slice(0, 140).map(compactEntry),
+    a: normalized.actors.map((person) => [person.tmdbId || 0, person.name || '', person.note || '', person.imageUrl || '']),
+    sc: normalized.scenes.map((scene) => [scene.title || '', scene.note || '', scene.imageUrl || '']),
+    st: normalized.soundtracks.map((track) => [track.title || '', track.artist || '', track.url || '']),
+    r: normalized.reviews.map((review) => [review.mediaType === 'tv' ? 't' : 'm', Number(review.id || 0), Number(review.rating || 0), review.text || '', review.addedAt || '']),
+    u: normalized.updatedAt || new Date().toISOString()
+  };
+}
+
+function expandCompactKinoWallProfile(payload = {}) {
+  if (payload.name || payload.showcase || payload.watched) return payload;
+  const expandEntry = (entry) => ({
+    mediaType: entry?.[0] === 't' ? 'tv' : 'movie',
+    id: Number(entry?.[1] || 0),
+    addedAt: entry?.[2] || new Date().toISOString()
+  });
+  return {
+    version: payload.v || KINOWALL_VERSION,
+    name: payload.n || '',
+    handle: payload.h || '',
+    status: payload.s || '',
+    bio: payload.b || '',
+    vibe: payload.vb || '',
+    avatarUrl: payload.av || '',
+    bannerUrl: payload.bn || '',
+    accentColor: payload.ac || '',
+    showcase: Array.isArray(payload.sh) ? payload.sh.map(expandEntry) : [],
+    watched: Array.isArray(payload.w) ? payload.w.map(expandEntry) : [],
+    favorites: Array.isArray(payload.f) ? payload.f.map(expandEntry) : [],
+    actors: Array.isArray(payload.a) ? payload.a.map((item) => ({ tmdbId: Number(item?.[0] || 0), name: item?.[1] || '', note: item?.[2] || '', imageUrl: item?.[3] || '' })) : [],
+    scenes: Array.isArray(payload.sc) ? payload.sc.map((item) => ({ title: item?.[0] || '', note: item?.[1] || '', imageUrl: item?.[2] || '' })) : [],
+    soundtracks: Array.isArray(payload.st) ? payload.st.map((item) => ({ title: item?.[0] || '', artist: item?.[1] || '', url: item?.[2] || '' })) : [],
+    reviews: Array.isArray(payload.r) ? payload.r.map((item) => ({ mediaType: item?.[0] === 't' ? 'tv' : 'movie', id: Number(item?.[1] || 0), rating: Number(item?.[2] || 0), text: item?.[3] || '', addedAt: item?.[4] || new Date().toISOString() })) : [],
+    updatedAt: payload.u || new Date().toISOString()
+  };
+}
+
+function createDefaultKinoWallProfile() {
+  return {
+    version: KINOWALL_VERSION,
+    name: 'Киноман',
+    handle: 'rmp-user',
+    status: 'выбираю кино по вайбу, а не по совести',
+    bio: 'Моя личная киностена: любимые тайтлы, сцены, саундтреки и статистика просмотров.',
+    vibe: 'ночной кинотеатр, неон и “ещё одну серию”',
+    avatarUrl: '',
+    bannerUrl: '',
+    accentColor: '#5f9cff',
+    showcase: [],
+    watched: [],
+    favorites: [],
+    reviews: [],
+    actors: [
+      { tmdbId: 0, name: 'Любимый актёр', note: 'сюда можно вписать своих людей кино', imageUrl: '' }
+    ],
+    scenes: [
+      { title: 'Сцена, которую хочется пересматривать', note: 'коротко опиши момент или вставь ссылку на кадр', imageUrl: '' }
+    ],
+    soundtracks: [
+      { title: 'Тот самый саундтрек', artist: 'исполнитель / фильм', url: '' }
+    ],
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function normalizeKinoWallProfile(profile = {}) {
+  const expanded = expandCompactKinoWallProfile(profile || {});
+  const fallback = createDefaultKinoWallProfile();
+  return {
+    ...fallback,
+    ...expanded,
+    name: sanitizeKinoWallText(expanded.name || fallback.name, 42),
+    handle: sanitizeKinoWallHandle(expanded.handle || fallback.handle),
+    status: sanitizeKinoWallText(expanded.status || fallback.status, 90),
+    bio: sanitizeKinoWallText(expanded.bio || fallback.bio, 420),
+    vibe: sanitizeKinoWallText(expanded.vibe || fallback.vibe, 120),
+    avatarUrl: sanitizeKinoWallUrl(expanded.avatarUrl || ''),
+    bannerUrl: sanitizeKinoWallUrl(expanded.bannerUrl || ''),
+    accentColor: normalizeHexColor(expanded.accentColor || fallback.accentColor, fallback.accentColor),
+    showcase: normalizeKinoWallEntries(expanded.showcase || []),
+    watched: normalizeKinoWallEntries(expanded.watched || []),
+    favorites: normalizeKinoWallEntries(expanded.favorites || []),
+    reviews: normalizeKinoWallReviews(expanded.reviews || []),
+    actors: normalizeKinoWallPeople(expanded.actors || []),
+    scenes: normalizeKinoWallTextCards(expanded.scenes || []),
+    soundtracks: normalizeKinoWallSoundtracks(expanded.soundtracks || []),
+    updatedAt: expanded.updatedAt || fallback.updatedAt
+  };
+}
+
+function normalizeKinoWallPeople(items = []) {
+  const seen = new Set();
+  const result = [];
+  items.forEach((item) => {
+    const tmdbId = Number(item?.tmdbId || item?.id || item?.personId || 0);
+    const name = sanitizeKinoWallText(item?.name || '', 70);
+    const note = sanitizeKinoWallText(item?.note || item?.knownFor || '', 180);
+    const imageUrl = sanitizeKinoWallUrl(item?.imageUrl || item?.profileUrl || '');
+    if (!name && !note && !imageUrl) return;
+    const key = tmdbId ? `id:${tmdbId}` : `name:${name.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push({ tmdbId, name, note, imageUrl });
+  });
+  return result.slice(0, 80);
+}
+
+function normalizeKinoWallReviews(items = []) {
+  const seen = new Set();
+  const result = [];
+  items.forEach((item) => {
+    const id = Number(item?.id || item?.tmdb || 0);
+    const mediaType = item?.mediaType === 'tv' ? 'tv' : 'movie';
+    if (!id) return;
+    const key = `${mediaType}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push({
+      id,
+      mediaType,
+      rating: clampKinoWallUserRating(item?.rating),
+      text: sanitizeKinoWallLongText(item?.text || '', 700),
+      addedAt: item?.addedAt || new Date().toISOString()
+    });
+  });
+  return result.slice(0, 240);
+}
+
+function clampKinoWallUserRating(value) {
+  const numeric = Number(String(value ?? '').replace(',', '.'));
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(10, Math.round(numeric * 10) / 10));
+}
+
+function getKinoWallReviewFor(id, mediaType, profile = readKinoWallProfile()) {
+  return profile.reviews.find((review) => isSameKinoWallEntry(review, { id: Number(id), mediaType })) || null;
+}
+
+function saveKinoWallReview(review) {
+  const id = Number(review?.id || 0);
+  const mediaType = review?.mediaType === 'tv' ? 'tv' : 'movie';
+  if (!id) return { ok: false, reason: 'no-id' };
+  const profile = readKinoWallProfile();
+  if (getKinoWallReviewFor(id, mediaType, profile)) return { ok: false, reason: 'exists', profile };
+  profile.reviews.unshift({
+    id,
+    mediaType,
+    rating: clampKinoWallUserRating(review.rating),
+    text: sanitizeKinoWallLongText(review.text || '', 700),
+    addedAt: new Date().toISOString()
+  });
+  saveKinoWallProfile(profile);
+  return { ok: true, profile };
+}
+
+function removeKinoWallReview(id, mediaType) {
+  const profile = readKinoWallProfile();
+  profile.reviews = profile.reviews.filter((review) => !isSameKinoWallEntry(review, { id: Number(id), mediaType }));
+  saveKinoWallProfile(profile);
+  return profile;
+}
+
+function toggleKinoWallActor(person = {}) {
+  const tmdbId = Number(person.tmdbId || person.id || 0);
+  const name = sanitizeKinoWallText(person.name || '', 70);
+  if (!tmdbId && !name) return false;
+  const profile = readKinoWallProfile();
+  const index = profile.actors.findIndex((actor) => (tmdbId && Number(actor.tmdbId || 0) === tmdbId) || (!tmdbId && actor.name.toLowerCase() === name.toLowerCase()));
+  if (index === -1) {
+    profile.actors.unshift({
+      tmdbId,
+      name,
+      note: sanitizeKinoWallText(person.note || person.character || '', 180),
+      imageUrl: sanitizeKinoWallUrl(person.imageUrl || '')
+    });
+    saveKinoWallProfile(profile);
+    return true;
+  }
+  profile.actors.splice(index, 1);
+  saveKinoWallProfile(profile);
+  return false;
+}
+
+function isInKinoWallActors(personId, name = '') {
+  const profile = readKinoWallProfile();
+  const id = Number(personId || 0);
+  const lowered = String(name || '').toLowerCase();
+  return profile.actors.some((actor) => (id && Number(actor.tmdbId || 0) === id) || (!id && lowered && actor.name.toLowerCase() === lowered));
+}
+
+async function openNav(item) {
+  try {
+    const details = await apiFetch(`/${item.mediaType}/${item.id}`, {
+      language: 'ru-RU',
+      append_to_response: 'videos,credits',
+      include_video_language: 'ru-RU,ru,en-US,en,null'
+    });
+
+    const fallbackVideos = !details?.videos?.results?.length
+      ? await apiFetch(`/${item.mediaType}/${item.id}/videos`, {
+          include_video_language: 'ru-RU,ru,en-US,en,null'
+        }).catch(() => ({ results: [] }))
+      : null;
+
+    const videos = prioritizeVideos((details?.videos?.results || fallbackVideos?.results || []).filter((video) => video.site === 'YouTube' && video.key));
+    const cast = Array.isArray(details?.credits?.cast) ? details.credits.cast.slice(0, 14) : [];
+
+    overlay.style.width = '100%';
+    overlay.setAttribute('aria-hidden', 'false');
+
+    const title = item.originalTitle || item.title || details.original_title || details.original_name || details.title || details.name;
+    const resolvedOverview = item.overview || details.overview || 'Описание отсутствует.';
+    const resolvedDate = item.releaseDate || details.release_date || details.first_air_date || '';
+    const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(resolvedDate)}`;
+    const genresMarkup = buildOverlayGenresMarkup(item.mediaType, details?.genres, item.genreIds);
+    const backdrop = details.backdrop_path ? `${state.imageBackdropBaseUrl}${details.backdrop_path}` : '';
+    const trailerMarkup = buildDetailsTrailerMarkup(videos, title);
+
+    overlayContent.innerHTML = `
+      <div class="rmp-details-shell" ${backdrop ? `style="--details-backdrop:url('${escapeHtml(backdrop)}')"` : ''}>
+        <div class="rmp-details-hero">
+          <div class="rmp-details-hero-bg"></div>
+          <div class="overlay-headline rmp-details-headline">
+            <div class="rmp-details-kicker">${escapeHtml(item.mediaType === 'tv' ? 'сериал' : 'фильм')} • подробности</div>
+            <div class="overlay-title">${escapeHtml(title)}</div>
+            <div class="overlay-subtitle">${escapeHtml(subtitle)}</div>
+            ${genresMarkup}
+          </div>
+        </div>
+
+        <div class="rmp-details-grid">
+          <div class="rmp-details-main">
+            ${trailerMarkup}
+            <div class="overlay-overview rmp-details-overview">
+              <h3>Описание</h3>
+              <p>${escapeHtml(resolvedOverview)}</p>
+            </div>
+          </div>
+          <aside class="rmp-details-side">
+            <div class="rmp-details-fact"><span>Рейтинг TMDB</span><b>${formatVote(details.vote_average)}</b></div>
+            <div class="rmp-details-fact"><span>Голосов</span><b>${escapeHtml(String(details.vote_count || '—'))}</b></div>
+            ${details.runtime ? `<div class="rmp-details-fact"><span>Длительность</span><b>${details.runtime} мин.</b></div>` : ''}
+            ${details.number_of_seasons ? `<div class="rmp-details-fact"><span>Сезонов</span><b>${details.number_of_seasons}</b></div>` : ''}
+            ${details.status ? `<div class="rmp-details-fact"><span>Статус</span><b>${escapeHtml(details.status)}</b></div>` : ''}
+          </aside>
+        </div>
+
+        ${cast.length ? `
+          <section class="rmp-details-cast-section">
+            <div class="rmp-details-section-title">В главных ролях</div>
+            <div class="rmp-details-cast-grid">
+              ${cast.map(renderDetailsActorCard).join('')}
+            </div>
+          </section>
+        ` : ''}
+      </div>
+    `;
+
+    activeSlide = 0;
+    showVideos();
+    document.querySelectorAll('.dot').forEach((dot, index) => {
+      dot.addEventListener('click', () => {
+        activeSlide = index;
+        showVideos();
+      });
+    });
+    bindDetailsActorEvents();
+  } catch (error) {
+    console.error('[openNav patched]', error);
+    overlay.style.width = '100%';
+    overlay.setAttribute('aria-hidden', 'false');
+    overlayContent.innerHTML = '<h1 class="no-results">Не удалось загрузить подробности</h1>';
+  }
+}
+
+function buildDetailsTrailerMarkup(videos, title) {
+  if (!videos.length) {
+    return `<div class="rmp-details-video-empty"><b>Трейлеры не найдены</b><span>Но описание и актёры доступны ниже.</span></div>`;
+  }
+  const isLocalFile = window.location.protocol === 'file:';
+  const embed = videos.map((video) => {
+    const safeTitle = escapeHtml(video.name || title);
+    if (isLocalFile) {
+      return `
+        <div class="embed embed-fallback hide">
+          <img class="embed-fallback-thumb" src="https://img.youtube.com/vi/${video.key}/hqdefault.jpg" alt="${safeTitle}" />
+          <div class="embed-fallback-body">
+            <div class="embed-fallback-title">${safeTitle}</div>
+            <div class="embed-fallback-text">Локально через file:// YouTube-встраивание может не работать. Открой сайт через http/https или запусти ролик прямо на YouTube.</div>
+            <a class="embed-fallback-link" href="https://www.youtube.com/watch?v=${video.key}" target="_blank" rel="noopener noreferrer">Открыть на YouTube</a>
+          </div>
+        </div>`;
+    }
+    return `
+      <iframe
+        src="${buildYouTubeEmbedUrl(video.key)}"
+        class="embed hide"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
+        loading="lazy"
+        referrerpolicy="strict-origin-when-cross-origin"
+        title="${safeTitle}"
+      ></iframe>`;
+  });
+  const dots = videos.map((_, index) => `<span class="dot">${index + 1}</span>`).join('');
+  return `<div class="rmp-details-video-card">${embed.join('')}<div class="dots">${dots}</div></div>`;
+}
+
+function renderDetailsActorCard(actor) {
+  const imageUrl = actor.profile_path ? buildImageUrl(actor.profile_path) : '';
+  const active = isInKinoWallActors(actor.id, actor.name);
+  const character = actor.character ? `Роль: ${actor.character}` : (actor.known_for_department || '');
+  return `
+    <article class="details-actor-card" data-person-id="${Number(actor.id || 0)}" data-person-name="${escapeHtml(actor.name || '')}" data-person-character="${escapeHtml(character || '')}" data-person-image="${escapeHtml(imageUrl)}">
+      <div class="details-actor-photo">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(actor.name || '')}" loading="lazy">` : '<span>👤</span>'}</div>
+      <div class="details-actor-body">
+        <b>${escapeHtml(actor.name || 'Без имени')}</b>
+        ${character ? `<span>${escapeHtml(character)}</span>` : ''}
+      </div>
+      <div class="details-actor-actions">
+        <button type="button" class="details-actor-fav ${active ? 'active' : ''}" title="${active ? 'Убрать из любимых актёров' : 'Добавить в любимые актёры'}">${active ? '✓ На стене' : '+ На стену'}</button>
+        <button type="button" class="details-actor-more">Подробнее</button>
+      </div>
+    </article>`;
+}
+
+function bindDetailsActorEvents() {
+  overlayContent.querySelectorAll('.details-actor-fav').forEach((button) => {
+    button.addEventListener('click', () => {
+      const card = button.closest('.details-actor-card');
+      const isActive = toggleKinoWallActor({
+        tmdbId: Number(card?.dataset.personId || 0),
+        name: card?.dataset.personName || '',
+        note: card?.dataset.personCharacter || '',
+        imageUrl: card?.dataset.personImage || ''
+      });
+      button.classList.toggle('active', isActive);
+      button.textContent = isActive ? '✓ На стене' : '+ На стену';
+      button.title = isActive ? 'Убрать из любимых актёров' : 'Добавить в любимые актёры';
+    });
+  });
+  overlayContent.querySelectorAll('.details-actor-more').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const card = button.closest('.details-actor-card');
+      const personId = Number(card?.dataset.personId || 0);
+      if (personId) await openDetailsPersonModal(personId);
+    });
+  });
+}
+
+async function openDetailsPersonModal(personId) {
+  let modal = document.getElementById('detailsPersonModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'detailsPersonModal';
+    modal.className = 'details-person-modal hidden';
+    document.body.appendChild(modal);
+  }
+  modal.classList.remove('hidden');
+  modal.innerHTML = `<div class="details-person-dialog"><button class="details-person-close" type="button">&times;</button><div class="details-person-loading"><span class="loader"></span><b>Загрузка биографии...</b></div></div>`;
+  modal.querySelector('.details-person-close')?.addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) modal.classList.add('hidden');
+  }, { once: true });
+
+  try {
+    const person = await apiFetch(`/person/${personId}`, {
+      language: 'ru-RU',
+      append_to_response: 'combined_credits,external_ids'
+    });
+    modal.innerHTML = renderDetailsPersonModal(person);
+    modal.querySelector('.details-person-close')?.addEventListener('click', () => modal.classList.add('hidden'));
+    modal.querySelector('.details-person-fav')?.addEventListener('click', (event) => {
+      const imageUrl = person.profile_path ? buildImageUrl(person.profile_path) : '';
+      const isActive = toggleKinoWallActor({ tmdbId: person.id, name: person.name, note: person.known_for_department || '', imageUrl });
+      event.currentTarget.classList.toggle('active', isActive);
+      event.currentTarget.textContent = isActive ? '✓ В любимых актёрах' : '+ В любимые актёры';
+    });
+  } catch (error) {
+    modal.innerHTML = `<div class="details-person-dialog"><button class="details-person-close" type="button">&times;</button><h2>Не удалось загрузить данные</h2><p>TMDB не ответил по этому актёру.</p></div>`;
+    modal.querySelector('.details-person-close')?.addEventListener('click', () => modal.classList.add('hidden'));
+  }
+}
+
+function renderDetailsPersonModal(person) {
+  const imageUrl = person.profile_path ? buildImageUrl(person.profile_path) : '';
+  const active = isInKinoWallActors(person.id, person.name);
+  const facts = [];
+  const gender = person.gender === 1 ? 'Женский' : person.gender === 2 ? 'Мужской' : person.gender === 3 ? 'Небинарный' : '';
+  if (gender) facts.push(['Пол', gender]);
+  if (person.birthday) facts.push(['Дата рождения', formatFullDate(person.birthday)]);
+  if (person.deathday) facts.push(['Дата смерти', formatFullDate(person.deathday)]);
+  if (person.place_of_birth) facts.push(['Место рождения', person.place_of_birth]);
+  if (person.known_for_department) facts.push(['Сфера', person.known_for_department]);
+  const knownProjects = buildPersonKnownProjects(person);
+  const socials = buildPersonSocialLinks(person.external_ids || {});
+  return `
+    <div class="details-person-dialog">
+      <button class="details-person-close" type="button" aria-label="Закрыть">&times;</button>
+      <div class="details-person-head">
+        <div class="details-person-photo">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(person.name || '')}">` : '<span>👤</span>'}</div>
+        <div>
+          <h2>${escapeHtml(person.name || 'Без имени')}</h2>
+          ${person.also_known_as?.length ? `<p>${escapeHtml(person.also_known_as.slice(0, 4).join(' • '))}</p>` : ''}
+          <button type="button" class="details-person-fav ${active ? 'active' : ''}">${active ? '✓ В любимых актёрах' : '+ В любимые актёры'}</button>
+        </div>
+      </div>
+      ${facts.length ? `<div class="details-person-facts">${facts.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join('')}</div>` : ''}
+      ${person.biography ? `<section><h3>Биография</h3><p>${escapeHtml(person.biography)}</p></section>` : ''}
+      ${knownProjects.length ? `<section><h3>Известность</h3><div class="details-person-projects">${knownProjects.map((project) => `<span>${escapeHtml(project)}</span>`).join('')}</div></section>` : ''}
+      ${socials.length ? `<section><h3>Соцсети и страницы</h3><div class="details-person-socials">${socials.map((link) => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`).join('')}</div></section>` : ''}
+    </div>`;
+}
+
+function buildPersonKnownProjects(person) {
+  const cast = Array.isArray(person?.combined_credits?.cast) ? person.combined_credits.cast : [];
+  const crew = Array.isArray(person?.combined_credits?.crew) ? person.combined_credits.crew : [];
+  const seen = new Set();
+  return [...cast, ...crew]
+    .filter((item) => item && (item.title || item.name))
+    .sort((a, b) => Number(b.popularity || 0) - Number(a.popularity || 0))
+    .map((item) => item.title || item.name)
+    .filter((title) => {
+      const key = String(title).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+function buildPersonSocialLinks(ids = {}) {
+  const links = [];
+  if (ids.imdb_id) links.push({ label: 'IMDb', url: `https://www.imdb.com/name/${ids.imdb_id}/` });
+  if (ids.instagram_id) links.push({ label: 'Instagram', url: `https://www.instagram.com/${ids.instagram_id}/` });
+  if (ids.twitter_id) links.push({ label: 'X / Twitter', url: `https://x.com/${ids.twitter_id}` });
+  if (ids.facebook_id) links.push({ label: 'Facebook', url: `https://www.facebook.com/${ids.facebook_id}` });
+  if (ids.tiktok_id) links.push({ label: 'TikTok', url: `https://www.tiktok.com/@${ids.tiktok_id}` });
+  if (ids.youtube_id) links.push({ label: 'YouTube', url: `https://www.youtube.com/${ids.youtube_id}` });
+  if (ids.wikidata_id) links.push({ label: 'Wikidata', url: `https://www.wikidata.org/wiki/${ids.wikidata_id}` });
+  return links;
+}
+
+function renderPlayerShell(meta = {}) {
+  const safeTitle = escapeHtml(meta.title || meta.originalTitle || 'Онлайн-просмотр');
+  const safeSubtitle = [
+    meta.mediaType === 'tv' ? 'Сериал' : (meta.mediaType ? 'Фильм' : ''),
+    meta.year,
+    meta.imdb ? `IMDb: ${escapeHtml(meta.imdb)}` : '',
+    meta.kinopoisk ? `KP: ${escapeHtml(meta.kinopoisk)}` : '',
+    meta.tmdb ? `TMDB: ${escapeHtml(meta.tmdb)}` : ''
+  ].filter(Boolean).join(' • ');
+
+  document.body.innerHTML = `
+    <div id="rmp-player-shell" class="rmp-player-shell">
+      <div class="rmp-player-topbar">
+        <div class="rmp-player-title-box">
+          <div class="rmp-player-title">${safeTitle}</div>
+          <div class="rmp-player-subtitle">${safeSubtitle || 'Подбираем доступные источники...'}</div>
+        </div>
+        <button id="rmp-home-button" class="rmp-player-home">← На главную</button>
+      </div>
+      <div class="rmp-player-page">
+        <div class="rmp-player-inner">
+          <div id="rmp-sources" class="rmp-player-sources"></div>
+          <div id="rmp-player-content" class="rmp-player-content"></div>
+          <div id="rmp-player-status" class="rmp-player-status">Подключаемся к Kinobox API...</div>
+          ${renderKinoWallPlayerReviewBox(meta)}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('rmp-home-button').addEventListener('click', () => {
+    window.location.href = 'index.html';
+  });
+  bindKinoWallPlayerReviewEvents(meta);
+}
+
+function selectKinoboxSource(sourceData) {
+  const contentEl = document.getElementById('rmp-player-content');
+  if (!contentEl) return;
+  const iframe = document.createElement('iframe');
+  iframe.src = sourceData.iframeUrl;
+  iframe.allowFullscreen = true;
+  iframe.referrerPolicy = 'origin';
+  iframe.className = 'rmp-player-iframe';
+  contentEl.innerHTML = '';
+  contentEl.appendChild(iframe);
+  setPlayerStatus(`Источник: ${sourceData.type}. Если плеер пустой, попробуй другой источник или включи VPN.`);
+}
+
+function renderKinoboxSources(sourcesData) {
+  const sourcesEl = document.getElementById('rmp-sources');
+  if (!sourcesEl) return;
+  sourcesEl.innerHTML = '';
+  const preferredSource = localStorage.getItem('preferred-source');
+  let preferredIndex = sourcesData.findIndex((source) => source.type === preferredSource);
+  if (preferredIndex === -1) preferredIndex = 0;
+  sourcesData.forEach((source, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = source.type;
+    button.className = `rmp-player-source ${index === preferredIndex ? 'active' : ''}`;
+    button.addEventListener('click', () => {
+      sourcesEl.querySelectorAll('button').forEach((el) => el.classList.remove('active'));
+      button.classList.add('active');
+      localStorage.setItem('preferred-source', source.type);
+      selectKinoboxSource(source);
+    });
+    sourcesEl.appendChild(button);
+  });
+  selectKinoboxSource(sourcesData[preferredIndex]);
+}
+
+function showPlayerPlaceholder(message) {
+  const contentEl = document.getElementById('rmp-player-content');
+  if (!contentEl) return;
+  contentEl.innerHTML = `<div class="rmp-player-placeholder">${escapeHtml(message)}</div>`;
+}
+
+function renderKinoWallPlayerReviewBox(meta) {
+  const id = Number(meta.tmdb || meta.id || 0);
+  const mediaType = meta.mediaType === 'tv' ? 'tv' : 'movie';
+  if (!id) return '';
+  const review = getKinoWallReviewFor(id, mediaType);
+  if (review) {
+    return `
+      <section class="rmp-player-review" data-review-id="${id}" data-review-media="${mediaType}">
+        <div class="rmp-player-review-head">
+          <div>
+            <h2>Твой локальный отзыв</h2>
+            <p>Оценка и отзыв уже сохранены на киностене. Повторно оставить нельзя, пока не удалишь старую запись.</p>
+          </div>
+          <div class="rmp-review-badge">${review.rating.toFixed(1)}/10</div>
+        </div>
+        <div class="rmp-review-existing-text">${escapeHtml(review.text || 'Без текстового отзыва.')}</div>
+        <div class="rmp-player-review-actions">
+          <button type="button" class="rmp-review-delete">Удалить отзыв с киностены</button>
+        </div>
+      </section>`;
+  }
+  return `
+    <section class="rmp-player-review" data-review-id="${id}" data-review-media="${mediaType}">
+      <div class="rmp-player-review-head">
+        <div>
+          <h2>Личная оценка и отзыв</h2>
+          <p>Это сохраняется только локально на твоей киностене и не влияет на общий рейтинг TMDB/RMP.</p>
+        </div>
+      </div>
+      <div class="rmp-review-rating-row">
+        <div class="rmp-review-stars" aria-label="Личная оценка по десятибалльной шкале">
+          ${Array.from({ length: 10 }, (_, index) => index + 1).map((star) => `<button type="button" class="rmp-review-star" data-star="${star}" style="--fill:0%" title="${star}/10"><span>★</span></button>`).join('')}
+        </div>
+        <label class="rmp-review-number"><span>Оценка</span><input type="number" min="0" max="10" step="0.1" value="0"></label>
+      </div>
+      <textarea class="rmp-review-text" rows="4" maxlength="700" placeholder="Коротко: что зацепило, кому советуешь, какой вайб оставил тайтл..."></textarea>
+      <div class="rmp-player-review-actions">
+        <button type="button" class="rmp-review-save">Сохранить на киностену</button>
+        <span class="rmp-review-status"></span>
+      </div>
+    </section>`;
+}
+
+function bindKinoWallPlayerReviewEvents(meta) {
+  const box = document.querySelector('.rmp-player-review');
+  if (!box) return;
+  const id = Number(box.dataset.reviewId || meta.tmdb || 0);
+  const mediaType = box.dataset.reviewMedia === 'tv' ? 'tv' : 'movie';
+  const input = box.querySelector('.rmp-review-number input');
+  const stars = Array.from(box.querySelectorAll('.rmp-review-star'));
+  const status = box.querySelector('.rmp-review-status');
+
+  const setRating = (value) => {
+    const rating = clampKinoWallUserRating(value);
+    if (input) input.value = rating.toFixed(1).replace('.0', '');
+    updateKinoWallStars(stars, rating);
+  };
+
+  stars.forEach((starButton) => {
+    starButton.addEventListener('click', (event) => {
+      const rect = starButton.getBoundingClientRect();
+      const local = rect.width ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) : 1;
+      const starIndex = Number(starButton.dataset.star || 1) - 1;
+      setRating(Math.round((starIndex + local) * 10) / 10);
+    });
+  });
+  input?.addEventListener('input', () => setRating(input.value));
+  setRating(input?.value || 0);
+
+  box.querySelector('.rmp-review-save')?.addEventListener('click', () => {
+    const result = saveKinoWallReview({
+      id,
+      mediaType,
+      rating: input?.value || 0,
+      text: box.querySelector('.rmp-review-text')?.value || ''
+    });
+    if (!result.ok) {
+      if (status) status.textContent = result.reason === 'exists' ? 'Отзыв уже есть на киностене.' : 'Не удалось сохранить отзыв.';
+      return;
+    }
+    box.outerHTML = renderKinoWallPlayerReviewBox({ ...meta, tmdb: id, mediaType });
+    bindKinoWallPlayerReviewEvents({ ...meta, tmdb: id, mediaType });
+  });
+
+  box.querySelector('.rmp-review-delete')?.addEventListener('click', () => {
+    removeKinoWallReview(id, mediaType);
+    box.outerHTML = renderKinoWallPlayerReviewBox({ ...meta, tmdb: id, mediaType });
+    bindKinoWallPlayerReviewEvents({ ...meta, tmdb: id, mediaType });
+  });
+}
+
+function updateKinoWallStars(stars, rating) {
+  const starRating = clampKinoWallUserRating(rating);
+  stars.forEach((starButton, index) => {
+    const fill = Math.max(0, Math.min(1, starRating - index)) * 100;
+    starButton.style.setProperty('--fill', `${fill}%`);
+  });
+}
+
+async function buildKinoWallRenderData(profile, readOnly = false) {
+  const normalizedProfile = normalizeKinoWallProfile(profile);
+  const favorites = readOnly ? normalizeKinoWallEntries(normalizedProfile.favorites || []) : getFavorites();
+  const reviewEntries = normalizeKinoWallReviews(normalizedProfile.reviews || []).map((review) => ({ id: review.id, mediaType: review.mediaType, addedAt: review.addedAt }));
+  const allEntries = dedupeKinoWallEntries([
+    ...normalizedProfile.showcase,
+    ...normalizedProfile.watched,
+    ...favorites,
+    ...reviewEntries
+  ]);
+
+  const details = await fetchKinoWallDetailsBatch(allEntries);
+  const detailsByKey = new Map(details.map((item) => [buildKinoWallEntryKey(item), item]));
+  const showcase = normalizedProfile.showcase.map((entry) => detailsByKey.get(buildKinoWallEntryKey(entry))).filter(Boolean);
+  const watched = normalizedProfile.watched.map((entry) => detailsByKey.get(buildKinoWallEntryKey(entry))).filter(Boolean);
+  const favoriteItems = favorites.map((entry) => detailsByKey.get(buildKinoWallEntryKey(entry))).filter(Boolean);
+  const reviewed = normalizedProfile.reviews.map((review) => {
+    const detail = detailsByKey.get(buildKinoWallEntryKey(review));
+    return detail ? { ...detail, userRating: review.rating, userReview: review.text, reviewedAt: review.addedAt } : null;
+  }).filter(Boolean);
+  const stats = buildKinoWallStats(normalizedProfile, { showcase, watched, favorites: favoriteItems, reviewed, all: details });
+  const achievements = buildKinoWallAchievements(stats, details);
+  return { profile: normalizedProfile, readOnly, showcase, watched, favorites: favoriteItems, reviewed, stats, achievements, allDetails: details };
+}
+
+function buildKinoWallStats(profile, lists) {
+  const watched = lists.watched || [];
+  const favorites = lists.favorites || [];
+  const reviewed = lists.reviewed || [];
+  const all = dedupeKinoWallDetails([...(lists.all || []), ...watched, ...favorites, ...reviewed]);
+  const genreCounts = new Map();
+  const yearCounts = new Map();
+  const collectionCounts = new Map();
+  let movieCount = 0;
+  let tvCount = 0;
+  let totalRating = 0;
+  let ratedCount = 0;
+  let totalRuntime = 0;
+
+  watched.forEach((item) => {
+    if (item.mediaType === 'tv') tvCount += 1;
+    else movieCount += 1;
+    if (item.voteAverage) {
+      totalRating += item.voteAverage;
+      ratedCount += 1;
+    }
+    totalRuntime += Number(item.runtime || 0);
+    item.genres.forEach((genre) => genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1));
+    if (item.year) yearCounts.set(String(item.year), (yearCounts.get(String(item.year)) || 0) + 1);
+    if (item.collection) collectionCounts.set(item.collection, (collectionCounts.get(item.collection) || 0) + 1);
+  });
+
+  const userRated = normalizeKinoWallReviews(profile.reviews || []);
+  const userAvgRating = userRated.length ? userRated.reduce((sum, item) => sum + Number(item.rating || 0), 0) / userRated.length : 0;
+  const topGenres = Array.from(genreCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const years = Array.from(yearCounts.entries()).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const avgRating = ratedCount ? totalRating / ratedCount : 0;
+  const collectionMax = Math.max(0, ...Array.from(collectionCounts.values()));
+  const oldestYear = Math.min(...watched.map((item) => Number(item.year)).filter(Boolean));
+  const newestYear = Math.max(...watched.map((item) => Number(item.year)).filter(Boolean));
+
+  return {
+    watchedTotal: watched.length,
+    favoriteTotal: favorites.length,
+    showcaseTotal: profile.showcase.length,
+    movieCount,
+    tvCount,
+    avgRating,
+    userAvgRating,
+    reviewsTotal: userRated.length,
+    topGenres,
+    years,
+    collectionMax,
+    actorsTotal: profile.actors.length,
+    scenesTotal: profile.scenes.length,
+    soundtracksTotal: profile.soundtracks.length,
+    totalRuntime,
+    oldestYear: Number.isFinite(oldestYear) ? oldestYear : 0,
+    newestYear: Number.isFinite(newestYear) ? newestYear : 0,
+    all,
+    reviewed
+  };
+}
+
+function buildKinoWallAchievements(stats, allDetails = []) {
+  const countGenre = (needle) => stats.topGenres.reduce((sum, [genre, count]) => sum + (genre.toLowerCase().includes(needle) ? count : 0), 0);
+  const countGenres = (needles) => needles.reduce((sum, needle) => sum + countGenre(needle), 0);
+  const movie = allDetails.find((item) => item.mediaType === 'movie');
+  const tv = allDetails.find((item) => item.mediaType === 'tv');
+  const highRated = allDetails.find((item) => item.voteAverage >= 8);
+  const lowRated = allDetails.find((item) => item.voteAverage && item.voteAverage < 6);
+  const posterFrom = (item) => item?.backdropUrl || item?.posterUrl || '';
+  const anyWithGenre = (pattern) => stats.all.find((item) => pattern.test(item.genres.join(' ')));
+  const releaseSpread = stats.oldestYear && stats.newestYear ? Math.max(0, stats.newestYear - stats.oldestYear) : 0;
+  const defs = [
+    { id: 'first-watch', title: 'Первый сеанс', level: 'Общее', target: 1, value: stats.watchedTotal, text: 'На киностене появился первый просмотр. Каталог уже знает дорогу.', image: posterFrom(movie || tv) },
+    { id: 'five-watch', title: 'Разогрев перед марафоном', level: 'Общее', target: 5, value: stats.watchedTotal, text: 'Пять тайтлов — уже не случайный клик, а маленькая привычка.', image: posterFrom(movie || tv) },
+    { id: 'ten-watch', title: 'Уже не случайность', level: 'Общее', target: 10, value: stats.watchedTotal, text: '10 просмотренных тайтлов. Это уже не фон, это стиль жизни.', image: posterFrom(highRated || movie || tv) },
+    { id: 'twenty-five-watch', title: 'Список становится биографией', level: 'Общее', target: 25, value: stats.watchedTotal, text: '25 просмотров — вкус уже начинает оставлять отпечатки.', image: posterFrom(highRated || movie || tv) },
+    { id: 'fifty-watch', title: 'Киноман честной судьбы', level: 'Общее', target: 50, value: stats.watchedTotal, text: '50 тайтлов в истории. Пульт можно выдавать как официальный документ.', image: posterFrom(highRated || movie || tv) },
+    { id: 'hundred-watch', title: 'Архивариус ночных сеансов', level: 'Общее', target: 100, value: stats.watchedTotal, text: '100 просмотренных тайтлов. Сон пытался, но проиграл.', image: posterFrom(highRated || movie || tv) },
+    { id: 'two-hundred-watch', title: 'Живой каталог', level: 'Общее', target: 200, value: stats.watchedTotal, text: '200 тайтлов. Теперь рекомендации должны спрашивать совета у тебя.', image: posterFrom(highRated || movie || tv) },
+    { id: 'serial-hostage', title: 'Сериальный заложник', level: 'Формат', target: 10, value: stats.tvCount, text: 'Сериалы уже не смотрятся — они держат в плену сезонами.', image: posterFrom(tv) },
+    { id: 'seasonal-citizen', title: 'Гражданин сезонов', level: 'Формат', target: 25, value: stats.tvCount, text: 'Сериалы стали отдельным государством, и у тебя там прописка.', image: posterFrom(tv) },
+    { id: 'movie-core', title: 'Фильм вместо ужина', level: 'Формат', target: 20, value: stats.movieCount, text: 'Фильмы стали надёжным планом на вечер, даже если плана не было.', image: posterFrom(movie) },
+    { id: 'cinema-diet', title: 'Полнометражная диета', level: 'Формат', target: 60, value: stats.movieCount, text: '60 фильмов. Ужин может подождать, финал — нет.', image: posterFrom(movie) },
+    { id: 'comedy', title: 'Смеховой иммунитет', level: 'Жанровые', target: 10, value: countGenre('комед'), text: 'Комедия прокачана. Сарказм теперь идёт в комплекте.', image: posterFrom(anyWithGenre(/комед/i)) },
+    { id: 'comedy-master', title: 'Доктор ха-ха', level: 'Жанровые', target: 25, value: countGenre('комед'), text: 'Комедии уже лечат настроение без рецепта.', image: posterFrom(anyWithGenre(/комед/i)) },
+    { id: 'horror', title: 'Ночной хоррорщик', level: 'Жанровые', target: 10, value: countGenres(['ужас', 'хоррор']), text: 'Страшное больше не пугает. Максимум — просит рекомендацию.', image: posterFrom(anyWithGenre(/ужас|хоррор/i)) },
+    { id: 'horror-priest', title: 'Священник скримеров', level: 'Жанровые', target: 25, value: countGenres(['ужас', 'хоррор']), text: 'Хоррор видел тебя и сам выключил свет.', image: posterFrom(anyWithGenre(/ужас|хоррор/i)) },
+    { id: 'drama', title: 'Грустно, вкусно, больно', level: 'Жанровые', target: 10, value: countGenre('драм'), text: 'Драма прокачана. Душа получила субтитры.', image: posterFrom(anyWithGenre(/драм/i)) },
+    { id: 'drama-cryproof', title: 'Слёзы в IMAX', level: 'Жанровые', target: 25, value: countGenre('драм'), text: 'После такого количества драм даже титры выглядят личными.', image: posterFrom(anyWithGenre(/драм/i)) },
+    { id: 'fantasy', title: 'Портал открыт', level: 'Жанровые', target: 8, value: countGenres(['фэнтези', 'фантаст']), text: 'Фантастика и фэнтези подозрительно похожи на домашний адрес.', image: posterFrom(anyWithGenre(/фэнтези|фантаст/i)) },
+    { id: 'space-key', title: 'Ключ от другой реальности', level: 'Жанровые', target: 20, value: countGenres(['фэнтези', 'фантаст']), text: 'Реальность теперь просто один из вариантов сеттинга.', image: posterFrom(anyWithGenre(/фэнтези|фантаст/i)) },
+    { id: 'action', title: 'Взрывы вместо кофе', level: 'Жанровые', target: 12, value: countGenre('боев'), text: 'Экшен зашёл так уверенно, что монтаж стал быстрее пульса.', image: posterFrom(anyWithGenre(/боев/i)) },
+    { id: 'thriller', title: 'Паранойя с попкорном', level: 'Жанровые', target: 12, value: countGenre('триллер'), text: 'Триллеры научили не доверять даже тихой музыке.', image: posterFrom(anyWithGenre(/триллер/i)) },
+    { id: 'romance', title: 'Конфетно-букетный период', level: 'Жанровые', target: 10, value: countGenre('мелодрам') + countGenre('роман'), text: 'Романтика на стене есть. Сердце делает вид, что это случайно.', image: posterFrom(anyWithGenre(/мелодрам|роман/i)) },
+    { id: 'documentary', title: 'Факты вместо магии', level: 'Жанровые', target: 8, value: countGenre('документ'), text: 'Документалки доказывают: реальность иногда пишет сценарий жёстче.', image: posterFrom(anyWithGenre(/документ/i)) },
+    { id: 'animation', title: 'Мульт, но серьёзно', level: 'Жанровые', target: 10, value: countGenre('мульт') + countGenre('анимац'), text: 'Анимация давно выросла. Просто делает вид, что всё ещё играет.', image: posterFrom(anyWithGenre(/мульт|анимац/i)) },
+    { id: 'crime', title: 'Дело раскрыто диваном', level: 'Жанровые', target: 10, value: countGenre('кримин'), text: 'Криминальные истории смотрятся так, будто у тебя уже есть доска с нитками.', image: posterFrom(anyWithGenre(/кримин/i)) },
+    { id: 'family', title: 'Семейный пакет', level: 'Жанровые', target: 8, value: countGenre('семей'), text: 'Семейное кино: вроде мягко, а иногда пробивает сильнее драмы.', image: posterFrom(anyWithGenre(/семей/i)) },
+    { id: 'collector', title: 'Франшизный псих', level: 'Франшизы', target: 4, value: stats.collectionMax, text: 'Несколько частей одной франшизы подряд. Назад дороги уже нет.', image: posterFrom(stats.all.find((item) => item.collection)) },
+    { id: 'franchise-saga', title: 'Сага съела выходные', level: 'Франшизы', target: 7, value: stats.collectionMax, text: 'Семь частей одной истории. Титры уже узнают тебя в лицо.', image: posterFrom(stats.all.find((item) => item.collection)) },
+    { id: 'favorites', title: 'Полка любимого', level: 'Профиль', target: 12, value: stats.favoriteTotal, text: 'Избранное перестало быть списком. Это уже личный музей.', image: posterFrom(stats.all[0]) },
+    { id: 'favorite-museum', title: 'Музей вкуса', level: 'Профиль', target: 40, value: stats.favoriteTotal, text: '40 избранных тайтлов. Экскурсии начинаются с фразы “смотри обязательно”.', image: posterFrom(stats.all[0]) },
+    { id: 'showcase', title: 'Витрина вкуса', level: 'Профиль', target: 8, value: stats.showcaseTotal, text: 'Киностена оформлена тайтлами, за которые не стыдно спорить.', image: posterFrom(stats.all[1] || stats.all[0]) },
+    { id: 'showcase-curator', title: 'Куратор личного зала', level: 'Профиль', target: 20, value: stats.showcaseTotal, text: 'На витрине уже двадцать причин понять твой кинохарактер.', image: posterFrom(stats.all[1] || stats.all[0]) },
+    { id: 'actor-shelf', title: 'Любимые лица', level: 'Профиль', target: 5, value: stats.actorsTotal, text: 'Актёры на стене появились. Теперь у вкуса есть лица.', image: '' },
+    { id: 'casting-director', title: 'Личный кастинг-директор', level: 'Профиль', target: 15, value: stats.actorsTotal, text: '15 людей кино в любимых. Роли распределены сердцем.', image: '' },
+    { id: 'soundtracks', title: 'Саундтрек в крови', level: 'Профиль', target: 5, value: stats.soundtracksTotal, text: 'Музыка на стене есть. Значит, у профиля появился пульс.', image: '' },
+    { id: 'playlist-soul', title: 'Плейлист вместо паспорта', level: 'Профиль', target: 15, value: stats.soundtracksTotal, text: 'Саундтреки уже рассказывают о тебе больше, чем анкета.', image: '' },
+    { id: 'scenes', title: 'Кадр, который остался', level: 'Профиль', target: 5, value: stats.scenesTotal, text: 'Любимые сцены собраны. Теперь память работает в widescreen.', image: '' },
+    { id: 'frame-hunter', title: 'Охотник за кадрами', level: 'Профиль', target: 15, value: stats.scenesTotal, text: '15 сцен на стене. Моменты уже не теряются после титров.', image: '' },
+    { id: 'review-first', title: 'Сказал как отрезал', level: 'Отзывы', target: 1, value: stats.reviewsTotal, text: 'Первый личный отзыв сохранён. Теперь тайтлы отвечают перед тобой.', image: posterFrom(stats.reviewed?.[0] || highRated || movie || tv) },
+    { id: 'review-critic', title: 'Критик без бейджа', level: 'Отзывы', target: 10, value: stats.reviewsTotal, text: '10 отзывов. Рецензии уже смотрят на тебя с уважением.', image: posterFrom(stats.reviewed?.[0] || highRated || movie || tv) },
+    { id: 'review-columnist', title: 'Колонка в голове', level: 'Отзывы', target: 30, value: stats.reviewsTotal, text: '30 отзывов. Можно открывать рубрику “я же говорил”.', image: posterFrom(stats.reviewed?.[0] || highRated || movie || tv) },
+    { id: 'strict-judge', title: 'Строгий судья', level: 'Отзывы', target: 1, value: stats.reviewsTotal && stats.userAvgRating <= 6 ? 1 : 0, text: 'Средняя личная оценка ниже 6.0. Попкорн был, пощады не было.', image: posterFrom(lowRated || stats.reviewed?.[0]) },
+    { id: 'kind-judge', title: 'Добрый зритель', level: 'Отзывы', target: 1, value: stats.reviewsTotal >= 3 && stats.userAvgRating >= 8 ? 1 : 0, text: 'Средняя личная оценка 8+. Кино нашло к тебе мягкий подход.', image: posterFrom(highRated || stats.reviewed?.[0]) },
+    { id: 'time-traveller', title: 'Путешественник по эпохам', level: 'Годы', target: 30, value: releaseSpread, text: 'Разница между годами релиза уже похожа на машину времени.', image: posterFrom(stats.all.find((item) => item.year === stats.oldestYear) || stats.all[0]) },
+    { id: 'century-pass', title: 'Вековой абонемент', level: 'Годы', target: 70, value: releaseSpread, text: 'Кино разных эпох лежит на одной стене. История одобряет.', image: posterFrom(stats.all.find((item) => item.year === stats.oldestYear) || stats.all[0]) },
+    { id: 'long-night', title: 'Длинная ночь', level: 'Время', target: 600, value: stats.totalRuntime, text: '600 минут контента. Это уже не вечер, это маленький отпуск.', image: posterFrom(highRated || movie || tv) },
+    { id: 'runtime-beast', title: 'Хронометражный зверь', level: 'Время', target: 2400, value: stats.totalRuntime, text: '2400 минут. Пауза стала мифом.', image: posterFrom(highRated || movie || tv) }
+  ];
+
+  return defs.map((achievement) => ({
+    ...achievement,
+    value: Math.max(0, Number(achievement.value || 0)),
+    target: Math.max(1, Number(achievement.target || 1)),
+    progress: Math.max(0, Math.min(100, Math.round((Number(achievement.value || 0) / Math.max(1, Number(achievement.target || 1))) * 100))),
+    unlocked: Number(achievement.value || 0) >= Number(achievement.target || 1)
+  }));
+}
+
+function renderKinoWall(data, activeTab = 'overview') {
+  const { profile, readOnly } = data;
+  const heroStyle = `--kw-accent:${escapeHtml(profile.accentColor)};${profile.bannerUrl ? `--kw-banner-image:url('${escapeHtml(profile.bannerUrl)}');` : ''}`;
+  const initial = escapeHtml((profile.name || 'К').slice(0, 1).toUpperCase());
+  const freshness = readOnly ? `<div class="kinowall-freshness">Актуальность киностены: ${escapeHtml(getKinoWallTimestampLabel(profile.updatedAt))}. Чтобы получить свежие данные, попросите владельца отправить ссылку повторно.</div>` : '';
+  kinoWallContent.dataset.kwMode = readOnly ? 'shared' : 'local';
+  kinoWallContent.innerHTML = `
+    <section class="kinowall-hero" style="${heroStyle}">
+      <div class="kinowall-hero-bg"></div>
+      <div class="kinowall-avatar">${profile.avatarUrl ? `<img src="${escapeHtml(profile.avatarUrl)}" alt="${escapeHtml(profile.name)}">` : `<span>${initial}</span>`}</div>
+      <div class="kinowall-hero-text">
+        <div class="kinowall-kicker">${readOnly ? 'shared kinowall' : 'local kinowall'}</div>
+        <h1 id="kinoWallTitle">${escapeHtml(profile.name)}</h1>
+        <p>${escapeHtml(profile.status)}</p>
+        <div class="kinowall-vibe">${escapeHtml(profile.vibe)}</div>
+        ${freshness}
+      </div>
+      <div class="kinowall-hero-actions">
+        ${readOnly ? '<button type="button" class="kw-btn kw-secondary" data-kw-action="save-shared">Сохранить себе</button>' : '<button type="button" class="kw-btn kw-primary" data-kw-action="edit">Редактировать</button>'}
+        <button type="button" class="kw-btn kw-secondary" data-kw-action="share">Поделиться</button>
+      </div>
+    </section>
+
+    <nav class="kinowall-tabs" aria-label="Разделы киностены">
+      <button type="button" class="kinowall-tab ${activeTab === 'overview' ? 'active' : ''}" data-kw-tab="overview">Обзор</button>
+      <button type="button" class="kinowall-tab ${activeTab === 'achievements' ? 'active' : ''}" data-kw-tab="achievements">Достижения</button>
+      ${readOnly ? '' : `<button type="button" class="kinowall-tab ${activeTab === 'edit' ? 'active' : ''}" data-kw-tab="edit">Редактор</button>`}
+      <button type="button" class="kinowall-tab ${activeTab === 'share' ? 'active' : ''}" data-kw-tab="share">Шаринг</button>
+    </nav>
+
+    <div class="kinowall-tab-body" id="kinoWallTabBody"></div>
+  `;
+  bindKinoWallShellEvents(data);
+  renderKinoWallTab(data, activeTab);
+}
+
+function renderKinoWallOverviewTab(data) {
+  const { profile, stats, showcase, watched, favorites, reviewed } = data;
+  return `
+    <section class="kinowall-grid-top">
+      <div class="kinowall-about-card">
+        <div class="kinowall-section-title">Обо мне</div>
+        <p>${escapeHtml(profile.bio)}</p>
+        <div class="kinowall-mini-stats">
+          ${renderKinoWallMetric('Просмотрено', stats.watchedTotal)}
+          ${renderKinoWallMetric('Отзывы', stats.reviewsTotal)}
+          ${renderKinoWallMetric('На стене', stats.showcaseTotal)}
+          ${renderKinoWallMetric('Моя средняя', stats.userAvgRating ? stats.userAvgRating.toFixed(1) : '—')}
+        </div>
+      </div>
+      <div class="kinowall-chart-card">
+        <div class="kinowall-section-title">Годы релизов в просмотрах</div>
+        <p class="kinowall-muted">Показывает, фильмы и сериалы каких годов встречаются в истории просмотров чаще всего.</p>
+        ${renderKinoWallYearChart(stats.years)}
+      </div>
+    </section>
+
+    ${renderKinoWallTitleRail('Витрина вкуса', showcase, 'showcase', data.readOnly)}
+    ${renderKinoWallTitleRail('История просмотров', watched.slice(0, 18), 'watched', data.readOnly)}
+    ${renderKinoWallReviewsRail(reviewed || [], data.readOnly)}
+    ${renderKinoWallTitleRail('Избранное из каталога', favorites.slice(0, 18), 'favorites', data.readOnly)}
+
+    <section class="kinowall-columns">
+      <div class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые актёры / люди кино</div>
+        <div class="kinowall-people-grid">${profile.actors.length ? profile.actors.map(renderKinoWallPerson).join('') : renderKinoWallEmpty('Добавь актёров из раздела «Подробнее» или в редакторе.')}</div>
+      </div>
+      <div class="kinowall-panel">
+        <div class="kinowall-section-title">Саундтреки</div>
+        <div class="kinowall-soundtrack-list">${profile.soundtracks.length ? profile.soundtracks.map(renderKinoWallSoundtrack).join('') : renderKinoWallEmpty('Сюда можно добавить треки, которые держат вайб.')}</div>
+      </div>
+    </section>
+
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Любимые сцены и кадры</div>
+      <div class="kinowall-scene-grid">${profile.scenes.length ? profile.scenes.map(renderKinoWallScene).join('') : renderKinoWallEmpty('Добавь сцены, кадры или моменты в редакторе.')}</div>
+    </section>`;
+}
+
+function renderKinoWallReviewsRail(items = [], readOnly = false) {
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-head-row">
+        <div class="kinowall-section-title">Отзывы и личные оценки</div>
+        <span>${items.length}</span>
+      </div>
+      ${items.length ? `<div class="kinowall-review-grid">${items.map((item) => renderKinoWallReviewCard(item, readOnly)).join('')}</div>` : renderKinoWallEmpty('После просмотра можно оставить локальную оценку и отзыв под плеером.')}
+    </section>`;
+}
+
+function renderKinoWallReviewCard(item, readOnly = false) {
+  const poster = item.posterUrl ? `<img src="${escapeHtml(item.posterUrl)}" alt="${escapeHtml(item.title)}" loading="lazy">` : `<div class="kinowall-poster-fallback">${escapeHtml(item.title)}</div>`;
+  return `
+    <article class="kinowall-review-card" data-id="${item.id}" data-media-type="${item.mediaType}">
+      <div class="kinowall-review-poster">${poster}</div>
+      <div class="kinowall-review-body">
+        <div class="kinowall-review-top"><b>${escapeHtml(item.title)}</b><span>${Number(item.userRating || 0).toFixed(1)}/10</span></div>
+        <p>${escapeHtml(item.userReview || 'Без текстового отзыва.')}</p>
+        <small>${escapeHtml(item.reviewedAt ? getKinoWallTimestampLabel(item.reviewedAt) : '')}</small>
+        <div class="kinowall-title-actions">
+          <button type="button" class="kw-mini-btn" data-kw-watch="${item.id}" data-media-type="${item.mediaType}">Смотреть</button>
+          ${readOnly ? '' : `<button type="button" class="kw-mini-btn danger" data-kw-remove-review="${item.id}" data-media-type="${item.mediaType}">Удалить отзыв</button>`}
+        </div>
+      </div>
+    </article>`;
+}
+
+function renderKinoWallPerson(item) {
+  const avatar = item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}" loading="lazy">` : `<span>${escapeHtml((item.name || '?').slice(0, 1).toUpperCase())}</span>`;
+  return `<article class="kinowall-person" ${item.tmdbId ? `data-person-id="${Number(item.tmdbId)}"` : ''}><div>${avatar}</div><b>${escapeHtml(item.name || 'Без имени')}</b><span>${escapeHtml(item.note || '')}</span></article>`;
+}
+
+function bindKinoWallOverviewEvents(data) {
+  kinoWallContent.querySelectorAll('[data-kw-watch]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = Number(button.dataset.kwWatch);
+      const mediaType = button.dataset.mediaType === 'tv' ? 'tv' : 'movie';
+      const payload = await buildPlayerPayloadFromId(id, mediaType);
+      window.location.hash = `${mediaType}-${id}`;
+      await openKinoBox(payload);
+    });
+  });
+  kinoWallContent.querySelectorAll('[data-kw-remove-showcase]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const profile = readKinoWallProfile();
+      const id = Number(button.dataset.kwRemoveShowcase);
+      const mediaType = button.dataset.mediaType === 'tv' ? 'tv' : 'movie';
+      profile.showcase = profile.showcase.filter((entry) => !isSameKinoWallEntry(entry, { id, mediaType }));
+      saveKinoWallProfile(profile);
+      await openKinoWall();
+      await loadContent(state.currentPage).catch(() => {});
+    });
+  });
+  kinoWallContent.querySelectorAll('[data-kw-remove-review]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      removeKinoWallReview(Number(button.dataset.kwRemoveReview || 0), button.dataset.mediaType === 'tv' ? 'tv' : 'movie');
+      await openKinoWall();
+    });
+  });
+  kinoWallContent.querySelectorAll('.kinowall-person[data-person-id]').forEach((card) => {
+    card.addEventListener('click', () => openDetailsPersonModal(Number(card.dataset.personId || 0)));
+  });
+}
+
+function serializeKinoWallPeople(items = []) {
+  return items.map((item) => [item.tmdbId || '', item.name, item.note, item.imageUrl].filter((value, index) => index < 3 || value).join(' | ')).join('\n');
+}
+
+function bindKinoWallEditorEvents(data) {
+  bindKinoWallOverviewEvents(data);
+  const formEl = document.getElementById('kinoWallEditorForm');
+  formEl?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(formEl);
+    const current = readKinoWallProfile();
+    const nextProfile = saveKinoWallProfile({
+      ...current,
+      name: formData.get('name'),
+      handle: formData.get('handle'),
+      status: formData.get('status'),
+      vibe: formData.get('vibe'),
+      avatarUrl: formData.get('avatarUrl'),
+      bannerUrl: formData.get('bannerUrl'),
+      accentColor: formData.get('accentColor'),
+      bio: sanitizeKinoWallLongText(formData.get('bio'), 420),
+      actors: parsePipeList(formData.get('actorsRaw'), ([tmdbIdOrName, nameOrNote, noteOrImage, imageMaybe]) => {
+        const maybeId = Number(tmdbIdOrName || 0);
+        if (Number.isFinite(maybeId) && maybeId > 0) return { tmdbId: maybeId, name: nameOrNote, note: noteOrImage, imageUrl: imageMaybe };
+        return { tmdbId: 0, name: tmdbIdOrName, note: nameOrNote, imageUrl: noteOrImage };
+      }),
+      scenes: parsePipeList(formData.get('scenesRaw'), ([title, note, imageUrl]) => ({ title, note, imageUrl })),
+      soundtracks: parsePipeList(formData.get('soundtracksRaw'), ([title, artist, url]) => ({ title, artist, url }))
+    });
+    await openKinoWall({ profile: nextProfile });
+  });
+
+  kinoWallContent.querySelector('[data-kw-editor-action="reset-demo"]')?.addEventListener('click', async () => {
+    const profile = readKinoWallProfile();
+    const demo = createDefaultKinoWallProfile();
+    profile.actors = demo.actors;
+    profile.scenes = demo.scenes;
+    profile.soundtracks = demo.soundtracks;
+    saveKinoWallProfile(profile);
+    await openKinoWall();
+  });
+}
+
+function renderKinoWallShareTab(data) {
+  const link = buildKinoWallShareLink(data.profile);
+  const shareText = data.readOnly
+    ? `Это профиль, открытый по ссылке. Актуальность: ${getKinoWallTimestampLabel(data.profile.updatedAt)}. Чтобы увидеть свежую версию, попросите владельца отправить ссылку повторно.`
+    : 'RMP делает компактную ссылку без серверов: внутри только ID тайтлов, текст, оформление, отзывы и дата актуальности. Можно дополнительно попробовать внешний short-link.';
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Красивый шаринг</div>
+      <p class="kinowall-muted">${escapeHtml(shareText)}</p>
+      <div class="kinowall-share-box">
+        <textarea id="kinoWallShareLink" readonly rows="4">${escapeHtml(link)}</textarea>
+        <div class="kinowall-share-actions">
+          <button type="button" class="kw-btn kw-primary" data-kw-share-action="copy">Скопировать ссылку</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="shorten">Сделать внешне короткой</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="export">Экспорт JSON</button>
+          ${data.readOnly ? '' : '<label class="kw-btn kw-secondary kw-file-label">Импорт JSON<input id="kinoWallImportFile" type="file" accept="application/json,.json" hidden></label>'}
+        </div>
+        <div id="kinoWallShareStatus" class="kinowall-share-status"></div>
+      </div>
+    </section>`;
+}
+
+function bindKinoWallShareEvents(data) {
+  const status = document.getElementById('kinoWallShareStatus');
+  const shareField = document.getElementById('kinoWallShareLink');
+  kinoWallContent.querySelector('[data-kw-share-action="copy"]')?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(shareField.value);
+      if (status) status.textContent = 'Ссылка скопирована.';
+    } catch (error) {
+      shareField.select();
+      if (status) status.textContent = 'Не удалось скопировать автоматически. Ссылка выделена — скопируй вручную.';
+    }
+  });
+
+  kinoWallContent.querySelector('[data-kw-share-action="shorten"]')?.addEventListener('click', async () => {
+    if (status) status.textContent = 'Пробую внешний short-link. Если сервис заблокирует CORS — оставлю компактную RMP-ссылку.';
+    try {
+      const request = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(shareField.value)}`);
+      if (!request.ok) throw new Error(`HTTP ${request.status}`);
+      const shortLink = (await request.text()).trim();
+      if (!/^https?:\/\//i.test(shortLink)) throw new Error('Bad response');
+      shareField.value = shortLink;
+      await navigator.clipboard.writeText(shortLink).catch(() => {});
+      if (status) status.textContent = 'Короткая ссылка создана и скопирована. Если она перестанет работать, используй экспорт JSON.';
+    } catch (error) {
+      if (status) status.textContent = 'Внешний сервис не ответил из браузера. Компактная RMP-ссылка выше полностью рабочая и бесплатная.';
+    }
+  });
+
+  kinoWallContent.querySelector('[data-kw-share-action="export"]')?.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(data.profile, null, 2)], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `rmp-kinowall-${sanitizeKinoWallHandle(data.profile.handle)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  document.getElementById('kinoWallImportFile')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const profile = saveKinoWallProfile(JSON.parse(text));
+      if (status) status.textContent = 'Профиль импортирован.';
+      await openKinoWall({ profile });
+    } catch (error) {
+      if (status) status.textContent = 'Не удалось импортировать JSON.';
+    }
+  });
+}
+
+function buildKinoWallShareLink(profile) {
+  const payload = compactKinoWallProfile(profile);
+  const encoded = base64UrlEncode(JSON.stringify(payload));
+  const url = new URL(window.location.href);
+  url.hash = `${KINOWALL_SHARE_HASH_PREFIX}${encoded}`;
+  return url.toString();
+}
+
+function minimizeKinoWallProfile(profile) {
+  return compactKinoWallProfile(profile);
+}
+
+function parseKinoWallProfileFromHash(hashValue = window.location.hash) {
+  const rawHash = String(hashValue || '').replace(/^#/, '').trim();
+  if (!rawHash.startsWith(KINOWALL_SHARE_HASH_PREFIX)) return null;
+  const encoded = rawHash.slice(KINOWALL_SHARE_HASH_PREFIX.length);
+  if (!encoded) return null;
+  const payload = JSON.parse(base64UrlDecode(encoded));
+  return normalizeKinoWallProfile(expandCompactKinoWallProfile(payload));
+}
+
+function renderKinoWallEditorTab(data) {
+  const profile = data.profile;
+  return `
+    <form id="kinoWallEditorForm" class="kinowall-editor-form">
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Профиль</div>
+        <div class="kinowall-form-grid">
+          ${renderKinoWallInput('name', 'Имя на стене', profile.name, 42)}
+          ${renderKinoWallInput('handle', 'Короткий ник для шаринга', profile.handle, 32)}
+          ${renderKinoWallInput('status', 'Статус', profile.status, 90)}
+          ${renderKinoWallInput('vibe', 'Любимый вайб', profile.vibe, 120)}
+          ${renderKinoWallInput('avatarUrl', 'URL аватара', profile.avatarUrl, 900)}
+          ${renderKinoWallInput('bannerUrl', 'URL баннера', profile.bannerUrl, 900)}
+          <label class="kinowall-field"><span>Акцент профиля</span><input name="accentColor" type="color" value="${escapeHtml(profile.accentColor)}"></label>
+        </div>
+        <label class="kinowall-field wide"><span>Обо мне</span><textarea name="bio" rows="4" maxlength="420">${escapeHtml(profile.bio)}</textarea></label>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Витрина тайтлов</div>
+        <p class="kinowall-muted">Нажимай кнопку 👤 на карточках каталога, чтобы добавлять/убирать тайтлы. Здесь можно быстро убрать лишнее.</p>
+        <div class="kinowall-title-rail editor">${data.showcase.length ? data.showcase.map((item) => renderKinoWallTitleCard(item, 'showcase', false)).join('') : renderKinoWallEmpty('Пока пусто. Добавь тайтлы кнопкой 👤 в каталоге.')}</div>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые актёры / люди кино</div>
+        <p class="kinowall-muted">Формат строки: TMDB ID | Имя | заметка | URL картинки. ID и картинка необязательны. Из «Подробнее» актёры добавляются автоматически.</p>
+        <textarea name="actorsRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallPeople(profile.actors))}</textarea>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Любимые сцены / кадры</div>
+        <p class="kinowall-muted">Формат строки: Название сцены | описание | URL кадра. Можно добавлять свои ссылки на изображения.</p>
+        <textarea name="scenesRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallCards(profile.scenes))}</textarea>
+      </section>
+
+      <section class="kinowall-panel">
+        <div class="kinowall-section-title">Саундтреки</div>
+        <p class="kinowall-muted">Формат строки: Название | исполнитель/фильм | ссылка.</p>
+        <textarea name="soundtracksRaw" rows="7" class="kinowall-raw-list">${escapeHtml(serializeKinoWallSoundtracks(profile.soundtracks))}</textarea>
+      </section>
+
+      <div class="kinowall-editor-actions">
+        <button type="submit" class="kw-btn kw-primary">Сохранить киностену</button>
+        <button type="button" class="kw-btn kw-secondary" data-kw-editor-action="reset-demo">Вернуть демо-блоки</button>
+      </div>
+    </form>`;
+}
+
+function serializeKinoWallPeople(items = []) {
+  return items.map((item) => {
+    const hasId = Number(item.tmdbId || 0) > 0;
+    const parts = hasId
+      ? [item.tmdbId, item.name, item.note, item.imageUrl]
+      : [item.name, item.note, item.imageUrl];
+    return parts.filter((value, index) => index < (hasId ? 3 : 2) || value).join(' | ');
+  }).join('\n');
+}

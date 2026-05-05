@@ -43,6 +43,8 @@
 
       <button type="button" id="paletteEditorToggle" class="palette-editor-toggle" title="Создать свою цветовую палитру" aria-label="Создать свою цветовую палитру">🎨</button>
 
+      <button type="button" id="kinoWallToggle" class="kinowall-toggle" title="Моя киностена" aria-label="Моя киностена">👤</button>
+
       <button id="favoriteToggle" class="favorite-toggle">Показать избранное</button>
 
       <form id="form" class="search-form">
@@ -173,8 +175,6 @@
   <div id="myNav" class="overlay" aria-hidden="true">
     <a href="javascript:void(0)" class="closebtn" id="overlayCloseBtn">&times;</a>
     <div class="overlay-content" id="overlay-content"></div>
-    <span class="arrow left-arrow" id="left-arrow">&#9664;</span>
-    <span class="arrow right-arrow" id="right-arrow">&#9654;</span>
   </div>
 
   <div class="pagination" id="paginationBlock">
@@ -289,6 +289,13 @@
           <div id="paletteManualControls" class="palette-manual-controls"></div>
         </section>
       </div>
+    </div>
+  </div>
+
+  <div id="kinoWallOverlay" class="kinowall-overlay hidden" aria-hidden="true">
+    <div class="kinowall-dialog" role="dialog" aria-modal="true" aria-labelledby="kinoWallTitle">
+      <button type="button" id="kinoWallClose" class="kinowall-close" aria-label="Закрыть киностену">&times;</button>
+      <div id="kinoWallContent" class="kinowall-content"></div>
     </div>
   </div>
 
