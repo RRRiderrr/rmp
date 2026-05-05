@@ -4840,3 +4840,28 @@ body.light-theme .kw-confirm-dialog p {
     justify-content: center;
   }
 }
+
+/* ===== RMP patch: URL-only kinowall images + auto short links ===== */
+.kinowall-image-field-body.url-only {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "preview"
+    "url";
+}
+
+.kinowall-image-field-body.url-only > .kinowall-field {
+  grid-area: url;
+  width: 100%;
+}
+
+.kinowall-short-link-field {
+  margin-top: 0;
+}
+
+.kinowall-short-link-field input[readonly] {
+  cursor: copy;
+}
+
+.kinowall-share-status.warning {
+  color: #ffd166;
+}

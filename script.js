@@ -7990,3 +7990,227 @@ function renderKinoWallShareTab(data) {
       </div>
     </section>`;
 }
+
+/* ===== RMP patch: URL-only kinowall images + automatic short sharing ===== */
+function sanitizeKinoWallUrl(value) {
+  const url = String(value || '').trim();
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url.slice(0, 2200);
+  return '';
+}
+
+function compactKinoWallProfile(profile) {
+  const normalized = normalizeKinoWallProfile(profile);
+  const compactEntry = (entry) => [entry.mediaType === 'tv' ? 't' : 'm', Number(entry.id || 0), entry.addedAt || ''];
+  return {
+    v: KINOWALL_VERSION,
+    n: normalized.name,
+    h: normalized.handle,
+    s: normalized.status,
+    b: normalized.bio,
+    vb: normalized.vibe,
+    av: sanitizeKinoWallUrl(normalized.avatarUrl),
+    bn: sanitizeKinoWallUrl(normalized.bannerUrl),
+    ac: normalized.accentColor,
+    sh: normalized.showcase.slice(0, 60).map(compactEntry),
+    w: normalized.watched.slice(0, 140).map(compactEntry),
+    f: getFavorites().slice(0, 140).map(compactEntry),
+    a: normalized.actors.map((person) => [person.tmdbId || 0, person.name || '', person.note || '', sanitizeKinoWallUrl(person.imageUrl || '')]),
+    sc: normalized.scenes.map((scene) => [scene.title || '', scene.note || '', sanitizeKinoWallUrl(scene.imageUrl || '')]),
+    st: normalized.soundtracks.map((track) => [track.title || '', track.artist || '', track.url || '']),
+    r: normalized.reviews.map((review) => [review.mediaType === 'tv' ? 't' : 'm', Number(review.id || 0), Number(review.rating || 0), review.text || '', review.addedAt || '']),
+    u: normalized.updatedAt || new Date().toISOString()
+  };
+}
+
+function renderKinoWallImageField(name, label, value, kind) {
+  const safeValue = sanitizeKinoWallUrl(value || '');
+  const preview = safeValue
+    ? `<div class="kinowall-image-field-preview ${kind === 'banner' ? 'banner' : 'avatar'} has-image"><img src="${escapeHtml(safeValue)}" alt="" onerror="this.closest('.kinowall-image-field-preview').classList.remove('has-image');this.remove();"></div>`
+    : `<div class="kinowall-image-field-preview ${kind === 'banner' ? 'banner' : 'avatar'}"><span>${kind === 'banner' ? 'Баннер' : 'Аватар'}</span></div>`;
+  return `
+    <div class="kinowall-image-field wide" data-kw-image-field="${escapeHtml(name)}">
+      <div>
+        <span>${escapeHtml(label)}</span>
+        <p>Вставь прямой URL картинки. Файлы намеренно не встраиваются в киностену, чтобы ссылка нормально сокращалась и открывалась на других устройствах.</p>
+      </div>
+      <div class="kinowall-image-field-body url-only">
+        ${preview}
+        <label class="kinowall-field"><span>URL картинки</span><input name="${escapeHtml(name)}" type="url" maxlength="2200" placeholder="https://..." value="${escapeHtml(safeValue)}"></label>
+      </div>
+    </div>`;
+}
+
+function updateKinoWallImageFieldPreviewFromUrl(input) {
+  const root = input?.closest?.('.kinowall-image-field');
+  if (!root) return;
+  const preview = root.querySelector('.kinowall-image-field-preview');
+  const url = sanitizeKinoWallUrl(input.value || '');
+  if (!preview) return;
+  if (url) {
+    preview.classList.add('has-image');
+    preview.innerHTML = `<img src="${escapeHtml(url)}" alt="" onerror="this.closest('.kinowall-image-field-preview').classList.remove('has-image');this.remove();">`;
+  } else {
+    const isBanner = preview.classList.contains('banner');
+    preview.classList.remove('has-image');
+    preview.innerHTML = `<span>${isBanner ? 'Баннер' : 'Аватар'}</span>`;
+  }
+}
+
+function bindKinoWallEditorEvents(data) {
+  bindKinoWallOverviewEvents(data);
+  const formEl = document.getElementById('kinoWallEditorForm');
+
+  formEl?.querySelectorAll('.kinowall-image-field input[type="url"]').forEach((input) => {
+    input.addEventListener('input', () => updateKinoWallImageFieldPreviewFromUrl(input));
+    input.addEventListener('change', () => updateKinoWallImageFieldPreviewFromUrl(input));
+  });
+
+  formEl?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const formData = new FormData(formEl);
+    const current = readKinoWallProfile();
+    const submitButton = formEl.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Сохраняю...';
+    }
+    try {
+      const nextProfile = saveKinoWallProfile({
+        ...current,
+        name: formData.get('name'),
+        handle: formData.get('handle'),
+        status: formData.get('status'),
+        vibe: formData.get('vibe'),
+        avatarUrl: sanitizeKinoWallUrl(formData.get('avatarUrl')),
+        bannerUrl: sanitizeKinoWallUrl(formData.get('bannerUrl')),
+        accentColor: formData.get('accentColor'),
+        bio: sanitizeKinoWallLongText(formData.get('bio'), 420),
+        actors: parsePipeList(formData.get('actorsRaw'), ([tmdbIdOrName, nameOrNote, noteOrImage, imageMaybe]) => {
+          const maybeId = Number(tmdbIdOrName || 0);
+          if (Number.isFinite(maybeId) && maybeId > 0) return { tmdbId: maybeId, name: nameOrNote, note: noteOrImage, imageUrl: sanitizeKinoWallUrl(imageMaybe) };
+          return { tmdbId: 0, name: tmdbIdOrName, note: nameOrNote, imageUrl: sanitizeKinoWallUrl(noteOrImage) };
+        }),
+        scenes: parsePipeList(formData.get('scenesRaw'), ([title, note, imageUrl]) => ({ title, note, imageUrl: sanitizeKinoWallUrl(imageUrl) })),
+        soundtracks: parsePipeList(formData.get('soundtracksRaw'), ([title, artist, url]) => ({ title, artist, url }))
+      });
+      await openKinoWall({ profile: nextProfile });
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Сохранить киностену';
+      }
+    }
+  });
+
+  kinoWallContent.querySelector('[data-kw-editor-action="reset-demo"]')?.addEventListener('click', async () => {
+    const profile = readKinoWallProfile();
+    const demo = createDefaultKinoWallProfile();
+    profile.actors = demo.actors;
+    profile.scenes = demo.scenes;
+    profile.soundtracks = demo.soundtracks;
+    saveKinoWallProfile(profile);
+    await openKinoWall();
+  });
+}
+
+function renderKinoWallShareTab(data) {
+  const longLink = buildKinoWallShareLink(data.profile);
+  const shareText = data.readOnly
+    ? `Это профиль, открытый по ссылке. Актуальность: ${getKinoWallTimestampLabel(data.profile.updatedAt)}. Чтобы увидеть свежую версию, попросите владельца отправить ссылку повторно.`
+    : 'RMP автоматически создаст короткую ссылку для шаринга. Внутри киностены хранятся только текст, ID тайтлов, отзывы, оформление и URL картинок.';
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Красивый шаринг</div>
+      <p class="kinowall-muted">${escapeHtml(shareText)}</p>
+      <div class="kinowall-share-box" data-kw-long-link="${escapeHtml(longLink)}">
+        <label class="kinowall-field wide kinowall-short-link-field">
+          <span>Ссылка на киностену</span>
+          <input id="kinoWallShareLink" readonly value="Создаю короткую ссылку...">
+        </label>
+        <div class="kinowall-share-actions">
+          <button type="button" class="kw-btn kw-primary" data-kw-share-action="copy" disabled>Скопировать ссылку</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="export">Экспорт JSON</button>
+          ${data.readOnly ? '' : '<label class="kw-btn kw-secondary kw-file-label">Импорт JSON<input id="kinoWallImportFile" type="file" accept="application/json,.json" hidden></label>'}
+        </div>
+        <div id="kinoWallShareStatus" class="kinowall-share-status">Автоматически сокращаю ссылку...</div>
+      </div>
+    </section>`;
+}
+
+async function createKinoWallShortLink(longLink) {
+  const endpoints = [
+    `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longLink)}`,
+    `https://is.gd/create.php?format=simple&url=${encodeURIComponent(longLink)}`
+  ];
+  let lastError = null;
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = (await response.text()).trim();
+      if (/^https?:\/\//i.test(text)) return text;
+      throw new Error('Bad short-link response');
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Short-link service unavailable');
+}
+
+function bindKinoWallShareEvents(data) {
+  const status = document.getElementById('kinoWallShareStatus');
+  const shareField = document.getElementById('kinoWallShareLink');
+  const copyButton = kinoWallContent.querySelector('[data-kw-share-action="copy"]');
+  const box = kinoWallContent.querySelector('.kinowall-share-box');
+  const fallbackLink = box?.dataset.kwLongLink || buildKinoWallShareLink(data.profile);
+
+  const setShareValue = (value, message, isFallback = false) => {
+    if (shareField) shareField.value = value;
+    if (copyButton) copyButton.disabled = !value;
+    if (status) {
+      status.textContent = message;
+      status.classList.toggle('warning', Boolean(isFallback));
+    }
+  };
+
+  if (shareField) {
+    createKinoWallShortLink(fallbackLink)
+      .then((shortLink) => setShareValue(shortLink, 'Короткая ссылка готова. Она уже содержит актуальный снимок киностены.'))
+      .catch(() => setShareValue(fallbackLink, 'Сокращатель не ответил из браузера. Показана запасная компактная RMP-ссылка.', true));
+  }
+
+  copyButton?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(shareField.value);
+      if (status) status.textContent = 'Ссылка скопирована.';
+    } catch (error) {
+      shareField.select();
+      if (status) status.textContent = 'Не удалось скопировать автоматически. Ссылка выделена — скопируй вручную.';
+    }
+  });
+
+  kinoWallContent.querySelector('[data-kw-share-action="export"]')?.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(data.profile, null, 2)], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `rmp-kinowall-${sanitizeKinoWallHandle(data.profile.handle)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  document.getElementById('kinoWallImportFile')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const profile = saveKinoWallProfile(JSON.parse(text));
+      if (status) status.textContent = 'Профиль импортирован.';
+      await openKinoWall({ profile });
+    } catch (error) {
+      if (status) status.textContent = 'Не удалось импортировать JSON.';
+    }
+  });
+}
