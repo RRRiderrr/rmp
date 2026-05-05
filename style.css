@@ -4865,3 +4865,29 @@ body.light-theme .kw-confirm-dialog p {
 .kinowall-share-status.warning {
   color: #ffd166;
 }
+
+/* ===== RMP patch: kinowall long-link fallback sharing UI ===== */
+.kinowall-share-box .kinowall-short-link-field input[readonly] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kinowall-share-box [data-kw-share-action="download-txt"][hidden] {
+  display: none !important;
+}
+
+.kinowall-share-status.warning {
+  color: #ffd166;
+}
+
+body.light-theme .kinowall-share-status.warning {
+  color: #9a6700;
+}
+
+@media (max-width: 620px) {
+  .kinowall-share-actions .kw-btn,
+  .kinowall-share-actions .kw-file-label {
+    width: 100%;
+  }
+}

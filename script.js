@@ -8126,16 +8126,30 @@ function renderKinoWallShareTab(data) {
       <div class="kinowall-share-box" data-kw-long-link="${escapeHtml(longLink)}">
         <label class="kinowall-field wide kinowall-short-link-field">
           <span>Ссылка на киностену</span>
-          <input id="kinoWallShareLink" readonly value="Создаю короткую ссылку...">
+          <input id="kinoWallShareLink" readonly value="Готовлю ссылку...">
         </label>
         <div class="kinowall-share-actions">
           <button type="button" class="kw-btn kw-primary" data-kw-share-action="copy" disabled>Скопировать ссылку</button>
           <button type="button" class="kw-btn kw-secondary" data-kw-share-action="export">Экспорт JSON</button>
           ${data.readOnly ? '' : '<label class="kw-btn kw-secondary kw-file-label">Импорт JSON<input id="kinoWallImportFile" type="file" accept="application/json,.json" hidden></label>'}
         </div>
-        <div id="kinoWallShareStatus" class="kinowall-share-status">Автоматически сокращаю ссылку...</div>
+        <div id="kinoWallShareStatus" class="kinowall-share-status">Готовлю ссылку для копирования...</div>
       </div>
     </section>`;
+}
+
+async function fetchKinoWallShortEndpoint(endpoint, timeoutMs = 4500) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const text = (await response.text()).trim();
+    if (/^https?:\/\//i.test(text)) return text;
+    throw new Error('Bad short-link response');
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 async function createKinoWallShortLink(longLink) {
@@ -8146,11 +8160,7 @@ async function createKinoWallShortLink(longLink) {
   let lastError = null;
   for (const endpoint of endpoints) {
     try {
-      const response = await fetch(endpoint, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const text = (await response.text()).trim();
-      if (/^https?:\/\//i.test(text)) return text;
-      throw new Error('Bad short-link response');
+      return await fetchKinoWallShortEndpoint(endpoint);
     } catch (error) {
       lastError = error;
     }
@@ -8164,31 +8174,290 @@ function bindKinoWallShareEvents(data) {
   const copyButton = kinoWallContent.querySelector('[data-kw-share-action="copy"]');
   const box = kinoWallContent.querySelector('.kinowall-share-box');
   const fallbackLink = box?.dataset.kwLongLink || buildKinoWallShareLink(data.profile);
+  let latestShareLink = fallbackLink;
 
   const setShareValue = (value, message, isFallback = false) => {
-    if (shareField) shareField.value = value;
-    if (copyButton) copyButton.disabled = !value;
+    latestShareLink = value || fallbackLink;
+    if (shareField) shareField.value = latestShareLink;
+    if (copyButton) copyButton.disabled = !latestShareLink;
     if (status) {
       status.textContent = message;
       status.classList.toggle('warning', Boolean(isFallback));
     }
   };
 
+  setShareValue(fallbackLink, 'Компактная RMP-ссылка уже готова. Параллельно пробую получить внешнюю короткую ссылку…', false);
+
   if (shareField) {
     createKinoWallShortLink(fallbackLink)
-      .then((shortLink) => setShareValue(shortLink, 'Короткая ссылка готова. Она уже содержит актуальный снимок киностены.'))
-      .catch(() => setShareValue(fallbackLink, 'Сокращатель не ответил из браузера. Показана запасная компактная RMP-ссылка.', true));
+      .then((shortLink) => {
+        if (shortLink && /^https?:\/\//i.test(shortLink)) {
+          setShareValue(shortLink, 'Короткая внешняя ссылка готова. Она ведёт на актуальный снимок киностены.');
+        }
+      })
+      .catch(() => {
+        setShareValue(fallbackLink, 'Внешний сокращатель не ответил или заблокирован браузером. Оставлена рабочая компактная RMP-ссылка.', true);
+      });
   }
 
   copyButton?.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(shareField.value);
+      await navigator.clipboard.writeText(latestShareLink);
       if (status) status.textContent = 'Ссылка скопирована.';
     } catch (error) {
-      shareField.select();
+      if (shareField) shareField.select();
       if (status) status.textContent = 'Не удалось скопировать автоматически. Ссылка выделена — скопируй вручную.';
     }
   });
+
+  kinoWallContent.querySelector('[data-kw-share-action="export"]')?.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(data.profile, null, 2)], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `rmp-kinowall-${sanitizeKinoWallHandle(data.profile.handle)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  document.getElementById('kinoWallImportFile')?.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const profile = saveKinoWallProfile(JSON.parse(text));
+      if (status) status.textContent = 'Профиль импортирован.';
+      await openKinoWall({ profile });
+    } catch (error) {
+      if (status) status.textContent = 'Не удалось импортировать JSON.';
+    }
+  });
+}
+
+/* ===== RMP patch: robust kinowall sharing fallback + better shortener chain ===== */
+function renderKinoWallShareTab(data) {
+  const longLink = buildKinoWallShareLink(data.profile);
+  const shareText = data.readOnly
+    ? `Это профиль, открытый по ссылке. Актуальность: ${getKinoWallTimestampLabel(data.profile.updatedAt)}. Чтобы увидеть свежую версию, попросите владельца отправить ссылку повторно.`
+    : 'RMP сначала попробует создать короткую внешнюю ссылку. Если сокращатель не ответит или стена слишком большая, будет доступна длинная RMP-ссылка и .txt-файл с ней.';
+  return `
+    <section class="kinowall-panel">
+      <div class="kinowall-section-title">Красивый шаринг</div>
+      <p class="kinowall-muted">${escapeHtml(shareText)}</p>
+      <div class="kinowall-share-box" data-kw-long-link="${escapeHtml(longLink)}">
+        <label class="kinowall-field wide kinowall-short-link-field">
+          <span id="kinoWallShareLabel">Ссылка на киностену</span>
+          <input id="kinoWallShareLink" readonly value="Пробую создать короткую ссылку...">
+        </label>
+        <div class="kinowall-share-actions">
+          <button type="button" class="kw-btn kw-primary" data-kw-share-action="copy" disabled>Скопировать ссылку</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="download-txt" hidden>Скачать .txt с RMP-ссылкой</button>
+          <button type="button" class="kw-btn kw-secondary" data-kw-share-action="export">Экспорт JSON</button>
+          ${data.readOnly ? '' : '<label class="kw-btn kw-secondary kw-file-label">Импорт JSON<input id="kinoWallImportFile" type="file" accept="application/json,.json" hidden></label>'}
+        </div>
+        <div id="kinoWallShareStatus" class="kinowall-share-status">Пробую создать короткую ссылку...</div>
+      </div>
+    </section>`;
+}
+
+function withKinoWallTimeout(promise, timeoutMs, label = 'timeout') {
+  const controller = { done: false };
+  const timer = new Promise((_, reject) => {
+    window.setTimeout(() => {
+      if (!controller.done) reject(new Error(label));
+    }, timeoutMs);
+  });
+  return Promise.race([promise.finally(() => { controller.done = true; }), timer]);
+}
+
+async function fetchKinoWallShortText(url, timeoutMs = 5200, options = {}) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal, ...options });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return (await response.text()).trim();
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function fetchKinoWallShortJson(url, timeoutMs = 5200, options = {}) {
+  const text = await fetchKinoWallShortText(url, timeoutMs, options);
+  return JSON.parse(text);
+}
+
+function normalizeShortUrl(value) {
+  const text = String(value || '').trim();
+  if (/^https?:\/\//i.test(text)) return text;
+  return '';
+}
+
+function firstResolvedKinoWallShortener(tasks, totalTimeoutMs = 8500) {
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let failed = 0;
+    let lastError = null;
+    const total = tasks.length;
+    const totalTimer = window.setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        reject(new Error('shortener-total-timeout'));
+      }
+    }, totalTimeoutMs);
+
+    tasks.forEach((task) => {
+      Promise.resolve()
+        .then(task)
+        .then((result) => {
+          const shortUrl = normalizeShortUrl(result);
+          if (!finished && shortUrl) {
+            finished = true;
+            window.clearTimeout(totalTimer);
+            resolve(shortUrl);
+          } else {
+            throw new Error('empty-short-url');
+          }
+        })
+        .catch((error) => {
+          lastError = error;
+          failed += 1;
+          if (!finished && failed >= total) {
+            finished = true;
+            window.clearTimeout(totalTimer);
+            reject(lastError || new Error('shortener-unavailable'));
+          }
+        });
+    });
+  });
+}
+
+async function createKinoWallShortLink(longLink) {
+  const encoded = encodeURIComponent(longLink);
+  const tasks = [];
+
+  tasks.push(async () => {
+    const data = await fetchKinoWallShortJson('https://cleanuri.com/api/v1/shorten', 5600, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: `url=${encoded}`
+    });
+    return data?.result_url;
+  });
+
+  tasks.push(async () => {
+    const data = await fetchKinoWallShortJson('https://ulvis.net/api/v1/shorten', 5600, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: longLink })
+    });
+    return data?.shortUrl || data?.short_url || data?.url;
+  });
+
+  if (longLink.length < 3600) {
+    tasks.push(async () => {
+      const data = await fetchKinoWallShortJson(`https://api.1pt.co/addURL?long=${encoded}`, 5200);
+      return data?.short ? `https://1pt.co/${data.short}` : '';
+    });
+
+    tasks.push(async () => {
+      const data = await fetchKinoWallShortJson(`https://is.gd/create.php?format=json&url=${encoded}`, 5200);
+      return data?.shorturl;
+    });
+
+    tasks.push(async () => fetchKinoWallShortText(`https://tinyurl.com/api-create.php?url=${encoded}`, 5200));
+  }
+
+  return firstResolvedKinoWallShortener(tasks, 9000);
+}
+
+function downloadKinoWallRmpLinkTxt(link, profile) {
+  const stamp = new Date(profile?.updatedAt || Date.now()).toLocaleString('ru-RU');
+  const text = [
+    'RMP — ссылка на киностену',
+    `Актуальность снимка: ${stamp}`,
+    '',
+    'Чтобы получить свежие данные, попросите владельца киностены отправить ссылку повторно.',
+    '',
+    link
+  ].join('\n');
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `rmp-kinowall-link-${sanitizeKinoWallHandle(profile?.handle || 'profile')}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 1200);
+}
+
+function bindKinoWallShareEvents(data) {
+  const status = document.getElementById('kinoWallShareStatus');
+  const shareField = document.getElementById('kinoWallShareLink');
+  const shareLabel = document.getElementById('kinoWallShareLabel');
+  const copyButton = kinoWallContent.querySelector('[data-kw-share-action="copy"]');
+  const downloadTxtButton = kinoWallContent.querySelector('[data-kw-share-action="download-txt"]');
+  const box = kinoWallContent.querySelector('.kinowall-share-box');
+  const rmpLink = box?.dataset.kwLongLink || buildKinoWallShareLink(data.profile);
+  let latestShareLink = '';
+  let fallbackMode = false;
+
+  const setShortLink = (shortLink) => {
+    latestShareLink = shortLink;
+    fallbackMode = false;
+    if (shareLabel) shareLabel.textContent = 'Короткая ссылка на киностену';
+    if (shareField) shareField.value = shortLink;
+    if (copyButton) {
+      copyButton.disabled = false;
+      copyButton.textContent = 'Скопировать ссылку';
+    }
+    if (downloadTxtButton) downloadTxtButton.hidden = true;
+    if (status) {
+      status.textContent = 'Короткая ссылка готова. Она ведёт на текущий снимок киностены.';
+      status.classList.remove('warning');
+    }
+  };
+
+  const setRmpFallback = () => {
+    latestShareLink = rmpLink;
+    fallbackMode = true;
+    if (shareLabel) shareLabel.textContent = 'Длинная RMP-ссылка';
+    if (shareField) shareField.value = rmpLink;
+    if (copyButton) {
+      copyButton.disabled = false;
+      copyButton.textContent = 'Скопировать RMP-ссылку';
+    }
+    if (downloadTxtButton) downloadTxtButton.hidden = false;
+    if (status) {
+      status.textContent = 'Ваша стена заполнена большим количеством контента. Доступна только длинная RMP-ссылка.';
+      status.classList.add('warning');
+    }
+  };
+
+  if (shareField) shareField.value = 'Пробую создать короткую ссылку...';
+  if (copyButton) copyButton.disabled = true;
+  if (downloadTxtButton) downloadTxtButton.hidden = true;
+
+  createKinoWallShortLink(rmpLink)
+    .then((shortLink) => {
+      if (shortLink) setShortLink(shortLink);
+      else setRmpFallback();
+    })
+    .catch(() => setRmpFallback());
+
+  copyButton?.addEventListener('click', async () => {
+    if (!latestShareLink) return;
+    try {
+      await navigator.clipboard.writeText(latestShareLink);
+      if (status) status.textContent = fallbackMode ? 'Длинная RMP-ссылка скопирована.' : 'Короткая ссылка скопирована.';
+    } catch (error) {
+      if (shareField) shareField.select();
+      if (status) status.textContent = 'Не удалось скопировать автоматически. Ссылка выделена — скопируй вручную.';
+    }
+  });
+
+  downloadTxtButton?.addEventListener('click', () => downloadKinoWallRmpLinkTxt(rmpLink, data.profile));
 
   kinoWallContent.querySelector('[data-kw-share-action="export"]')?.addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(data.profile, null, 2)], { type: 'application/json;charset=utf-8' });
