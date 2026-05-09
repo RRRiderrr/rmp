@@ -445,9 +445,6 @@ const state = {
   totalPages: 1,
   query: '',
   showFavoritesOnly: false,
-  catalogLoading: false,
-  catalogLoadSeq: 0,
-  catalogPageCache: null,
   imageBaseUrl: DEFAULT_IMAGE_BASE_URL,
   imageBackdropBaseUrl: 'https://image.tmdb.org/t/p/original',
   genres: [],
@@ -491,6 +488,8 @@ let aiSearchRoastDeck = [];
 let aiSearchLastRoast = '';
 let ksawerEasterState = null;
 let ksawerEasterInputTimer = null;
+let catalogLoadRequestId = 0;
+let catalogLogicalPageCache = createEmptyCatalogLogicalPageCache('');
 
 init();
 
@@ -593,19 +592,13 @@ function bindEvents() {
   });
 
   prev.addEventListener('click', async () => {
-    if (state.catalogLoading) return;
-    if (state.currentPage > 1) {
-      scrollToCatalogTopInstant();
-      await loadContent(state.currentPage - 1);
-    }
+    if (prev.classList.contains('disabled') || state.currentPage <= 1) return;
+    await loadContent(state.currentPage - 1, { scrollToTop: true });
   });
 
   next.addEventListener('click', async () => {
-    if (state.catalogLoading) return;
-    if (state.currentPage < state.totalPages) {
-      scrollToCatalogTopInstant();
-      await loadContent(state.currentPage + 1);
-    }
+    if (next.classList.contains('disabled') || state.currentPage >= state.totalPages) return;
+    await loadContent(state.currentPage + 1, { scrollToTop: true });
   });
 
   favoriteToggle.addEventListener('click', async () => {
@@ -2586,6 +2579,10 @@ function buildAiStatusText(count, plan) {
 async function executeAiSearchPlan(plan, page) {
   const mediaTargets = resolveAiMediaTargets(plan);
   const effectiveTextQuery = plan.textQuery || plan.titleHints[0] || (plan.searchStrategy === 'title-first' ? state.query.trim() : '');
+  const cacheKey = buildCatalogCacheKey('ai-search', {
+    prompt: state.aiSearch.prompt || state.query || '',
+    plan
+  });
 
   return collectFilteredCatalogPage(page, async (rawPage) => {
     const tasks = [];
@@ -2628,9 +2625,9 @@ async function executeAiSearchPlan(plan, page) {
       totalPages
     };
   }, {
+    cacheKey,
     extraFilter: (item) => matchesAiPlanFilters(item, plan),
-    sorter: (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b),
-    cacheKey: buildCatalogCollectionKey('ai-search', { plan: summarizeAiPlanForCache(plan), textQuery: effectiveTextQuery })
+    sorter: (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b)
   });
 }
 
@@ -3240,6 +3237,40 @@ function resetCatalogRuntimeState() {
   clearTmdbRuntimeCaches();
 }
 
+function createEmptyCatalogLogicalPageCache(key = '') {
+  return {
+    key,
+    filtered: [],
+    seen: new Set(),
+    nextRawPage: 1,
+    maxRawPages: TMDB_MAX_FETCH_PAGE,
+    reachedEnd: false
+  };
+}
+
+function getCatalogLogicalPageCache(key = '') {
+  if (!key || catalogLogicalPageCache.key !== key) {
+    catalogLogicalPageCache = createEmptyCatalogLogicalPageCache(key);
+  }
+  return catalogLogicalPageCache;
+}
+
+function buildCatalogCacheKey(mode, extra = {}) {
+  return JSON.stringify({
+    mode,
+    query: state.query || '',
+    ai: Boolean(state.aiSearch.enabled),
+    filters: cloneFilters(state.appliedFilters),
+    extra
+  });
+}
+
+function scrollToCatalogTopAfterRender() {
+  scrollToCatalogTopInstant();
+  window.requestAnimationFrame(() => scrollToCatalogTopInstant());
+  window.setTimeout(() => scrollToCatalogTopInstant(), 80);
+}
+
 function scrollToCatalogTopInstant() {
   const target = resultsToolbar || main;
   if (!target) {
@@ -3265,24 +3296,27 @@ function resolveCountryLabel(code, fallback = '') {
   return fallback || code;
 }
 
-async function loadContent(page = 1) {
-  const requestedPage = normalizeCatalogPageNumber(page);
-  const loadSeq = state.catalogLoadSeq + 1;
-  state.catalogLoadSeq = loadSeq;
-  state.catalogLoading = true;
-  state.currentPage = requestedPage;
+async function loadContent(page = 1, options = {}) {
+  const requestId = ++catalogLoadRequestId;
+  const targetPage = normalizeCatalogPageNumber(page);
+  const shouldScrollToTop = options.scrollToTop === true;
+
+  state.currentPage = targetPage;
   resetCatalogRuntimeState();
   renderLoading('Загружаем каталог...');
   updatePagination({ forceDisabled: true });
 
   try {
-    const payload = state.showFavoritesOnly ? await fetchFavoritesContent() : (state.query ? (isAiSearchEnabled() ? await fetchAiSearchContent(requestedPage) : await fetchSearchContent(requestedPage)) : await fetchDiscoverContent(requestedPage));
+    const payload = state.showFavoritesOnly
+      ? await fetchFavoritesContent()
+      : (state.query
+        ? (isAiSearchEnabled() ? await fetchAiSearchContent(targetPage) : await fetchSearchContent(targetPage))
+        : await fetchDiscoverContent(targetPage));
 
-    if (loadSeq !== state.catalogLoadSeq) return;
+    if (requestId !== catalogLoadRequestId) return;
 
     state.totalPages = Math.max(1, payload.totalPages || 1);
-    state.currentPage = Math.min(requestedPage, state.totalPages);
-    state.catalogLoading = false;
+    state.currentPage = Math.min(targetPage, state.totalPages);
 
     if (!payload.items.length) {
       renderNoResults();
@@ -3293,14 +3327,19 @@ async function loadContent(page = 1) {
 
     updatePagination();
     updateResultsStatus(payload.statusText || buildStatusText(payload.items.length));
+    if (shouldScrollToTop) {
+      scrollToCatalogTopAfterRender();
+    }
     checkDecisionPromptCountdown();
   } catch (error) {
-    if (loadSeq !== state.catalogLoadSeq) return;
-    state.catalogLoading = false;
+    if (requestId !== catalogLoadRequestId) return;
     console.error('[loadContent]', error);
     renderError('Ошибка сети или запроса к TMDB. Попробуй ещё раз чуть позже.');
     updatePagination({ forceDisabled: true });
     updateResultsStatus('Не удалось загрузить данные.');
+    if (shouldScrollToTop) {
+      scrollToCatalogTopAfterRender();
+    }
   }
 }
 
@@ -3324,63 +3363,21 @@ function normalizeSourceTotalPages(value) {
   return Math.min(TMDB_MAX_FETCH_PAGE, Math.floor(total));
 }
 
-function buildCatalogCollectionKey(mode, extra = {}) {
-  return JSON.stringify({
-    mode,
-    query: state.query || '',
-    aiEnabled: isAiSearchEnabled(),
-    filters: cloneFilters(state.appliedFilters),
-    extra
-  });
-}
-
-function summarizeAiPlanForCache(plan) {
-  if (!plan || typeof plan !== 'object') return null;
-  return {
-    strategy: plan.strategy || '',
-    query: plan.query || '',
-    mediaType: plan.mediaType || plan.type || '',
-    genres: Array.isArray(plan.genres) ? [...plan.genres].sort() : [],
-    keywords: Array.isArray(plan.keywords) ? [...plan.keywords].sort() : [],
-    years: plan.years || plan.yearRange || null,
-    rating: plan.rating || plan.ratingRange || null
-  };
-}
-
-function createCatalogPageCache(key, pageSize) {
-  return {
-    key,
-    pageSize,
-    seen: new Set(),
-    items: [],
-    nextRawPage: 1,
-    maxRawPages: TMDB_MAX_FETCH_PAGE,
-    reachedEnd: false
-  };
-}
-
-function getCatalogPageCache(cacheKey, pageSize) {
-  if (!cacheKey) {
-    return createCatalogPageCache('', pageSize);
-  }
-
-  const cache = state.catalogPageCache;
-  if (!cache || cache.key !== cacheKey || cache.pageSize !== pageSize) {
-    state.catalogPageCache = createCatalogPageCache(cacheKey, pageSize);
-  }
-
-  return state.catalogPageCache;
-}
-
 async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
   const safePage = normalizeCatalogPageNumber(page);
   const pageSize = Number(options.pageSize || CATALOG_PAGE_SIZE);
   const { start, end } = getCatalogSliceRange(safePage, pageSize);
   const extraFilter = typeof options.extraFilter === 'function' ? options.extraFilter : null;
   const sorter = typeof options.sorter === 'function' ? options.sorter : null;
-  const cache = getCatalogPageCache(options.cacheKey || '', pageSize);
+  const cacheKey = typeof options.cacheKey === 'string' ? options.cacheKey : '';
+  const cache = getCatalogLogicalPageCache(cacheKey);
 
-  while (!cache.reachedEnd && cache.items.length < end && cache.nextRawPage <= cache.maxRawPages && cache.nextRawPage <= TMDB_MAX_FETCH_PAGE) {
+  while (!cache.reachedEnd && cache.nextRawPage <= cache.maxRawPages && cache.nextRawPage <= TMDB_MAX_FETCH_PAGE) {
+    const outputList = sorter ? [...cache.filtered].sort(sorter) : cache.filtered;
+    if (outputList.length >= end) {
+      break;
+    }
+
     const batchPages = [];
     for (let offset = 0; offset < LOGICAL_PAGE_FETCH_BATCH_SIZE; offset += 1) {
       const rawPage = cache.nextRawPage + offset;
@@ -3412,6 +3409,9 @@ async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
       }
     });
 
+    const lastFetchedPage = batchPages[batchPages.length - 1];
+    cache.nextRawPage = lastFetchedPage + 1;
+
     if (!fulfilledCount) {
       cache.reachedEnd = true;
       break;
@@ -3423,23 +3423,18 @@ async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
       if (extraFilter) {
         batchFiltered = batchFiltered.filter(extraFilter);
       }
-      if (sorter) {
-        batchFiltered = batchFiltered.sort(sorter);
-      }
-      cache.items.push(...batchFiltered);
+      cache.filtered.push(...batchFiltered);
     }
 
-    const lastFetchedPage = batchPages[batchPages.length - 1];
     if (lastFetchedPage >= cache.maxRawPages || lastFetchedPage >= TMDB_MAX_FETCH_PAGE) {
       cache.reachedEnd = true;
       break;
     }
-
-    cache.nextRawPage = lastFetchedPage + 1;
   }
 
-  const items = cache.items.slice(start, end);
-  const knownLogicalPages = Math.max(1, Math.ceil(cache.items.length / pageSize));
+  const outputList = sorter ? [...cache.filtered].sort(sorter) : cache.filtered;
+  const items = outputList.slice(start, end);
+  const knownLogicalPages = Math.max(1, Math.ceil(outputList.length / pageSize));
   const totalPages = cache.reachedEnd ? knownLogicalPages : Math.max(knownLogicalPages, safePage + 1);
 
   return {
@@ -3453,6 +3448,7 @@ async function fetchDiscoverContent(page) {
 
   if (type === 'movie' || type === 'tv') {
     const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
+    const cacheKey = buildCatalogCacheKey('discover-single', { type });
     const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
       const response = await apiFetch(endpoint, buildDiscoverParams(type, rawPage));
       return {
@@ -3460,7 +3456,7 @@ async function fetchDiscoverContent(page) {
         totalPages: response.total_pages || 1
       };
     }, {
-      cacheKey: buildCatalogCollectionKey('discover', { type })
+      cacheKey
     });
 
     return {
@@ -3480,6 +3476,10 @@ async function fetchDiscoverContent(page) {
     };
   }
 
+  const cacheKey = buildCatalogCacheKey('discover-mixed', {
+    movieImpossible,
+    tvImpossible
+  });
   const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
     const [movieResponse, tvResponse] = await Promise.all([
       movieImpossible ? Promise.resolve({ results: [], total_pages: 1 }) : apiFetch('/discover/movie', buildDiscoverParams('movie', rawPage)),
@@ -3494,8 +3494,8 @@ async function fetchDiscoverContent(page) {
       totalPages: Math.max(movieResponse.total_pages || 1, tvResponse.total_pages || 1)
     };
   }, {
-    sorter: sortByPopularity,
-    cacheKey: buildCatalogCollectionKey('discover', { type: 'all' })
+    cacheKey,
+    sorter: sortByPopularity
   });
 
   return {
@@ -3509,6 +3509,10 @@ async function fetchSearchContent(page) {
 
   if (type === 'movie' || type === 'tv') {
     const endpoint = type === 'movie' ? '/search/movie' : '/search/tv';
+    const cacheKey = buildCatalogCacheKey('search-single', {
+      type,
+      query: state.query || ''
+    });
     const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
       const response = await apiFetch(endpoint, buildSearchParams(type, rawPage));
       return {
@@ -3516,7 +3520,7 @@ async function fetchSearchContent(page) {
         totalPages: response.total_pages || 1
       };
     }, {
-      cacheKey: buildCatalogCollectionKey('search', { type })
+      cacheKey
     });
 
     return {
@@ -3525,6 +3529,9 @@ async function fetchSearchContent(page) {
     };
   }
 
+  const cacheKey = buildCatalogCacheKey('search-mixed', {
+    query: state.query || ''
+  });
   const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
     const response = await apiFetch('/search/multi', buildSearchParams('all', rawPage));
     return {
@@ -3534,7 +3541,7 @@ async function fetchSearchContent(page) {
       totalPages: response.total_pages || 1
     };
   }, {
-    cacheKey: buildCatalogCollectionKey('search', { type: 'all' })
+    cacheKey
   });
 
   return {
@@ -3859,7 +3866,7 @@ function renderLoading(message) {
 }
 
 function updatePagination(options = {}) {
-  const forceDisabled = options.forceDisabled === true || state.catalogLoading;
+  const forceDisabled = options.forceDisabled === true;
   const singlePage = state.showFavoritesOnly || state.totalPages <= 1;
 
   paginationBlock.style.display = state.showFavoritesOnly ? 'none' : 'flex';
