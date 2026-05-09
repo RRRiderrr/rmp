@@ -445,6 +445,9 @@ const state = {
   totalPages: 1,
   query: '',
   showFavoritesOnly: false,
+  catalogLoading: false,
+  catalogLoadSeq: 0,
+  catalogPageCache: null,
   imageBaseUrl: DEFAULT_IMAGE_BASE_URL,
   imageBackdropBaseUrl: 'https://image.tmdb.org/t/p/original',
   genres: [],
@@ -590,6 +593,7 @@ function bindEvents() {
   });
 
   prev.addEventListener('click', async () => {
+    if (state.catalogLoading) return;
     if (state.currentPage > 1) {
       scrollToCatalogTopInstant();
       await loadContent(state.currentPage - 1);
@@ -597,6 +601,7 @@ function bindEvents() {
   });
 
   next.addEventListener('click', async () => {
+    if (state.catalogLoading) return;
     if (state.currentPage < state.totalPages) {
       scrollToCatalogTopInstant();
       await loadContent(state.currentPage + 1);
@@ -2624,7 +2629,8 @@ async function executeAiSearchPlan(plan, page) {
     };
   }, {
     extraFilter: (item) => matchesAiPlanFilters(item, plan),
-    sorter: (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b)
+    sorter: (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b),
+    cacheKey: buildCatalogCollectionKey('ai-search', { plan: summarizeAiPlanForCache(plan), textQuery: effectiveTextQuery })
   });
 }
 
@@ -3260,15 +3266,23 @@ function resolveCountryLabel(code, fallback = '') {
 }
 
 async function loadContent(page = 1) {
-  state.currentPage = page;
+  const requestedPage = normalizeCatalogPageNumber(page);
+  const loadSeq = state.catalogLoadSeq + 1;
+  state.catalogLoadSeq = loadSeq;
+  state.catalogLoading = true;
+  state.currentPage = requestedPage;
   resetCatalogRuntimeState();
   renderLoading('Загружаем каталог...');
+  updatePagination({ forceDisabled: true });
 
   try {
-    const payload = state.showFavoritesOnly ? await fetchFavoritesContent() : (state.query ? (isAiSearchEnabled() ? await fetchAiSearchContent(page) : await fetchSearchContent(page)) : await fetchDiscoverContent(page));
+    const payload = state.showFavoritesOnly ? await fetchFavoritesContent() : (state.query ? (isAiSearchEnabled() ? await fetchAiSearchContent(requestedPage) : await fetchSearchContent(requestedPage)) : await fetchDiscoverContent(requestedPage));
+
+    if (loadSeq !== state.catalogLoadSeq) return;
 
     state.totalPages = Math.max(1, payload.totalPages || 1);
-    state.currentPage = Math.min(page, state.totalPages);
+    state.currentPage = Math.min(requestedPage, state.totalPages);
+    state.catalogLoading = false;
 
     if (!payload.items.length) {
       renderNoResults();
@@ -3281,6 +3295,8 @@ async function loadContent(page = 1) {
     updateResultsStatus(payload.statusText || buildStatusText(payload.items.length));
     checkDecisionPromptCountdown();
   } catch (error) {
+    if (loadSeq !== state.catalogLoadSeq) return;
+    state.catalogLoading = false;
     console.error('[loadContent]', error);
     renderError('Ошибка сети или запроса к TMDB. Попробуй ещё раз чуть позже.');
     updatePagination({ forceDisabled: true });
@@ -3308,28 +3324,72 @@ function normalizeSourceTotalPages(value) {
   return Math.min(TMDB_MAX_FETCH_PAGE, Math.floor(total));
 }
 
+function buildCatalogCollectionKey(mode, extra = {}) {
+  return JSON.stringify({
+    mode,
+    query: state.query || '',
+    aiEnabled: isAiSearchEnabled(),
+    filters: cloneFilters(state.appliedFilters),
+    extra
+  });
+}
+
+function summarizeAiPlanForCache(plan) {
+  if (!plan || typeof plan !== 'object') return null;
+  return {
+    strategy: plan.strategy || '',
+    query: plan.query || '',
+    mediaType: plan.mediaType || plan.type || '',
+    genres: Array.isArray(plan.genres) ? [...plan.genres].sort() : [],
+    keywords: Array.isArray(plan.keywords) ? [...plan.keywords].sort() : [],
+    years: plan.years || plan.yearRange || null,
+    rating: plan.rating || plan.ratingRange || null
+  };
+}
+
+function createCatalogPageCache(key, pageSize) {
+  return {
+    key,
+    pageSize,
+    seen: new Set(),
+    items: [],
+    nextRawPage: 1,
+    maxRawPages: TMDB_MAX_FETCH_PAGE,
+    reachedEnd: false
+  };
+}
+
+function getCatalogPageCache(cacheKey, pageSize) {
+  if (!cacheKey) {
+    return createCatalogPageCache('', pageSize);
+  }
+
+  const cache = state.catalogPageCache;
+  if (!cache || cache.key !== cacheKey || cache.pageSize !== pageSize) {
+    state.catalogPageCache = createCatalogPageCache(cacheKey, pageSize);
+  }
+
+  return state.catalogPageCache;
+}
+
 async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
   const safePage = normalizeCatalogPageNumber(page);
   const pageSize = Number(options.pageSize || CATALOG_PAGE_SIZE);
   const { start, end } = getCatalogSliceRange(safePage, pageSize);
   const extraFilter = typeof options.extraFilter === 'function' ? options.extraFilter : null;
   const sorter = typeof options.sorter === 'function' ? options.sorter : null;
-  const seen = new Set();
-  const filtered = [];
-  let nextRawPage = 1;
-  let maxRawPages = TMDB_MAX_FETCH_PAGE;
-  let reachedEnd = false;
+  const cache = getCatalogPageCache(options.cacheKey || '', pageSize);
 
-  while (nextRawPage <= maxRawPages && nextRawPage <= TMDB_MAX_FETCH_PAGE) {
+  while (!cache.reachedEnd && cache.items.length < end && cache.nextRawPage <= cache.maxRawPages && cache.nextRawPage <= TMDB_MAX_FETCH_PAGE) {
     const batchPages = [];
     for (let offset = 0; offset < LOGICAL_PAGE_FETCH_BATCH_SIZE; offset += 1) {
-      const rawPage = nextRawPage + offset;
-      if (rawPage > maxRawPages || rawPage > TMDB_MAX_FETCH_PAGE) break;
+      const rawPage = cache.nextRawPage + offset;
+      if (rawPage > cache.maxRawPages || rawPage > TMDB_MAX_FETCH_PAGE) break;
       batchPages.push(rawPage);
     }
 
     if (!batchPages.length) {
-      reachedEnd = true;
+      cache.reachedEnd = true;
       break;
     }
 
@@ -3340,20 +3400,20 @@ async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
     settled.forEach((item) => {
       if (item.status !== 'fulfilled' || !item.value) return;
       fulfilledCount += 1;
-      maxRawPages = Math.min(maxRawPages, normalizeSourceTotalPages(item.value.totalPages));
+      cache.maxRawPages = Math.min(cache.maxRawPages, normalizeSourceTotalPages(item.value.totalPages));
 
       if (!Array.isArray(item.value.items) || !item.value.items.length) return;
       for (const rawItem of item.value.items) {
         if (!rawItem?.id || !rawItem?.mediaType) continue;
         const key = `${rawItem.mediaType}:${rawItem.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (cache.seen.has(key)) continue;
+        cache.seen.add(key);
         incoming.push(rawItem);
       }
     });
 
     if (!fulfilledCount) {
-      reachedEnd = true;
+      cache.reachedEnd = true;
       break;
     }
 
@@ -3363,27 +3423,24 @@ async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
       if (extraFilter) {
         batchFiltered = batchFiltered.filter(extraFilter);
       }
-      filtered.push(...batchFiltered);
+      if (sorter) {
+        batchFiltered = batchFiltered.sort(sorter);
+      }
+      cache.items.push(...batchFiltered);
     }
 
-    const outputList = sorter ? [...filtered].sort(sorter) : filtered;
     const lastFetchedPage = batchPages[batchPages.length - 1];
-    if (outputList.length >= end) {
+    if (lastFetchedPage >= cache.maxRawPages || lastFetchedPage >= TMDB_MAX_FETCH_PAGE) {
+      cache.reachedEnd = true;
       break;
     }
 
-    if (lastFetchedPage >= maxRawPages || lastFetchedPage >= TMDB_MAX_FETCH_PAGE) {
-      reachedEnd = true;
-      break;
-    }
-
-    nextRawPage = lastFetchedPage + 1;
+    cache.nextRawPage = lastFetchedPage + 1;
   }
 
-  const outputList = sorter ? [...filtered].sort(sorter) : filtered;
-  const items = outputList.slice(start, end);
-  const knownLogicalPages = Math.max(1, Math.ceil(outputList.length / pageSize));
-  const totalPages = reachedEnd ? knownLogicalPages : Math.max(knownLogicalPages, safePage + 1);
+  const items = cache.items.slice(start, end);
+  const knownLogicalPages = Math.max(1, Math.ceil(cache.items.length / pageSize));
+  const totalPages = cache.reachedEnd ? knownLogicalPages : Math.max(knownLogicalPages, safePage + 1);
 
   return {
     items,
@@ -3402,6 +3459,8 @@ async function fetchDiscoverContent(page) {
         items: (response.results || []).map((item) => normalizeItem(item, type)),
         totalPages: response.total_pages || 1
       };
+    }, {
+      cacheKey: buildCatalogCollectionKey('discover', { type })
     });
 
     return {
@@ -3435,7 +3494,8 @@ async function fetchDiscoverContent(page) {
       totalPages: Math.max(movieResponse.total_pages || 1, tvResponse.total_pages || 1)
     };
   }, {
-    sorter: sortByPopularity
+    sorter: sortByPopularity,
+    cacheKey: buildCatalogCollectionKey('discover', { type: 'all' })
   });
 
   return {
@@ -3455,6 +3515,8 @@ async function fetchSearchContent(page) {
         items: (response.results || []).map((item) => normalizeItem(item, type)),
         totalPages: response.total_pages || 1
       };
+    }, {
+      cacheKey: buildCatalogCollectionKey('search', { type })
     });
 
     return {
@@ -3471,6 +3533,8 @@ async function fetchSearchContent(page) {
         .map((item) => normalizeItem(item, item.media_type)),
       totalPages: response.total_pages || 1
     };
+  }, {
+    cacheKey: buildCatalogCollectionKey('search', { type: 'all' })
   });
 
   return {
@@ -3795,7 +3859,7 @@ function renderLoading(message) {
 }
 
 function updatePagination(options = {}) {
-  const forceDisabled = options.forceDisabled === true;
+  const forceDisabled = options.forceDisabled === true || state.catalogLoading;
   const singlePage = state.showFavoritesOnly || state.totalPages <= 1;
 
   paginationBlock.style.display = state.showFavoritesOnly ? 'none' : 'flex';
