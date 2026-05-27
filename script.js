@@ -547,6 +547,8 @@ async function init() {
   try {
     await Promise.all([initImageConfig(), loadGenres(), loadCountries(), preloadAiSearchRoasts()]);
     loadRegions();
+    sanitizeCatalogGenresAfterTypeChange(state.pendingFilters, { clearAllOnInvalid: true });
+    sanitizeCatalogGenresAfterTypeChange(state.appliedFilters, { clearAllOnInvalid: true });
     syncFilterUiFromPending();
     syncAiSearchUi();
     syncFavoriteToggleText();
@@ -661,11 +663,13 @@ function bindEvents() {
     const button = event.target.closest('.type-btn');
     if (!button) return;
     state.pendingFilters.type = button.dataset.type;
+    sanitizeCatalogGenresAfterTypeChange(state.pendingFilters, { clearAllOnInvalid: true });
+    syncFilterUiFromPending();
     markFiltersDirty();
-    syncTypeButtons();
   });
 
   applyExtraFiltersBtn.addEventListener('click', async () => {
+    sanitizeCatalogGenresAfterTypeChange(state.pendingFilters, { clearAllOnInvalid: true });
     state.appliedFilters = cloneFilters(state.pendingFilters);
     updateFilterApplyState();
     await loadContent(1);
@@ -1779,7 +1783,6 @@ async function loadGenres() {
     }
   }
 
-  applyGenreCompatibilityAliases(genreMap);
 
   state.genres = Array.from(genreMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
   state.genresByKey = new Map(state.genres.map((genre) => [genre.key, genre]));
@@ -1903,12 +1906,18 @@ function getExcludedCountryCodeSet(filters = state.appliedFilters) {
 }
 
 function renderGenreTags() {
+  const type = normalizeMediaTypeForGenreAvailability(state.pendingFilters.type);
+  const options = getGenreOptionsForType(type).map((genre) => ({
+    value: genre.key,
+    label: genre.label
+  }));
+
   renderMultiSelect({
     host: genreMultiSelect,
     key: 'genres',
-    placeholder: 'Жанры не выбраны',
-    emptyText: 'Жанры пока не загружены.',
-    options: state.genres.map((genre) => ({ value: genre.key, label: genre.label })),
+    placeholder: getGenrePlaceholderForType(type),
+    emptyText: type === 'all' ? 'Жанры пока не загружены.' : 'Для выбранного типа нет доступных жанров.',
+    options,
     selectedValues: state.pendingFilters.genres,
     onToggle: (value) => togglePendingMultiValue('genres', value),
     onClear: () => clearPendingMultiValue('genres')
@@ -2026,6 +2035,13 @@ function closeAllMultiSelects(exceptRoot = null) {
 }
 
 function togglePendingMultiValue(field, value) {
+  if (field === 'genres' && !isGenreKeyAvailableForType(value, state.pendingFilters.type)) {
+    sanitizeCatalogGenresAfterTypeChange(state.pendingFilters, { clearAllOnInvalid: true });
+    syncFilterUiFromPending();
+    markFiltersDirty();
+    return;
+  }
+
   const currentValues = new Set(state.pendingFilters[field] || []);
   if (currentValues.has(value)) {
     currentValues.delete(value);
@@ -3904,6 +3920,52 @@ function getSelectedGenreIdsForType(mediaType) {
 
 function hasImpossibleGenreCombination(mediaType) {
   return getSelectedGenreIdsForType(mediaType).impossible;
+}
+
+function normalizeMediaTypeForGenreAvailability(type) {
+  return type === 'movie' || type === 'tv' ? type : 'all';
+}
+
+function isGenreAvailableForType(genre, type) {
+  if (!genre) return false;
+  const normalizedType = normalizeMediaTypeForGenreAvailability(type);
+  if (normalizedType === 'movie') return Array.isArray(genre.movieIds) && genre.movieIds.length > 0;
+  if (normalizedType === 'tv') return Array.isArray(genre.tvIds) && genre.tvIds.length > 0;
+  return (Array.isArray(genre.movieIds) && genre.movieIds.length > 0) || (Array.isArray(genre.tvIds) && genre.tvIds.length > 0);
+}
+
+function isGenreKeyAvailableForType(key, type) {
+  return isGenreAvailableForType(state.genresByKey.get(key), type);
+}
+
+function getGenreOptionsForType(type = state.pendingFilters.type) {
+  const normalizedType = normalizeMediaTypeForGenreAvailability(type);
+  return state.genres.filter((genre) => isGenreAvailableForType(genre, normalizedType));
+}
+
+function getGenrePlaceholderForType(type = state.pendingFilters.type) {
+  const normalizedType = normalizeMediaTypeForGenreAvailability(type);
+  if (normalizedType === 'movie') return 'Жанры фильмов не выбраны';
+  if (normalizedType === 'tv') return 'Жанры сериалов не выбраны';
+  return 'Жанры не выбраны';
+}
+
+function sanitizeCatalogGenresAfterTypeChange(filters, options = {}) {
+  if (!filters || !Array.isArray(filters.genres)) return false;
+
+  const normalizedType = normalizeMediaTypeForGenreAvailability(filters.type);
+  const uniqueGenres = Array.from(new Set(filters.genres.map((key) => makeGenreKey(key)).filter(Boolean))).sort();
+  const availableKeys = new Set(getGenreOptionsForType(normalizedType).map((genre) => genre.key));
+  const validGenres = uniqueGenres.filter((key) => availableKeys.has(key));
+  const hasInvalidGenres = validGenres.length !== uniqueGenres.length;
+
+  if (hasInvalidGenres && options.clearAllOnInvalid && normalizedType !== 'all') {
+    filters.genres = [];
+    return uniqueGenres.length > 0;
+  }
+
+  filters.genres = validGenres;
+  return hasInvalidGenres;
 }
 
 function matchesClientSideFilters(item) {
