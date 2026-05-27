@@ -7,6 +7,15 @@ const MIN_YEAR = 1888;
 const MIN_RATING = 0;
 const MAX_RATING = 10;
 const RATING_STEP = 0.1;
+const DEFAULT_SORT_KEY = 'popularity';
+const DEFAULT_SORT_DIRECTION = 'desc';
+const CATALOG_SORT_OPTIONS = {
+  popularity: { label: 'по популярности TMDb', movieSort: 'popularity', tvSort: 'popularity' },
+  rating: { label: 'по рейтингу TMDb', movieSort: 'vote_average', tvSort: 'vote_average' },
+  vote_count: { label: 'по количеству оценок', movieSort: 'vote_count', tvSort: 'vote_count' },
+  release_date: { label: 'по дате выхода', movieSort: 'primary_release_date', tvSort: 'first_air_date' },
+  alphabet: { label: 'по алфавиту', movieSort: 'title', tvSort: 'name' }
+};
 const PAGE_SIZE = 20;
 const CATALOG_PAGE_SIZE = 40;
 const TMDB_MAX_FETCH_PAGE = 500;
@@ -319,6 +328,8 @@ const movieRouletteWatch = document.getElementById('movieRouletteWatch');
 const movieRouletteAgain = document.getElementById('movieRouletteAgain');
 const themeToggle = document.getElementById('themeToggleCheckbox');
 const favoriteToggle = document.getElementById('favoriteToggle');
+const catalogSortSelect = document.getElementById('catalogSortSelect');
+const sortDirectionToggle = document.getElementById('sortDirectionToggle');
 const typeButtons = document.getElementById('typeButtons');
 const applyExtraFiltersBtn = document.getElementById('applyExtraFilters');
 const resetFiltersBtn = document.getElementById('resetFilters');
@@ -412,6 +423,8 @@ const paletteEditorState = {
 
 function createDefaultFilters() {
   return {
+    sortKey: DEFAULT_SORT_KEY,
+    sortDirection: DEFAULT_SORT_DIRECTION,
     type: 'all',
     yearFrom: MIN_YEAR,
     yearTo: CURRENT_YEAR,
@@ -426,9 +439,11 @@ function createDefaultFilters() {
 
 function cloneFilters(filters) {
   return {
-    type: filters.type,
-    yearFrom: filters.yearFrom,
-    yearTo: filters.yearTo,
+    sortKey: normalizeSortKey(filters.sortKey),
+    sortDirection: normalizeSortDirection(filters.sortDirection),
+    type: filters.type === 'movie' || filters.type === 'tv' ? filters.type : 'all',
+    yearFrom: clampYear(filters.yearFrom ?? MIN_YEAR),
+    yearTo: clampYear(filters.yearTo ?? CURRENT_YEAR),
     ratingFrom: clampRating(filters.ratingFrom ?? MIN_RATING),
     ratingTo: clampRating(filters.ratingTo ?? MAX_RATING),
     genres: [...(filters.genres || [])].sort(),
@@ -443,6 +458,7 @@ const INITIAL_PLAYER_ROUTE_HASH = isPlayerRouteHash(window.location.hash) || isK
 const state = {
   currentPage: 1,
   totalPages: 1,
+  initialPageFromUrl: 1,
   query: '',
   showFavoritesOnly: false,
   catalogLoading: false,
@@ -508,6 +524,7 @@ document.addEventListener('visibilitychange', () => {
 
 async function init() {
   initTheme();
+  applyCatalogStateFromUrl();
   initYearControls();
   initRatingControls();
   bindEvents();
@@ -519,7 +536,8 @@ async function init() {
     loadRegions();
     syncFilterUiFromPending();
     syncAiSearchUi();
-    await loadContent(1);
+    syncFavoriteToggleText();
+    await loadContent(state.initialPageFromUrl || 1);
     await openKinoWallFromHashIfNeeded();
   } catch (error) {
     console.error('[init]', error);
@@ -610,8 +628,20 @@ function bindEvents() {
 
   favoriteToggle.addEventListener('click', async () => {
     state.showFavoritesOnly = !state.showFavoritesOnly;
-    favoriteToggle.textContent = state.showFavoritesOnly ? 'Показать всё' : 'Показать избранное';
+    syncFavoriteToggleText();
     await loadContent(1);
+  });
+
+  catalogSortSelect?.addEventListener('change', () => {
+    state.pendingFilters.sortKey = normalizeSortKey(catalogSortSelect.value);
+    syncSortControls();
+    markFiltersDirty();
+  });
+
+  sortDirectionToggle?.addEventListener('click', () => {
+    state.pendingFilters.sortDirection = state.pendingFilters.sortDirection === 'asc' ? 'desc' : 'asc';
+    syncSortControls();
+    markFiltersDirty();
   });
 
   typeButtons.addEventListener('click', (event) => {
@@ -1618,6 +1648,7 @@ function initRatingControls() {
 }
 
 function syncFilterUiFromPending() {
+  syncSortControls();
   syncTypeButtons();
   syncExcludeModeToggleUi();
   renderGenreTags();
@@ -1644,6 +1675,23 @@ function syncFilterUiFromPending() {
   const ratingToPercent = ((state.pendingFilters.ratingTo - MIN_RATING) / ratingRange) * 100;
   ratingSliderRange.style.left = `${ratingFromPercent}%`;
   ratingSliderRange.style.width = `${Math.max(0, ratingToPercent - ratingFromPercent)}%`;
+}
+
+function syncSortControls() {
+  if (catalogSortSelect) {
+    catalogSortSelect.value = normalizeSortKey(state.pendingFilters.sortKey);
+  }
+
+  const isDesc = normalizeSortDirection(state.pendingFilters.sortDirection) === 'desc';
+  if (sortDirectionToggle) {
+    sortDirectionToggle.classList.toggle('is-desc', isDesc);
+    sortDirectionToggle.setAttribute('aria-checked', String(isDesc));
+  }
+
+  document.querySelectorAll('.sort-direction-text').forEach((label) => {
+    const isAscLabel = label.classList.contains('sort-direction-asc');
+    label.classList.toggle('active', isDesc ? !isAscLabel : isAscLabel);
+  });
 }
 
 function syncTypeButtons() {
@@ -2629,7 +2677,9 @@ async function executeAiSearchPlan(plan, page) {
     };
   }, {
     extraFilter: (item) => matchesAiPlanFilters(item, plan),
-    sorter: (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b),
+    sorter: isDefaultCatalogSort()
+      ? (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b)
+      : getCatalogSorter(),
     cacheKey: buildCatalogCollectionKey('ai-search', { plan: summarizeAiPlanForCache(plan), textQuery: effectiveTextQuery })
   });
 }
@@ -2713,8 +2763,10 @@ function buildAiDiscoverParams(mediaType, page, plan) {
   if (mediaType === 'tv' && plan.forTv.onlyCurrentlyAiring) {
     params.with_status = `${TMDB_TV_STATUS_CODES.returning}|${TMDB_TV_STATUS_CODES.inProduction}`;
     params['air_date.gte'] = getLocalDateString();
-    params.sort_by = 'popularity.desc';
-  } else {
+    if (isDefaultCatalogSort()) {
+      params.sort_by = 'popularity.desc';
+    }
+  } else if (isDefaultCatalogSort()) {
     params.sort_by = coerceAiSortByForMediaType(plan.sortBy, mediaType);
   }
 
@@ -3297,6 +3349,7 @@ async function loadContent(page = 1) {
     state.totalPages = Math.max(1, payload.totalPages || 1);
     state.currentPage = Math.min(requestedPage, state.totalPages);
     state.catalogLoading = false;
+    writeCatalogStateToUrl(state.currentPage);
 
     if (!payload.items.length) {
       renderNoResults();
@@ -3321,6 +3374,139 @@ async function loadContent(page = 1) {
 function normalizeCatalogPageNumber(page) {
   const value = Number(page);
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+}
+
+function normalizeSortKey(value) {
+  const key = String(value || '').trim();
+  return Object.prototype.hasOwnProperty.call(CATALOG_SORT_OPTIONS, key) ? key : DEFAULT_SORT_KEY;
+}
+
+function normalizeSortDirection(value) {
+  return String(value || '').toLowerCase() === 'asc' ? 'asc' : DEFAULT_SORT_DIRECTION;
+}
+
+function isDefaultCatalogSort(filters = state.appliedFilters) {
+  return normalizeSortKey(filters.sortKey) === DEFAULT_SORT_KEY && normalizeSortDirection(filters.sortDirection) === DEFAULT_SORT_DIRECTION;
+}
+
+function syncFavoriteToggleText() {
+  if (favoriteToggle) {
+    favoriteToggle.textContent = state.showFavoritesOnly ? 'Показать всё' : 'Показать избранное';
+  }
+}
+
+function splitUrlList(value) {
+  return String(value || '')
+    .split(',')
+    .map((part) => {
+      const raw = String(part || '').trim();
+      if (!raw) return '';
+      try {
+        return decodeURIComponent(raw).trim();
+      } catch (error) {
+        return raw;
+      }
+    })
+    .filter(Boolean);
+}
+
+function applyCatalogStateFromUrl() {
+  const params = new URLSearchParams(window.location.search || '');
+  const nextFilters = createDefaultFilters();
+
+  nextFilters.sortKey = normalizeSortKey(params.get('sort'));
+  nextFilters.sortDirection = normalizeSortDirection(params.get('dir'));
+
+  const type = String(params.get('type') || '').toLowerCase();
+  if (type === 'movie' || type === 'tv') {
+    nextFilters.type = type;
+  }
+
+  if (params.has('year_from')) nextFilters.yearFrom = clampYear(Number(params.get('year_from')));
+  if (params.has('year_to')) nextFilters.yearTo = clampYear(Number(params.get('year_to')));
+  if (nextFilters.yearFrom > nextFilters.yearTo) {
+    [nextFilters.yearFrom, nextFilters.yearTo] = [nextFilters.yearTo, nextFilters.yearFrom];
+  }
+
+  if (params.has('rating_from')) nextFilters.ratingFrom = clampRating(Number(String(params.get('rating_from')).replace(',', '.')));
+  if (params.has('rating_to')) nextFilters.ratingTo = clampRating(Number(String(params.get('rating_to')).replace(',', '.')));
+  if (nextFilters.ratingFrom > nextFilters.ratingTo) {
+    [nextFilters.ratingFrom, nextFilters.ratingTo] = [nextFilters.ratingTo, nextFilters.ratingFrom];
+  }
+
+  nextFilters.genres = splitUrlList(params.get('genres')).map(makeGenreKey).sort();
+
+  const excludeMode = String(params.get('exclude_mode') || '').toLowerCase();
+  if (excludeMode === 'regions') {
+    nextFilters.excludeMode = 'regions';
+    nextFilters.excludedRegions = splitUrlList(params.get('exclude_regions')).sort();
+  } else {
+    nextFilters.excludeMode = 'countries';
+    nextFilters.excludedCountries = splitUrlList(params.get('exclude_countries')).map((code) => code.toUpperCase()).sort();
+  }
+
+  state.appliedFilters = cloneFilters(nextFilters);
+  state.pendingFilters = cloneFilters(nextFilters);
+  state.query = String(params.get('q') || '').trim();
+  state.showFavoritesOnly = params.get('fav') === '1';
+  state.aiSearch.enabled = params.get('ai') === '1';
+  state.initialPageFromUrl = normalizeCatalogPageNumber(params.get('page') || 1);
+
+  if (search) {
+    search.value = state.query;
+  }
+}
+
+function shouldWriteCatalogParamList(values) {
+  return Array.isArray(values) && values.length > 0;
+}
+
+function writeCatalogStateToUrl(page = state.currentPage) {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return;
+
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams();
+  const filters = cloneFilters(state.appliedFilters);
+  const safePage = normalizeCatalogPageNumber(page);
+
+  if (safePage > 1) params.set('page', String(safePage));
+  if (state.query) params.set('q', state.query);
+  if (state.aiSearch.enabled) params.set('ai', '1');
+  if (state.showFavoritesOnly) params.set('fav', '1');
+
+  if (filters.type !== 'all') params.set('type', filters.type);
+  if (!isDefaultCatalogSort(filters)) {
+    params.set('sort', filters.sortKey);
+    params.set('dir', filters.sortDirection);
+  }
+
+  if (filters.yearFrom !== MIN_YEAR) params.set('year_from', String(filters.yearFrom));
+  if (filters.yearTo !== CURRENT_YEAR) params.set('year_to', String(filters.yearTo));
+  if (filters.ratingFrom !== MIN_RATING) params.set('rating_from', formatRatingControlValue(filters.ratingFrom));
+  if (filters.ratingTo !== MAX_RATING) params.set('rating_to', formatRatingControlValue(filters.ratingTo));
+  if (shouldWriteCatalogParamList(filters.genres)) params.set('genres', filters.genres.join(','));
+
+  if (filters.excludeMode === 'regions' && shouldWriteCatalogParamList(filters.excludedRegions)) {
+    params.set('exclude_mode', 'regions');
+    params.set('exclude_regions', filters.excludedRegions.join(','));
+  } else if (shouldWriteCatalogParamList(filters.excludedCountries)) {
+    params.set('exclude_mode', 'countries');
+    params.set('exclude_countries', filters.excludedCountries.join(','));
+  }
+
+  url.search = params.toString();
+
+  try {
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch (error) {
+    console.warn('[writeCatalogStateToUrl]', error);
+  }
+}
+
+function navigateBackToCatalog() {
+  const url = new URL(window.location.href);
+  url.hash = '';
+  window.location.href = url.toString();
 }
 
 function getCatalogSliceRange(page, pageSize = CATALOG_PAGE_SIZE) {
@@ -3474,6 +3660,7 @@ async function fetchDiscoverContent(page) {
         totalPages: response.total_pages || 1
       };
     }, {
+      sorter: getCatalogSorter(),
       cacheKey: buildCatalogCollectionKey('discover', { type })
     });
 
@@ -3508,7 +3695,7 @@ async function fetchDiscoverContent(page) {
       totalPages: Math.max(movieResponse.total_pages || 1, tvResponse.total_pages || 1)
     };
   }, {
-    sorter: sortByPopularity,
+    sorter: getCatalogSorter(),
     cacheKey: buildCatalogCollectionKey('discover', { type: 'all' })
   });
 
@@ -3530,6 +3717,7 @@ async function fetchSearchContent(page) {
         totalPages: response.total_pages || 1
       };
     }, {
+      sorter: getCatalogSorter(),
       cacheKey: buildCatalogCollectionKey('search', { type })
     });
 
@@ -3548,6 +3736,7 @@ async function fetchSearchContent(page) {
       totalPages: response.total_pages || 1
     };
   }, {
+    sorter: getCatalogSorter(),
     cacheKey: buildCatalogCollectionKey('search', { type: 'all' })
   });
 
@@ -3581,7 +3770,7 @@ async function fetchFavoritesContent() {
   );
 
   const hydratedItems = await hydrateItemsForClientFilters(details.filter(Boolean));
-  const items = hydratedItems.filter(matchesClientSideFilters).sort(sortByPopularity);
+  const items = hydratedItems.filter(matchesClientSideFilters).sort(getCatalogSorter());
 
   return {
     items,
@@ -3595,7 +3784,7 @@ function buildDiscoverParams(mediaType, page) {
     api_key: API_KEY,
     language: 'ru-RU',
     include_adult: 'false',
-    sort_by: 'popularity.desc',
+    sort_by: getDiscoverSortBy(mediaType),
     page: String(page)
   };
 
@@ -4376,6 +4565,7 @@ function buildStatusText(count, searchMode = false) {
 
   const typeLabel = state.appliedFilters.type === 'movie' ? 'только фильмы' : state.appliedFilters.type === 'tv' ? 'только сериалы' : 'фильмы и сериалы';
   parts.push(typeLabel);
+  parts.push(`сортировка: ${getCatalogSortLabel()}`);
 
   if (state.appliedFilters.yearFrom === state.appliedFilters.yearTo) {
     parts.push(`год: ${state.appliedFilters.yearFrom}`);
@@ -4634,6 +4824,7 @@ function normalizeItem(item, mediaTypeHint = 'movie') {
     overview: item.overview || '',
     releaseDate,
     voteAverage: Number(item.vote_average || 0),
+    voteCount: Number(item.vote_count || 0),
     popularity: Number(item.popularity || 0),
     genreIds,
     countryCodes: extractCountryCodes(item),
@@ -4649,6 +4840,61 @@ function buildImageUrl(path) {
 
 function sortByPopularity(a, b) {
   return Number(b.popularity || 0) - Number(a.popularity || 0);
+}
+
+function getCatalogSortLabel(filters = state.appliedFilters) {
+  const option = CATALOG_SORT_OPTIONS[normalizeSortKey(filters.sortKey)] || CATALOG_SORT_OPTIONS[DEFAULT_SORT_KEY];
+  const direction = normalizeSortDirection(filters.sortDirection) === 'asc' ? 'возрастание' : 'убывание';
+  return `${option.label}, ${direction}`;
+}
+
+function getDiscoverSortBy(mediaType) {
+  const sortKey = normalizeSortKey(state.appliedFilters.sortKey);
+  const direction = normalizeSortDirection(state.appliedFilters.sortDirection);
+  const option = CATALOG_SORT_OPTIONS[sortKey] || CATALOG_SORT_OPTIONS[DEFAULT_SORT_KEY];
+  const field = mediaType === 'tv' ? option.tvSort : option.movieSort;
+  return `${field}.${direction}`;
+}
+
+function compareTextValues(aValue, bValue) {
+  return String(aValue || '').localeCompare(String(bValue || ''), 'ru', { sensitivity: 'base', numeric: true });
+}
+
+function compareDateValues(aValue, bValue) {
+  const aTime = Date.parse(aValue || '') || 0;
+  const bTime = Date.parse(bValue || '') || 0;
+  return aTime - bTime;
+}
+
+function getCatalogSorter(filters = state.appliedFilters) {
+  const sortKey = normalizeSortKey(filters.sortKey);
+  const direction = normalizeSortDirection(filters.sortDirection);
+  const modifier = direction === 'asc' ? 1 : -1;
+
+  return (a, b) => {
+    let result = 0;
+
+    if (sortKey === 'alphabet') {
+      result = compareTextValues(a?.title, b?.title);
+    } else if (sortKey === 'release_date') {
+      result = compareDateValues(a?.releaseDate, b?.releaseDate);
+    } else if (sortKey === 'rating') {
+      result = Number(a?.voteAverage || 0) - Number(b?.voteAverage || 0);
+    } else if (sortKey === 'vote_count') {
+      result = Number(a?.voteCount || 0) - Number(b?.voteCount || 0);
+    } else {
+      result = Number(a?.popularity || 0) - Number(b?.popularity || 0);
+    }
+
+    if (result === 0) {
+      result = Number(a?.popularity || 0) - Number(b?.popularity || 0);
+    }
+    if (result === 0) {
+      result = compareTextValues(a?.title, b?.title);
+    }
+
+    return result * modifier;
+  };
 }
 
 async function apiFetch(path, params = {}) {
@@ -4899,7 +5145,7 @@ function renderPlayerShell(meta = {}) {
           <div style="font-size:20px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${safeTitle}</div>
           <div style="font-size:12px;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${safeSubtitle || 'Подбираем доступные источники...'}</div>
         </div>
-        <button id="rmp-home-button" style="flex:0 0 auto;background:#fff;color:#111;font-size:14px;font-weight:700;border:0;border-radius:999px;padding:10px 16px;cursor:pointer;">← На главную</button>
+        <button id="rmp-home-button" style="flex:0 0 auto;background:#fff;color:#111;font-size:14px;font-weight:700;border:0;border-radius:999px;padding:10px 16px;cursor:pointer;">← Обратно к каталогу</button>
       </div>
       <div style="flex:1;display:flex;align-items:stretch;justify-content:center;padding:18px;overflow:auto;">
         <div style="width:min(1480px,100%);display:flex;flex-direction:column;gap:14px;">
@@ -4911,9 +5157,7 @@ function renderPlayerShell(meta = {}) {
     </div>
   `;
 
-  document.getElementById('rmp-home-button').addEventListener('click', () => {
-    window.location.href = 'index.html';
-  });
+  document.getElementById('rmp-home-button').addEventListener('click', navigateBackToCatalog);
 }
 
 function setPlayerStatus(message) {
@@ -5021,7 +5265,7 @@ function openPlayerError(message) {
       <div style="max-width:720px;width:100%;background:#14141b;border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.4);text-align:center;">
         <h1 style="margin:0 0 12px;font-size:28px;">Не удалось открыть плеер</h1>
         <p style="margin:0 0 20px;color:rgba(255,255,255,.72);line-height:1.6;">${escapeHtml(message)}</p>
-        <button onclick="window.location.href='index.html'" style="background:#fff;color:#111;border:0;border-radius:999px;padding:12px 18px;font-size:15px;font-weight:700;cursor:pointer;">← Вернуться на главную</button>
+        <button onclick="const u=new URL(window.location.href);u.hash='';window.location.href=u.toString();" style="background:#fff;color:#111;border:0;border-radius:999px;padding:12px 18px;font-size:15px;font-weight:700;cursor:pointer;">← Обратно к каталогу</button>
       </div>
     </div>
   `;
@@ -7076,7 +7320,7 @@ function renderPlayerShell(meta = {}) {
           <div class="rmp-player-title">${safeTitle}</div>
           <div class="rmp-player-subtitle">${safeSubtitle || 'Подбираем доступные источники...'}</div>
         </div>
-        <button id="rmp-home-button" class="rmp-player-home">← На главную</button>
+        <button id="rmp-home-button" class="rmp-player-home">← Обратно к каталогу</button>
       </div>
       <div class="rmp-player-page">
         <div class="rmp-player-inner">
@@ -7089,9 +7333,7 @@ function renderPlayerShell(meta = {}) {
     </div>
   `;
 
-  document.getElementById('rmp-home-button').addEventListener('click', () => {
-    window.location.href = 'index.html';
-  });
+  document.getElementById('rmp-home-button').addEventListener('click', navigateBackToCatalog);
   bindKinoWallPlayerReviewEvents(meta);
 }
 

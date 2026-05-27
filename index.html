@@ -66,6 +66,26 @@
           <h2 class="sidebar-title">Доп. фильтры</h2>
         </div>
 
+        <div class="filter-block sort-filter-block">
+          <label class="filter-label" for="catalogSortSelect">Сортировка</label>
+          <select id="catalogSortSelect" class="catalog-sort-select" aria-label="Сортировка каталога">
+            <option value="popularity">По популярности TMDb</option>
+            <option value="rating">По рейтингу TMDb</option>
+            <option value="vote_count">По количеству оценок</option>
+            <option value="release_date">По дате выхода</option>
+            <option value="alphabet">По алфавиту</option>
+          </select>
+          <div class="sort-direction-row" aria-label="Направление сортировки">
+            <span class="sort-direction-text sort-direction-asc">Возрастание</span>
+            <button type="button" id="sortDirectionToggle" class="sort-direction-toggle is-desc" role="switch" aria-checked="true" aria-label="Переключить возрастание и убывание">
+              <span class="sort-direction-toggle-track">
+                <span class="sort-direction-toggle-thumb"></span>
+              </span>
+            </button>
+            <span class="sort-direction-text sort-direction-desc active">Убывание</span>
+          </div>
+        </div>
+
         <div class="filter-block">
           <div class="filter-label">Тип</div>
           <div id="typeButtons" class="type-buttons">
