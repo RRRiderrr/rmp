@@ -32,6 +32,8 @@ const KSAWER_EASTER_PHRASES_FILE = 'ksawer_phrases.txt';
 const KINOWALL_STORAGE_KEY = 'rmpKinoWallProfile';
 const KINOWALL_VERSION = 1;
 const KINOWALL_SHARE_HASH_PREFIX = 'wall=';
+const CATALOG_RETURN_SESSION_KEY = 'rmpCatalogReturnRoute';
+const CATALOG_RETURN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const KSAWER_EASTER_FALLBACK_PHRASES = [
   "Ты умеешь делать обычный день подозрительно красивым.",
   "С тобой даже пауза в переписке звучит как интрига.",
@@ -537,6 +539,7 @@ document.addEventListener('visibilitychange', () => {
 
 async function init() {
   initTheme();
+  cleanPlayerRouteSearchIfNeeded();
   applyCatalogStateFromUrl();
   initYearControls();
   initRatingControls();
@@ -796,7 +799,7 @@ function bindEvents() {
 
       try {
         const payload = await buildPlayerPayloadFromId(id, mediaType);
-        window.location.hash = `${mediaType}-${id}`;
+        navigateToCleanPlayerRoute(mediaType, id);
         await openKinoBox(payload);
       } catch (error) {
         console.error('[watch-online]', error);
@@ -948,6 +951,7 @@ function bindEvents() {
       return;
     }
     if (!isPlayerRouteHash(rawHash)) return;
+    cleanPlayerRouteSearchIfNeeded();
     markUserMadeCatalogChoice();
     try {
       const payload = await buildPlayerPayloadFromHash(rawHash);
@@ -3317,7 +3321,7 @@ async function watchRouletteWinner() {
 
   try {
     const payload = await buildPlayerPayloadFromId(winner.id, winner.mediaType);
-    window.location.hash = `${winner.mediaType}-${winner.id}`;
+    navigateToCleanPlayerRoute(winner.mediaType, winner.id);
     await openKinoBox(payload);
   } catch (error) {
     console.error('[watchRouletteWinner]', error);
@@ -3462,6 +3466,96 @@ function splitUrlList(value) {
     .filter(Boolean);
 }
 
+function getCurrentCatalogReturnPath() {
+  const path = window.location.pathname || '/';
+  const searchPart = window.location.search || '';
+  return `${path}${searchPart}`;
+}
+
+function rememberCatalogReturnRoute(mediaType, id) {
+  if (typeof window === 'undefined' || !window.sessionStorage) return;
+  const safeMediaType = mediaType === 'tv' ? 'tv' : 'movie';
+  const safeId = Number(id);
+  if (!Number.isFinite(safeId) || safeId <= 0) return;
+
+  const returnPath = getCurrentCatalogReturnPath();
+  const payload = {
+    hash: `${safeMediaType}-${Math.floor(safeId)}`,
+    returnPath,
+    createdAt: Date.now()
+  };
+
+  try {
+    window.sessionStorage.setItem(CATALOG_RETURN_SESSION_KEY, JSON.stringify(payload));
+  } catch (error) {
+    // sessionStorage может быть недоступен в приватном режиме — тогда просто вернёмся в обычный каталог.
+  }
+}
+
+function readCatalogReturnPathForCurrentPlayer() {
+  if (typeof window === 'undefined' || !window.sessionStorage) return '';
+  try {
+    const raw = window.sessionStorage.getItem(CATALOG_RETURN_SESSION_KEY);
+    if (!raw) return '';
+    const payload = JSON.parse(raw);
+    const currentHash = String(window.location.hash || '').replace(/^#/, '').trim();
+    const savedHash = String(payload?.hash || '').trim();
+    const createdAt = Number(payload?.createdAt || 0);
+    const returnPath = String(payload?.returnPath || '').trim();
+
+    if (!savedHash || savedHash !== currentHash) return '';
+    if (!returnPath || returnPath.includes('#')) return '';
+    if (createdAt && Date.now() - createdAt > CATALOG_RETURN_MAX_AGE_MS) return '';
+    if (!returnPath.startsWith('/')) return '';
+    return returnPath;
+  } catch (error) {
+    return '';
+  }
+}
+
+function clearCatalogReturnRoute() {
+  if (typeof window === 'undefined' || !window.sessionStorage) return;
+  try {
+    window.sessionStorage.removeItem(CATALOG_RETURN_SESSION_KEY);
+  } catch (error) {
+    // ignore
+  }
+}
+
+function navigateToCleanPlayerRoute(mediaType, id) {
+  const safeMediaType = mediaType === 'tv' ? 'tv' : 'movie';
+  const safeId = Number(id);
+  if (!Number.isFinite(safeId) || safeId <= 0) return;
+
+  const hash = `${safeMediaType}-${Math.floor(safeId)}`;
+  rememberCatalogReturnRoute(safeMediaType, safeId);
+
+  try {
+    const url = new URL(window.location.href);
+    const cleanRoute = `${url.pathname}#${hash}`;
+    if (window.history?.pushState) {
+      window.history.pushState(null, '', cleanRoute);
+    } else {
+      window.location.hash = hash;
+    }
+  } catch (error) {
+    window.location.hash = hash;
+  }
+}
+
+function cleanPlayerRouteSearchIfNeeded() {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return;
+  if (!isPlayerRouteHash(window.location.hash)) return;
+  if (!window.location.search) return;
+
+  try {
+    const url = new URL(window.location.href);
+    window.history.replaceState(null, '', `${url.pathname}${url.hash}`);
+  } catch (error) {
+    // Если браузер не дал переписать URL — просто оставляем старую ссылку, просмотр не ломаем.
+  }
+}
+
 function applyCatalogStateFromUrl() {
   const params = new URLSearchParams(window.location.search || '');
   const nextFilters = createDefaultFilters();
@@ -3556,7 +3650,16 @@ function writeCatalogStateToUrl(page = state.currentPage) {
 }
 
 function navigateBackToCatalog() {
+  const storedReturnPath = readCatalogReturnPathForCurrentPlayer();
+  clearCatalogReturnRoute();
+
+  if (storedReturnPath) {
+    window.location.href = `${window.location.origin}${storedReturnPath}`;
+    return;
+  }
+
   const url = new URL(window.location.href);
+  url.search = '';
   url.hash = '';
   window.location.href = url.toString();
 }
@@ -5372,7 +5475,7 @@ function openPlayerError(message) {
       <div style="max-width:720px;width:100%;background:#14141b;border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.4);text-align:center;">
         <h1 style="margin:0 0 12px;font-size:28px;">Не удалось открыть плеер</h1>
         <p style="margin:0 0 20px;color:rgba(255,255,255,.72);line-height:1.6;">${escapeHtml(message)}</p>
-        <button onclick="const u=new URL(window.location.href);u.hash='';window.location.href=u.toString();" style="background:#fff;color:#111;border:0;border-radius:999px;padding:12px 18px;font-size:15px;font-weight:700;cursor:pointer;">← Обратно к каталогу</button>
+        <button onclick="navigateBackToCatalog()" style="background:#fff;color:#111;border:0;border-radius:999px;padding:12px 18px;font-size:15px;font-weight:700;cursor:pointer;">← Обратно к каталогу</button>
       </div>
     </div>
   `;
@@ -5386,6 +5489,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   if (!isPlayerRouteHash(rawHash)) return;
+  cleanPlayerRouteSearchIfNeeded();
   markUserMadeCatalogChoice();
   try {
     const payload = await buildPlayerPayloadFromHash(rawHash);
@@ -5982,7 +6086,7 @@ function bindKinoWallOverviewEvents(data) {
       const id = Number(button.dataset.kwWatch);
       const mediaType = button.dataset.mediaType === 'tv' ? 'tv' : 'movie';
       const payload = await buildPlayerPayloadFromId(id, mediaType);
-      window.location.hash = `${mediaType}-${id}`;
+      navigateToCleanPlayerRoute(mediaType, id);
       await openKinoBox(payload);
     });
   });
@@ -7856,7 +7960,7 @@ function bindKinoWallOverviewEvents(data) {
       const id = Number(button.dataset.kwWatch);
       const mediaType = button.dataset.mediaType === 'tv' ? 'tv' : 'movie';
       const payload = await buildPlayerPayloadFromId(id, mediaType);
-      window.location.hash = `${mediaType}-${id}`;
+      navigateToCleanPlayerRoute(mediaType, id);
       await openKinoBox(payload);
     });
   });
