@@ -287,6 +287,19 @@ const GENRE_LABEL_FALLBACKS = new Map([
   ['war & politics', 'Война и политика']
 ]);
 
+
+const GENRE_COMPATIBILITY_ALIASES = [
+  { label: 'Приключения', tvIds: [10759] },
+  { label: 'Боевик', tvIds: [10759] },
+  { label: 'Боевик и приключения', movieIds: [12, 28] },
+  { label: 'Фантастика', tvIds: [10765] },
+  { label: 'Фэнтези', tvIds: [10765] },
+  { label: 'Фантастика и фэнтези', movieIds: [14, 878] },
+  { label: 'Военный', tvIds: [10768] },
+  { label: 'Война и политика', movieIds: [36, 10752] },
+  { label: 'Для детей', movieIds: [16, 10751] }
+];
+
 const main = document.getElementById('main');
 const form = document.getElementById('form');
 const search = document.getElementById('search');
@@ -1766,8 +1779,31 @@ async function loadGenres() {
     }
   }
 
+  applyGenreCompatibilityAliases(genreMap);
+
   state.genres = Array.from(genreMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'ru'));
   state.genresByKey = new Map(state.genres.map((genre) => [genre.key, genre]));
+}
+
+function applyGenreCompatibilityAliases(genreMap) {
+  for (const alias of GENRE_COMPATIBILITY_ALIASES) {
+    const key = makeGenreKey(alias.label);
+    if (!genreMap.has(key)) {
+      genreMap.set(key, { key, label: alias.label, movieIds: [], tvIds: [] });
+    }
+
+    const target = genreMap.get(key);
+    for (const id of alias.movieIds || []) {
+      if (!target.movieIds.includes(id)) {
+        target.movieIds.push(id);
+      }
+    }
+    for (const id of alias.tvIds || []) {
+      if (!target.tvIds.includes(id)) {
+        target.tvIds.push(id);
+      }
+    }
+  }
 }
 
 async function loadCountries() {
@@ -3652,6 +3688,14 @@ async function fetchDiscoverContent(page) {
   const { type } = state.appliedFilters;
 
   if (type === 'movie' || type === 'tv') {
+    if (hasImpossibleGenreCombination(type)) {
+      return {
+        items: [],
+        totalPages: 1,
+        statusText: buildStatusText(0)
+      };
+    }
+
     const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
     const payload = await collectFilteredCatalogPage(page, async (rawPage) => {
       const response = await apiFetch(endpoint, buildDiscoverParams(type, rawPage));
@@ -3843,18 +3887,19 @@ function getSelectedGenreIdsForType(mediaType) {
     return { impossible: false, value: '' };
   }
 
-  const ids = [];
+  const genreGroups = [];
   for (const selectedKey of state.appliedFilters.genres) {
     const option = state.genresByKey.get(selectedKey);
     if (!option) continue;
     const relevantIds = mediaType === 'movie' ? option.movieIds : option.tvIds;
-    if (!relevantIds.length) {
+    const uniqueIds = Array.from(new Set(relevantIds.map((id) => Number(id)).filter(Boolean)));
+    if (!uniqueIds.length) {
       return { impossible: true, value: '' };
     }
-    ids.push(...relevantIds);
+    genreGroups.push(uniqueIds.length > 1 ? uniqueIds.join('|') : String(uniqueIds[0]));
   }
 
-  return { impossible: false, value: ids.join(',') };
+  return { impossible: false, value: genreGroups.join(',') };
 }
 
 function hasImpossibleGenreCombination(mediaType) {
