@@ -10600,3 +10600,19 @@ body.rmp-v3 .v3-page-number:disabled {
 body.rmp-v3 .v3-page-ellipsis {
   pointer-events: none !important;
 }
+
+
+
+
+/* ===== RMP FIX v19: reliable muted autoplay + no YouTube hover UI on hero ===== */
+body.rmp-v3 .v3-hero-player,
+body.rmp-v3 .v3-hero-player iframe,
+body.rmp-v3 #v3HeroYoutubeFrame {
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-drag: none !important;
+}
+
+body.rmp-v3 .v3-hero.is-autoplay-muted .v3-hero-player {
+  opacity: .56 !important;
+}
