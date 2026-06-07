@@ -10104,7 +10104,8 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
       modestbranding: 1,
       rel: 0,
       playsinline: 1,
-      loop: 0,
+      loop: 1,
+      playlist: videoKey,
       origin: window.location.origin && window.location.origin !== 'null' ? window.location.origin : undefined
     },
     events: {
@@ -10117,8 +10118,19 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
             event.target.mute();
           } else {
             event.target.unMute();
+            event.target.setVolume?.(100);
           }
           event.target.playVideo();
+          [120, 360, 850].forEach((delay) => window.setTimeout(() => {
+            if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+            try {
+              if (!v3UiState.heroMuted) {
+                event.target.unMute?.();
+                event.target.setVolume?.(100);
+              }
+              event.target.playVideo?.();
+            } catch (retryError) { /* ignore autoplay retry */ }
+          }, delay));
           window.setTimeout(() => {
             if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
             try {
