@@ -408,6 +408,8 @@ const RMP_V3_EVENT_AMBIENT_MAX_DELAY = 5200;
 
 const V3_HERO_CANDIDATE_LIMIT = 10;
 const V3_HERO_VIDEO_LANGUAGES = 'ru-RU,ru,en-US,en,null';
+const V3_HERO_RANDOM_RAW_PAGE_LIMIT = 120;
+const V3_HERO_RANDOM_POOL_SIZE = 24;
 
 
 const PALETTE_COLOR_FIELDS = [
@@ -541,6 +543,8 @@ const state = {
 const v3UiState = {
   version: 'v3',
   heroSeq: 0,
+  heroRandomSeq: 0,
+  heroRandomRecentKeys: [],
   heroItem: null,
   heroVideoQueue: [],
   heroVideoIndex: 0,
@@ -3531,7 +3535,7 @@ async function loadContent(page = 1) {
       renderMovies(payload.items);
       queueEpisodeCalendarAvailability(payload.items);
       if (allowV3Hero) {
-        updateV3HeroFromItems(payload.items);
+        updateV3HeroRandom();
       } else {
         hideV3Hero();
         clearV3HeroPlayer();
@@ -9726,7 +9730,7 @@ function applyUiVersionState(nextVersion, options = {}) {
     document.body?.classList.add('v3-sound-ready');
     const visibleItems = getVisibleCatalogItemsFromDom();
     if (visibleItems.length && !shouldSuppressV3HeroForCurrentState()) {
-      updateV3HeroFromItems(visibleItems);
+      updateV3HeroRandom();
     } else {
       hideV3Hero();
       clearV3HeroPlayer();
@@ -9879,6 +9883,134 @@ function playV3ClickSound(kind = 'click') {
     // optional tactile audio
   }
 }
+
+function shuffleArray(items = []) {
+  const result = Array.isArray(items) ? [...items] : [];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[randomIndex]] = [result[randomIndex], result[index]];
+  }
+  return result;
+}
+
+function buildV3HeroRandomKey(item) {
+  return `${item?.mediaType || 'movie'}:${Number(item?.id || 0)}`;
+}
+
+function rememberV3HeroRandomKey(item) {
+  const key = buildV3HeroRandomKey(item);
+  if (!key || key.endsWith(':0')) return;
+  v3UiState.heroRandomRecentKeys = [
+    key,
+    ...(v3UiState.heroRandomRecentKeys || []).filter((entry) => entry !== key)
+  ].slice(0, 18);
+}
+
+function filterRecentV3HeroRandomItems(items = []) {
+  const recent = new Set(v3UiState.heroRandomRecentKeys || []);
+  const fresh = items.filter((item) => !recent.has(buildV3HeroRandomKey(item)));
+  return fresh.length ? fresh : items;
+}
+
+function pickRandomV3HeroMediaTypes() {
+  const type = state.appliedFilters.type;
+  if (type === 'movie' || type === 'tv') return [type];
+  return Math.random() > 0.5 ? ['movie', 'tv'] : ['tv', 'movie'];
+}
+
+async function fetchRandomV3HeroPoolForType(mediaType, page) {
+  const endpoint = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
+  const response = await apiFetch(endpoint, buildDiscoverParams(mediaType, page));
+  const items = (response.results || [])
+    .map((item) => normalizeItem(item, mediaType))
+    .filter((item) => item?.id && item.mediaType && item.posterUrl);
+  return {
+    items,
+    totalPages: normalizeSourceTotalPages(response.total_pages || 1)
+  };
+}
+
+async function fetchRandomV3HeroCandidates() {
+  const types = pickRandomV3HeroMediaTypes();
+  const gathered = [];
+  let maxKnownPages = 1;
+
+  for (const mediaType of types) {
+    if (hasImpossibleGenreCombination(mediaType)) continue;
+
+    const probePage = Math.max(1, Math.floor(Math.random() * 8) + 1);
+    const probe = await fetchRandomV3HeroPoolForType(mediaType, probePage).catch(() => ({ items: [], totalPages: 1 }));
+    maxKnownPages = Math.max(maxKnownPages, probe.totalPages || 1);
+
+    if (probe.items.length) gathered.push(...probe.items);
+
+    const maxPage = Math.max(1, Math.min(V3_HERO_RANDOM_RAW_PAGE_LIMIT, probe.totalPages || maxKnownPages || 1));
+    const extraPages = new Set();
+    while (extraPages.size < 3 && maxPage > 1) {
+      extraPages.add(Math.max(1, Math.floor(Math.random() * maxPage) + 1));
+    }
+
+    const extraResults = await Promise.allSettled(
+      [...extraPages].map((page) => fetchRandomV3HeroPoolForType(mediaType, page))
+    );
+
+    for (const result of extraResults) {
+      if (result.status !== 'fulfilled' || !result.value) continue;
+      gathered.push(...(result.value.items || []));
+      maxKnownPages = Math.max(maxKnownPages, result.value.totalPages || 1);
+    }
+
+    if (gathered.length >= V3_HERO_RANDOM_POOL_SIZE) break;
+  }
+
+  const deduped = [];
+  const seen = new Set();
+  for (const item of gathered) {
+    const key = buildV3HeroRandomKey(item);
+    if (!key || key.endsWith(':0') || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+
+  return shuffleArray(filterRecentV3HeroRandomItems(deduped)).slice(0, V3_HERO_CANDIDATE_LIMIT);
+}
+
+async function updateV3HeroRandom(options = {}) {
+  const randomSeq = (v3UiState.heroRandomSeq || 0) + 1;
+  v3UiState.heroRandomSeq = randomSeq;
+
+  if (!isV3UiActive() || !v3Hero || shouldSuppressV3HeroForCurrentState()) {
+    hideV3Hero();
+    clearV3HeroPlayer();
+    return;
+  }
+
+  try {
+    const candidates = await fetchRandomV3HeroCandidates();
+    if (randomSeq !== v3UiState.heroRandomSeq || !isV3UiActive()) return;
+
+    if (candidates.length) {
+      await updateV3HeroFromItems(candidates);
+      return;
+    }
+
+    const visibleFallback = getVisibleCatalogItemsFromDom();
+    if (visibleFallback.length) {
+      await updateV3HeroFromItems(shuffleArray(visibleFallback));
+      return;
+    }
+
+    hideV3Hero();
+    clearV3HeroPlayer();
+  } catch (error) {
+    console.warn('[v3 hero] random hero failed', error);
+    const visibleFallback = getVisibleCatalogItemsFromDom();
+    if (visibleFallback.length) {
+      await updateV3HeroFromItems(shuffleArray(visibleFallback));
+    }
+  }
+}
+
 function getVisibleCatalogItemsFromDom() {
   return Array.from(document.querySelectorAll('.movie[data-id][data-media-type]')).map((card) => ({
     id: Number(card.dataset.id || 0),
@@ -9945,6 +10077,7 @@ async function updateV3HeroFromItems(items = []) {
       renderV3HeroData(heroData);
       if (heroData.videos.length) {
         v3UiState.heroItem = heroData.item;
+        rememberV3HeroRandomKey(heroData.item);
         v3UiState.heroVideoQueue = heroData.videos;
         v3UiState.heroVideoIndex = 0;
         await startV3HeroYouTubePlayer(seq);
@@ -10190,29 +10323,12 @@ async function advanceToNextV3HeroTitle(seq) {
   v3UiState.heroAdvancing = true;
 
   try {
-    const visible = getVisibleCatalogItemsFromDom();
-    if (visible.length > 1 && v3UiState.heroItem?.id) {
-      const currentIndex = visible.findIndex((item) => (
-        Number(item.id) === Number(v3UiState.heroItem.id) &&
-        item.mediaType === v3UiState.heroItem.mediaType
-      ));
-
-      const ordered = currentIndex >= 0
-        ? [...visible.slice(currentIndex + 1), ...visible.slice(0, currentIndex)]
-        : visible.slice(1);
-
-      if (ordered.length) {
-        v3Hero?.classList.add('is-switching');
-        await sleepV3HeroTransition(420);
-        await updateV3HeroFromItems(ordered);
-        return;
-      }
-    }
-
-    v3Hero?.classList.remove('is-switching');
-    tryNextV3HeroVideo(seq);
+    v3Hero?.classList.add('is-switching');
+    await sleepV3HeroTransition(420);
+    await updateV3HeroRandom({ reason: 'auto-advance' });
   } catch (error) {
-    console.warn('[v3 hero] auto advance failed', error);
+    console.warn('[v3 hero] random auto advance failed', error);
+    v3Hero?.classList.remove('is-switching');
     tryNextV3HeroVideo(seq);
   } finally {
     v3UiState.heroAdvancing = false;
