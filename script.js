@@ -733,6 +733,22 @@ function bindEvents() {
     }
   });
 
+
+  v3PageNumbers?.addEventListener('click', async (event) => {
+    const button = event.target.closest('.v3-page-number[data-page]');
+    if (!button || state.catalogLoading || !isV3UiActive()) return;
+
+    const page = Number(button.dataset.page || 0);
+    const totalKnown = typeof isV3PaginationTotalKnown === 'function' ? isV3PaginationTotalKnown() : true;
+    const knownTotal = typeof getV3PaginationKnownTotalPages === 'function' ? getV3PaginationKnownTotalPages() : state.totalPages;
+
+    if (!Number.isFinite(page) || page < 1 || page === state.currentPage) return;
+    if (totalKnown && page > knownTotal) return;
+
+    scrollToCatalogTopInstant();
+    await loadContent(page);
+  });
+
   favoriteToggle.addEventListener('click', async () => {
     state.showFavoritesOnly = !state.showFavoritesOnly;
     syncFavoriteToggleText();

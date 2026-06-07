@@ -10581,3 +10581,22 @@ body.rmp-v3 .v3-hero-meta {
     line-height: 1.14 !important;
   }
 }
+
+
+
+
+/* ===== RMP FIX v17: digital pagination clickability ===== */
+body.rmp-v3 .v3-page-number {
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  user-select: none !important;
+}
+
+body.rmp-v3 .v3-page-number:disabled {
+  cursor: wait !important;
+  opacity: .55 !important;
+}
+
+body.rmp-v3 .v3-page-ellipsis {
+  pointer-events: none !important;
+}
