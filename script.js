@@ -10230,9 +10230,9 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
     height: '100%',
     playerVars: {
       autoplay: 1,
-      // Muted bootstrap is required for real autoplay in modern browsers.
-      // If the user wants sound, RMP unmutes after the first page interaction.
-      mute: 1,
+      // RMP tries audible autoplay first. If the browser blocks it completely,
+      // we only then fall back to muted playback so the hero does not freeze.
+      mute: v3UiState.heroMuted ? 1 : 0,
       controls: 0,
       disablekb: 1,
       fs: 0,
@@ -10249,44 +10249,53 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
         disableV3HeroPictureInPicture();
         [50, 120, 300, 700, 1400, 2600, 4200].forEach((delay) => window.setTimeout(disableV3HeroPictureInPicture, delay));
         try {
-          // First launch must be muted, otherwise Chrome/Safari/Edge often refuse autoplay
-          // until the user clicks the page. This keeps the hero moving immediately.
-          event.target.mute?.();
-          event.target.setVolume?.(0);
-          event.target.playVideo?.();
+          const player = event.target;
 
-          [120, 360, 760, 1350].forEach((delay) => {
-            window.setTimeout(() => {
-              if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
-              try {
-                event.target.mute?.();
-                event.target.playVideo?.();
-              } catch (retryError) { /* ignore retry */ }
-            }, delay);
-          });
+          const tryPreferredPlayback = () => {
+            if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+            try {
+              if (v3UiState.heroMuted) {
+                player.mute?.();
+                player.setVolume?.(0);
+              } else {
+                player.unMute?.();
+                player.setVolume?.(100);
+              }
+              player.playVideo?.();
+            } catch (retryError) { /* ignore retry */ }
+          };
 
-          if (!v3UiState.heroMuted) {
-            v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
-            attemptV3HeroAutoSound(event.target, seq, 'ready');
-          } else {
-            v3Hero?.classList.remove('is-audio-blocked');
-            v3Hero?.classList.add('is-autoplay-muted');
-          }
+          // First try exactly what RMP should do: autoplay with sound.
+          tryPreferredPlayback();
+          [80, 220, 520, 920, 1450].forEach((delay) => window.setTimeout(tryPreferredPlayback, delay));
+
+          v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
 
           window.setTimeout(() => {
             if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
             try {
-              const playerState = event.target.getPlayerState?.();
-              if (playerState !== window.YT?.PlayerState?.PLAYING) {
-                event.target.mute?.();
-                event.target.playVideo?.();
+              const playerState = player.getPlayerState?.();
+              const isPlaying = playerState === window.YT?.PlayerState?.PLAYING;
+
+              if (!v3UiState.heroMuted && isPlaying) {
+                player.unMute?.();
+                player.setVolume?.(100);
+                v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
               }
-              if (!v3UiState.heroMuted) {
-                attemptV3HeroAutoSound(event.target, seq, 'fallback');
+
+              // Fallback only if audible autoplay was fully blocked and video did not start at all.
+              // This keeps the page alive, but normal path remains sound-on autoplay.
+              if (!isPlaying) {
+                player.mute?.();
+                player.setVolume?.(0);
+                player.playVideo?.();
+                if (!v3UiState.heroMuted) {
+                  v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
+                }
               }
             } catch (fallbackError) { /* ignore */ }
             syncV3HeroMuteButton();
-          }, 1150);
+          }, 1850);
         } catch (error) {
           console.warn('[v3 hero] play failed', error);
         }
@@ -10298,7 +10307,12 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
       onStateChange: (event) => {
         if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
         if (event.data === window.YT?.PlayerState?.PLAYING && !v3UiState.heroMuted) {
-          attemptV3HeroAutoSound(event.target, seq, 'playing');
+          try {
+            event.target.unMute?.();
+            event.target.setVolume?.(100);
+            v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
+            syncV3HeroMuteButton();
+          } catch (error) { /* ignore */ }
         }
         if (event.data === window.YT?.PlayerState?.ENDED) {
           void advanceToNextV3HeroTitle(seq);
@@ -10372,52 +10386,10 @@ function tryNextV3HeroVideo(seq) {
   createV3HeroPlayer(window.YT, next.key, seq);
 }
 
-
-function attemptV3HeroAutoSound(player, seq, reason = 'auto') {
-  if (!player || seq !== v3UiState.heroSeq || !isV3UiActive() || v3UiState.heroMuted) return;
-
-  const delays = [180, 420, 850, 1400, 2200, 3400, 5200, 7600];
-  delays.forEach((delay) => {
-    window.setTimeout(() => {
-      if (!player || seq !== v3UiState.heroSeq || !isV3UiActive() || v3UiState.heroMuted) return;
-
-      try {
-        player.playVideo?.();
-        player.setVolume?.(100);
-        player.unMute?.();
-
-        window.setTimeout(() => {
-          if (seq !== v3UiState.heroSeq || !isV3UiActive() || v3UiState.heroMuted) return;
-          try {
-            const muted = typeof player.isMuted === 'function' ? player.isMuted() : false;
-            if (!muted) {
-              v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
-            } else {
-              v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
-            }
-            syncV3HeroMuteButton();
-          } catch (checkError) {
-            syncV3HeroMuteButton();
-          }
-        }, 120);
-      } catch (error) {
-        v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
-        syncV3HeroMuteButton();
-      }
-    }, delay);
-  });
-}
-
 function syncV3HeroMuteButton() {
   if (!v3HeroMute) return;
   const audioBlocked = Boolean(v3Hero?.classList.contains('is-audio-blocked')) && !v3UiState.heroMuted;
-  let playerMuted = false;
-  try {
-    playerMuted = Boolean(v3UiState.heroPlayer?.isMuted?.());
-  } catch (error) {
-    playerMuted = false;
-  }
-  const visuallyMuted = v3UiState.heroMuted || (audioBlocked && playerMuted);
+  const visuallyMuted = v3UiState.heroMuted || audioBlocked;
   v3HeroMute.innerHTML = visuallyMuted ? getSpeakerMutedIconSvg() : getSpeakerOnIconSvg();
   v3HeroMute.title = visuallyMuted ? 'Включить звук' : 'Выключить звук';
   v3HeroMute.setAttribute('aria-label', visuallyMuted ? 'Включить звук' : 'Выключить звук');
