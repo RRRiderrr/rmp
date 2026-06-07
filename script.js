@@ -733,22 +733,6 @@ function bindEvents() {
     }
   });
 
-
-  v3PageNumbers?.addEventListener('click', async (event) => {
-    const button = event.target.closest('.v3-page-number[data-page]');
-    if (!button || state.catalogLoading || !isV3UiActive()) return;
-
-    const page = Number(button.dataset.page || 0);
-    const totalKnown = typeof isV3PaginationTotalKnown === 'function' ? isV3PaginationTotalKnown() : true;
-    const knownTotal = typeof getV3PaginationKnownTotalPages === 'function' ? getV3PaginationKnownTotalPages() : state.totalPages;
-
-    if (!Number.isFinite(page) || page < 1 || page === state.currentPage) return;
-    if (totalKnown && page > knownTotal) return;
-
-    scrollToCatalogTopInstant();
-    await loadContent(page);
-  });
-
   favoriteToggle.addEventListener('click', async () => {
     state.showFavoritesOnly = !state.showFavoritesOnly;
     syncFavoriteToggleText();
@@ -10104,8 +10088,7 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
       modestbranding: 1,
       rel: 0,
       playsinline: 1,
-      loop: 1,
-      playlist: videoKey,
+      loop: 0,
       origin: window.location.origin && window.location.origin !== 'null' ? window.location.origin : undefined
     },
     events: {
@@ -10118,19 +10101,8 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
             event.target.mute();
           } else {
             event.target.unMute();
-            event.target.setVolume?.(100);
           }
           event.target.playVideo();
-          [120, 360, 850].forEach((delay) => window.setTimeout(() => {
-            if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
-            try {
-              if (!v3UiState.heroMuted) {
-                event.target.unMute?.();
-                event.target.setVolume?.(100);
-              }
-              event.target.playVideo?.();
-            } catch (retryError) { /* ignore autoplay retry */ }
-          }, delay));
           window.setTimeout(() => {
             if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
             try {
