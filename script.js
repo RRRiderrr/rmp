@@ -401,7 +401,7 @@ const UI_VERSION_STORAGE_KEY = 'rmpUiVersion';
 // === RMP V3 EVENT SETTINGS ===
 // Тут меняется дата/время ивента. Формат ниже — московское время (UTC+3).
 // Пример: '2026-06-07T16:05:00+03:00' = 7 июня 2026, 16:05 по МСК.
-const RMP_V3_EVENT_UNLOCK_AT = '2026-06-07T18:00:00+03:00';
+const RMP_V3_EVENT_UNLOCK_AT = '2026-06-07T16:05:00+03:00';
 const RMP_V3_EVENT_RELEASED_STORAGE_KEY = 'rmpV3EventReleased';
 const RMP_V3_EVENT_AMBIENT_MIN_DELAY = 1400;
 const RMP_V3_EVENT_AMBIENT_MAX_DELAY = 5200;
@@ -583,17 +583,10 @@ window.addEventListener('pageshow', checkDecisionPromptCountdown);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     checkDecisionPromptCountdown();
-    checkRmpV3EventUnlockOnResume();
   }
 });
 
-window.addEventListener('pageshow', checkRmpV3EventUnlockOnResume);
 
-function checkRmpV3EventUnlockOnResume() {
-  if (isRmpV3EventUnlocked() && !rmpV3EventState.unlocked) {
-    triggerRmpV3EventUnlock();
-  }
-}
 
 async function init() {
   initUiVersion();
@@ -688,11 +681,6 @@ function bindEvents() {
   });
 
   uiVersionSelect?.addEventListener('change', () => {
-    if (!isRmpV3EventUnlocked()) {
-      uiVersionSelect.value = 'v2';
-      setUiVersion('v2', { glitch: false, eventForced: true });
-      return;
-    }
     setUiVersion(uiVersionSelect.value === 'v2' ? 'v2' : 'v3', { glitch: true });
   });
 
@@ -9461,36 +9449,9 @@ function renderKinoWallShareTab(data) {
 
 /* ===== RMP V3 interface: Netflix-on-steroids skin, trailer hero, version switch, tactile clicks ===== */
 function initUiVersion() {
-  if (!isRmpV3EventUnlocked()) {
-    lockUiVersionForRmpV3Event();
-    setUiVersion('v2', { glitch: false, silent: true, eventForced: true, skipSave: true });
-    scheduleRmpV3EventUnlock();
-    startRmpV3AmbientGlitches();
-    return;
-  }
-
-  unlockUiVersionAfterRmpV3Event();
-
-  let eventReleased = false;
-  let saved = null;
-  try {
-    eventReleased = localStorage.getItem(RMP_V3_EVENT_RELEASED_STORAGE_KEY) === '1';
-    saved = localStorage.getItem(UI_VERSION_STORAGE_KEY);
-  } catch (error) {
-    console.warn('[v3-event] storage read failed', error);
-  }
-
-  const version = eventReleased && saved === 'v2' ? 'v2' : 'v3';
-  setUiVersion(version, { glitch: false, silent: true, eventDefault: !eventReleased });
-
-  if (!eventReleased) {
-    try {
-      localStorage.setItem(RMP_V3_EVENT_RELEASED_STORAGE_KEY, '1');
-      localStorage.setItem(UI_VERSION_STORAGE_KEY, 'v3');
-    } catch (error) {
-      console.warn('[v3-event] release save failed', error);
-    }
-  }
+  const saved = localStorage.getItem(UI_VERSION_STORAGE_KEY);
+  const version = saved === 'v2' ? 'v2' : 'v3';
+  setUiVersion(version, { glitch: false, silent: true });
 }
 
 function getRmpV3EventUnlockTime() {
@@ -9647,7 +9608,7 @@ function spawnRmpV3AmbientGlitchBurst() {
     slice.style.setProperty('--hue', `${hue}`);
     slice.style.setProperty('--shift', `${(Math.random() * 36 - 18).toFixed(1)}px`);
     slice.style.setProperty('--life', `${620 + Math.random() * 720}ms`);
-    slice.textContent = Math.random() > 0.5 ? 'RMP_V3_INCOMING' : 'SIGNAL_18:00';
+    slice.textContent = Math.random() > 0.5 ? 'RMP_V3_INCOMING' : 'SIGNAL_16:05';
     layer.appendChild(slice);
 
     window.setTimeout(() => slice.remove(), 1600);
@@ -9665,8 +9626,7 @@ function shouldSuppressV3HeroForCurrentState() {
 }
 
 function setUiVersion(version, options = {}) {
-  const eventForcedVersion = !isRmpV3EventUnlocked() ? 'v2' : null;
-  const nextVersion = eventForcedVersion || (version === 'v2' ? 'v2' : 'v3');
+  const nextVersion = version === 'v2' ? 'v2' : 'v3';
   const previous = v3UiState.version;
 
   if (uiVersionSelect) {
@@ -9686,12 +9646,10 @@ function setUiVersion(version, options = {}) {
 function applyUiVersionState(nextVersion, options = {}) {
   v3UiState.version = nextVersion;
 
-  if (!options.skipSave && !options.eventForced) {
-    try {
-      localStorage.setItem(UI_VERSION_STORAGE_KEY, nextVersion);
-    } catch (error) {
-      console.warn('[ui-version] save failed', error);
-    }
+  try {
+    localStorage.setItem(UI_VERSION_STORAGE_KEY, nextVersion);
+  } catch (error) {
+    console.warn('[ui-version] save failed', error);
   }
 
   if (uiVersionSelect) {
