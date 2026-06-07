@@ -583,10 +583,17 @@ window.addEventListener('pageshow', checkDecisionPromptCountdown);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     checkDecisionPromptCountdown();
+    checkRmpV3EventUnlockOnResume();
   }
 });
 
+window.addEventListener('pageshow', checkRmpV3EventUnlockOnResume);
 
+function checkRmpV3EventUnlockOnResume() {
+  if (isRmpV3EventUnlocked() && !rmpV3EventState.unlocked) {
+    triggerRmpV3EventUnlock();
+  }
+}
 
 async function init() {
   initUiVersion();
@@ -681,6 +688,11 @@ function bindEvents() {
   });
 
   uiVersionSelect?.addEventListener('change', () => {
+    if (!isRmpV3EventUnlocked()) {
+      uiVersionSelect.value = 'v2';
+      setUiVersion('v2', { glitch: false, eventForced: true });
+      return;
+    }
     setUiVersion(uiVersionSelect.value === 'v2' ? 'v2' : 'v3', { glitch: true });
   });
 
@@ -9449,9 +9461,36 @@ function renderKinoWallShareTab(data) {
 
 /* ===== RMP V3 interface: Netflix-on-steroids skin, trailer hero, version switch, tactile clicks ===== */
 function initUiVersion() {
-  const saved = localStorage.getItem(UI_VERSION_STORAGE_KEY);
-  const version = saved === 'v2' ? 'v2' : 'v3';
-  setUiVersion(version, { glitch: false, silent: true });
+  if (!isRmpV3EventUnlocked()) {
+    lockUiVersionForRmpV3Event();
+    setUiVersion('v2', { glitch: false, silent: true, eventForced: true, skipSave: true });
+    scheduleRmpV3EventUnlock();
+    startRmpV3AmbientGlitches();
+    return;
+  }
+
+  unlockUiVersionAfterRmpV3Event();
+
+  let eventReleased = false;
+  let saved = null;
+  try {
+    eventReleased = localStorage.getItem(RMP_V3_EVENT_RELEASED_STORAGE_KEY) === '1';
+    saved = localStorage.getItem(UI_VERSION_STORAGE_KEY);
+  } catch (error) {
+    console.warn('[v3-event] storage read failed', error);
+  }
+
+  const version = eventReleased && saved === 'v2' ? 'v2' : 'v3';
+  setUiVersion(version, { glitch: false, silent: true, eventDefault: !eventReleased });
+
+  if (!eventReleased) {
+    try {
+      localStorage.setItem(RMP_V3_EVENT_RELEASED_STORAGE_KEY, '1');
+      localStorage.setItem(UI_VERSION_STORAGE_KEY, 'v3');
+    } catch (error) {
+      console.warn('[v3-event] release save failed', error);
+    }
+  }
 }
 
 function getRmpV3EventUnlockTime() {
@@ -9626,7 +9665,8 @@ function shouldSuppressV3HeroForCurrentState() {
 }
 
 function setUiVersion(version, options = {}) {
-  const nextVersion = version === 'v2' ? 'v2' : 'v3';
+  const eventForcedVersion = !isRmpV3EventUnlocked() ? 'v2' : null;
+  const nextVersion = eventForcedVersion || (version === 'v2' ? 'v2' : 'v3');
   const previous = v3UiState.version;
 
   if (uiVersionSelect) {
@@ -9646,10 +9686,12 @@ function setUiVersion(version, options = {}) {
 function applyUiVersionState(nextVersion, options = {}) {
   v3UiState.version = nextVersion;
 
-  try {
-    localStorage.setItem(UI_VERSION_STORAGE_KEY, nextVersion);
-  } catch (error) {
-    console.warn('[ui-version] save failed', error);
+  if (!options.skipSave && !options.eventForced) {
+    try {
+      localStorage.setItem(UI_VERSION_STORAGE_KEY, nextVersion);
+    } catch (error) {
+      console.warn('[ui-version] save failed', error);
+    }
   }
 
   if (uiVersionSelect) {
@@ -9834,6 +9876,7 @@ function getVisibleCatalogItemsFromDom() {
 }
 
 function hideV3Hero() {
+  v3Hero?.classList.remove('v3-hero-title-long', 'v3-hero-title-very-long');
   v3Hero?.classList.add('hidden');
   v3Hero?.classList.remove('has-data', 'is-ready', 'is-muted-off', 'is-loading', 'is-audio-blocked');
 }
@@ -9952,6 +9995,8 @@ function renderV3HeroData(heroData) {
   }
   if (v3HeroBadge) v3HeroBadge.textContent = '';
   if (v3HeroTitle) v3HeroTitle.textContent = title;
+  v3Hero.classList.toggle('v3-hero-title-long', title.length > 18);
+  v3Hero.classList.toggle('v3-hero-title-very-long', title.length > 32);
   if (v3HeroMeta) v3HeroMeta.textContent = meta || 'RMP V3';
   if (v3HeroOverview) v3HeroOverview.textContent = (heroData.overview || 'Описание пока отсутствует, но вайб уже загружается.').slice(0, 360);
   v3UiState.heroItem = item;
