@@ -324,6 +324,7 @@ const next = document.getElementById('next');
 const current = document.getElementById('current');
 const resultsStatus = document.getElementById('resultsStatus');
 const paginationBlock = document.getElementById('paginationBlock');
+const v3PageNumbers = document.getElementById('v3PageNumbers');
 const overlay = document.getElementById('myNav');
 const overlayContent = document.getElementById('overlay-content');
 const overlayCloseBtn = document.getElementById('overlayCloseBtn');
@@ -377,12 +378,37 @@ const kinoWallToggle = document.getElementById('kinoWallToggle');
 const kinoWallOverlay = document.getElementById('kinoWallOverlay');
 const kinoWallClose = document.getElementById('kinoWallClose');
 const kinoWallContent = document.getElementById('kinoWallContent');
+const uiVersionSelect = document.getElementById('uiVersionSelect');
+const v3Hero = document.getElementById('v3Hero');
+const v3HeroPoster = document.getElementById('v3HeroPoster');
+const v3HeroPlayerHost = document.getElementById('v3HeroPlayer');
+const v3HeroBadge = document.getElementById('v3HeroBadge');
+const v3HeroTitle = document.getElementById('v3HeroTitle');
+const v3HeroMeta = document.getElementById('v3HeroMeta');
+const v3HeroOverview = document.getElementById('v3HeroOverview');
+const v3HeroWatch = document.getElementById('v3HeroWatch');
+const v3HeroDetails = document.getElementById('v3HeroDetails');
+const v3HeroMute = document.getElementById('v3HeroMute');
 
 const PALETTE_STORAGE_KEYS = {
   enabled: 'rmpCustomPaletteEnabled',
   activeId: 'rmpActiveCustomPaletteId',
   palettes: 'rmpCustomPalettes'
 };
+
+const UI_VERSION_STORAGE_KEY = 'rmpUiVersion';
+
+// === RMP V3 EVENT SETTINGS ===
+// Тут меняется дата/время ивента. Формат ниже — московское время (UTC+3).
+// Пример: '2026-06-07T16:05:00+03:00' = 7 июня 2026, 16:05 по МСК.
+const RMP_V3_EVENT_UNLOCK_AT = '2026-06-07T18:00:00+03:00';
+const RMP_V3_EVENT_RELEASED_STORAGE_KEY = 'rmpV3EventReleased';
+const RMP_V3_EVENT_AMBIENT_MIN_DELAY = 1400;
+const RMP_V3_EVENT_AMBIENT_MAX_DELAY = 5200;
+
+const V3_HERO_CANDIDATE_LIMIT = 10;
+const V3_HERO_VIDEO_LANGUAGES = 'ru-RU,ru,en-US,en,null';
+
 
 const PALETTE_COLOR_FIELDS = [
   { key: 'bg-color', label: 'Фон страницы' },
@@ -512,6 +538,29 @@ const state = {
   }
 };
 
+const v3UiState = {
+  version: 'v3',
+  heroSeq: 0,
+  heroItem: null,
+  heroVideoQueue: [],
+  heroVideoIndex: 0,
+  heroPlayer: null,
+  heroAdvanceTimer: null,
+  heroAdvancing: false,
+  heroMuted: false,
+  ytApiPromise: null,
+  clickAudioCtx: null,
+  lastClickSoundAt: 0
+};
+
+const rmpV3EventState = {
+  timer: null,
+  ambientTimer: null,
+  ambientLayer: null,
+  unlocked: false,
+  transitionStarted: false
+};
+
 let activeSlide = 0;
 let totalVideos = 0;
 let aiSearchAbortController = null;
@@ -534,10 +583,20 @@ window.addEventListener('pageshow', checkDecisionPromptCountdown);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     checkDecisionPromptCountdown();
+    checkRmpV3EventUnlockOnResume();
   }
 });
 
+window.addEventListener('pageshow', checkRmpV3EventUnlockOnResume);
+
+function checkRmpV3EventUnlockOnResume() {
+  if (isRmpV3EventUnlocked() && !rmpV3EventState.unlocked) {
+    triggerRmpV3EventUnlock();
+  }
+}
+
 async function init() {
+  initUiVersion();
   initTheme();
   cleanPlayerRouteSearchIfNeeded();
   applyCatalogStateFromUrl();
@@ -628,6 +687,34 @@ function bindEvents() {
     syncAiSearchUi();
   });
 
+  uiVersionSelect?.addEventListener('change', () => {
+    if (!isRmpV3EventUnlocked()) {
+      uiVersionSelect.value = 'v2';
+      setUiVersion('v2', { glitch: false, eventForced: true });
+      return;
+    }
+    setUiVersion(uiVersionSelect.value === 'v2' ? 'v2' : 'v3', { glitch: true });
+  });
+
+  v3HeroWatch?.addEventListener('click', async () => {
+    await watchV3HeroItem();
+  });
+
+  v3HeroDetails?.addEventListener('click', async () => {
+    await openV3HeroDetails();
+  });
+
+  const handleV3HeroMuteInteraction = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    safeToggleV3HeroMute();
+  };
+  v3HeroMute?.addEventListener('pointerup', handleV3HeroMuteInteraction);
+  v3HeroMute?.addEventListener('click', handleV3HeroMuteInteraction);
+
+  bindV3SoundDelegation();
+  bindV3CinematicHud();
+
   prev.addEventListener('click', async () => {
     if (state.catalogLoading) return;
     if (state.currentPage > 1) {
@@ -638,7 +725,9 @@ function bindEvents() {
 
   next.addEventListener('click', async () => {
     if (state.catalogLoading) return;
-    if (state.currentPage < state.totalPages) {
+    const totalKnown = isV3UiActive() ? isV3PaginationTotalKnown() : true;
+    const knownTotal = typeof getV3PaginationKnownTotalPages === 'function' ? getV3PaginationKnownTotalPages() : state.totalPages;
+    if (!totalKnown || state.currentPage < knownTotal) {
       scrollToCatalogTopInstant();
       await loadContent(state.currentPage + 1);
     }
@@ -2163,6 +2252,8 @@ function syncAiSearchUi() {
   const enabled = state.aiSearch.enabled;
   aiSearchToggle.classList.toggle('active', enabled);
   aiSearchToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  aiSearchToggle.textContent = enabled ? 'AI ON 🧠' : 'AI 🧠';
+  aiSearchToggle.title = enabled ? 'AI-поиск включён' : 'AI-поиск выключен';
   search.placeholder = enabled
     ? 'Опиши сюжет, вайб или настроение. Например: грязный сатирический сериал про ублюдочных супергероев'
     : 'Поиск по названию';
@@ -3345,6 +3436,7 @@ function shuffleArray(input) {
 function resetCatalogRuntimeState() {
   closeEpisodeCalendarPopovers();
   disposeCatalogMediaResources(main);
+  clearV3HeroPlayer();
   clearTmdbRuntimeCaches();
 }
 
@@ -3395,6 +3487,10 @@ async function loadContent(page = 1) {
   state.currentPage = requestedPage;
   resetCatalogRuntimeState();
   renderLoading('Загружаем каталог...');
+  if (isV3UiActive() && shouldSuppressV3HeroForCurrentState()) {
+    hideV3Hero();
+    clearV3HeroPlayer();
+  }
   updatePagination({ forceDisabled: true });
 
   try {
@@ -3407,11 +3503,23 @@ async function loadContent(page = 1) {
     state.catalogLoading = false;
     writeCatalogStateToUrl(state.currentPage);
 
+    const allowV3Hero = isV3UiActive() && !shouldSuppressV3HeroForCurrentState();
+
     if (!payload.items.length) {
       renderNoResults();
+      if (!allowV3Hero) {
+        hideV3Hero();
+        clearV3HeroPlayer();
+      }
     } else {
       renderMovies(payload.items);
       queueEpisodeCalendarAvailability(payload.items);
+      if (allowV3Hero) {
+        updateV3HeroFromItems(payload.items);
+      } else {
+        hideV3Hero();
+        clearV3HeroPlayer();
+      }
     }
 
     updatePagination();
@@ -4244,6 +4352,7 @@ function renderMovies(items) {
 }
 
 function renderNoResults() {
+  if (!shouldSuppressV3HeroForCurrentState()) updateV3HeroFromItems([]);
   main.innerHTML = `
     <div class="no-results">
       <h2>Ничего не найдено</h2>
@@ -4253,6 +4362,7 @@ function renderNoResults() {
 }
 
 function renderError(message) {
+  if (!shouldSuppressV3HeroForCurrentState()) updateV3HeroFromItems([]);
   main.innerHTML = `
     <div class="error-box">
       <h2>Ошибка загрузки</h2>
@@ -4271,15 +4381,122 @@ function renderLoading(message) {
   `;
 }
 
+function isV3PaginationTotalKnown() {
+  const cache = state.catalogPageCache;
+  return Boolean(cache?.reachedEnd);
+}
+
+function getV3PaginationKnownTotalPages() {
+  return Math.max(1, Number(state.totalPages) || 1);
+}
+
 function updatePagination(options = {}) {
   const forceDisabled = options.forceDisabled === true || state.catalogLoading;
-  const singlePage = state.showFavoritesOnly || state.totalPages <= 1;
+  const totalKnown = isV3PaginationTotalKnown();
+  const knownTotal = getV3PaginationKnownTotalPages();
+  const singlePage = state.showFavoritesOnly || (totalKnown && knownTotal <= 1);
 
   paginationBlock.style.display = state.showFavoritesOnly ? 'none' : 'flex';
   current.textContent = String(state.currentPage);
 
-  prev.classList.toggle('disabled', forceDisabled || singlePage || state.currentPage <= 1);
-  next.classList.toggle('disabled', forceDisabled || singlePage || state.currentPage >= state.totalPages);
+  prev.classList.toggle('disabled', forceDisabled || state.currentPage <= 1);
+  next.classList.toggle('disabled', forceDisabled || (totalKnown && state.currentPage >= knownTotal));
+  renderV3Pagination(forceDisabled);
+}
+
+function buildV3PaginationPages(currentPage, totalPages, totalKnown = true) {
+  const currentSafe = Math.max(1, Number(currentPage) || 1);
+  const total = Math.max(currentSafe, Number(totalPages) || currentSafe);
+  const pages = new Set([1]);
+
+  let start;
+  let end;
+
+  if (currentSafe <= 5) {
+    start = 1;
+    end = Math.max(9, currentSafe + 4);
+  } else {
+    start = Math.max(1, currentSafe - 4);
+    end = currentSafe + 4;
+  }
+
+  if (totalKnown) {
+    end = Math.min(end, total);
+  }
+
+  for (let page = start; page <= end; page += 1) {
+    pages.add(page);
+  }
+
+  if (totalKnown) {
+    pages.add(total);
+  }
+
+  const sorted = [...pages]
+    .filter((page) => page >= 1 && (!totalKnown || page <= total))
+    .sort((a, b) => a - b);
+
+  const result = [];
+  let previous = 0;
+  for (const page of sorted) {
+    if (previous && page - previous > 1) result.push('ellipsis');
+    result.push(page);
+    previous = page;
+  }
+
+  if (!totalKnown) {
+    if (result[result.length - 1] !== 'ellipsis') result.push('ellipsis');
+  }
+
+  return result;
+}
+
+function renderV3Pagination(disabled = false) {
+  if (!v3PageNumbers) return;
+  v3PageNumbers.innerHTML = '';
+
+  if (!isV3UiActive() || state.showFavoritesOnly) {
+    v3PageNumbers.hidden = true;
+    current.hidden = false;
+    return;
+  }
+
+  const totalKnown = isV3PaginationTotalKnown();
+  const knownTotal = getV3PaginationKnownTotalPages();
+
+  if (totalKnown && knownTotal <= 1) {
+    v3PageNumbers.hidden = true;
+    current.hidden = false;
+    return;
+  }
+
+  v3PageNumbers.hidden = false;
+  current.hidden = true;
+
+  const fragment = document.createDocumentFragment();
+  for (const entry of buildV3PaginationPages(state.currentPage, knownTotal, totalKnown)) {
+    if (entry === 'ellipsis') {
+      const gap = document.createElement('span');
+      gap.className = 'v3-page-ellipsis';
+      gap.textContent = '…';
+      fragment.appendChild(gap);
+      continue;
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'v3-page-number';
+    button.dataset.page = String(entry);
+    button.textContent = String(entry);
+    button.disabled = disabled;
+    if (entry === state.currentPage) {
+      button.classList.add('active');
+      button.setAttribute('aria-current', 'page');
+    }
+    fragment.appendChild(button);
+  }
+
+  v3PageNumbers.appendChild(fragment);
 }
 
 function updateResultsStatus(text) {
@@ -4993,7 +5210,34 @@ function getVideoPriority(video) {
   return score;
 }
 
+function stopOverlayVideoPlayback() {
+  if (!overlayContent) return;
+
+  overlayContent.querySelectorAll('iframe').forEach((iframe) => {
+    try {
+      iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'stopVideo', args: [] }), '*');
+      iframe.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }), '*');
+    } catch (error) {
+      // Cross-origin iframes may refuse direct messaging. Replacing src still stops playback.
+    }
+    try { iframe.src = 'about:blank'; } catch (error) { /* ignore */ }
+  });
+
+  overlayContent.querySelectorAll('video, audio').forEach((media) => {
+    try {
+      media.pause();
+      media.removeAttribute('src');
+      media.load?.();
+    } catch (error) { /* ignore */ }
+  });
+
+  overlayContent.innerHTML = '';
+  activeSlide = 0;
+  totalVideos = 0;
+}
+
 function closeNav() {
+  stopOverlayVideoPlayback();
   overlay.style.width = '0%';
   overlay.setAttribute('aria-hidden', 'true');
 }
@@ -5355,7 +5599,7 @@ function renderPlayerShell(meta = {}) {
           <div style="font-size:20px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${safeTitle}</div>
           <div style="font-size:12px;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${safeSubtitle || 'Подбираем доступные источники...'}</div>
         </div>
-        <button id="rmp-home-button" style="flex:0 0 auto;background:#fff;color:#111;font-size:14px;font-weight:700;border:0;border-radius:999px;padding:10px 16px;cursor:pointer;">← Обратно к каталогу</button>
+        <button id="rmp-home-button" class="rmp-player-home" style="flex:0 0 auto;background:#fff;color:#111;font-size:14px;font-weight:700;border:0;border-radius:999px;padding:10px 16px;cursor:pointer;">Обратно к каталогу</button>
       </div>
       <div style="flex:1;display:flex;align-items:stretch;justify-content:center;padding:18px;overflow:auto;">
         <div style="width:min(1480px,100%);display:flex;flex-direction:column;gap:14px;">
@@ -5475,7 +5719,7 @@ function openPlayerError(message) {
       <div style="max-width:720px;width:100%;background:#14141b;border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.4);text-align:center;">
         <h1 style="margin:0 0 12px;font-size:28px;">Не удалось открыть плеер</h1>
         <p style="margin:0 0 20px;color:rgba(255,255,255,.72);line-height:1.6;">${escapeHtml(message)}</p>
-        <button onclick="navigateBackToCatalog()" style="background:#fff;color:#111;border:0;border-radius:999px;padding:12px 18px;font-size:15px;font-weight:700;cursor:pointer;">← Обратно к каталогу</button>
+        <button onclick="navigateBackToCatalog()" style="background:#fff;color:#111;border:0;border-radius:999px;padding:12px 18px;font-size:15px;font-weight:700;cursor:pointer;">Обратно к каталогу</button>
       </div>
     </div>
   `;
@@ -7531,7 +7775,7 @@ function renderPlayerShell(meta = {}) {
           <div class="rmp-player-title">${safeTitle}</div>
           <div class="rmp-player-subtitle">${safeSubtitle || 'Подбираем доступные источники...'}</div>
         </div>
-        <button id="rmp-home-button" class="rmp-player-home">← Обратно к каталогу</button>
+        <button id="rmp-home-button" class="rmp-player-home">Обратно к каталогу</button>
       </div>
       <div class="rmp-player-page">
         <div class="rmp-player-inner">
@@ -9213,4 +9457,834 @@ function renderKinoWallShareTab(data) {
         <div id="kinoWallShareStatus" class="kinowall-share-status">Пробую создать короткую ссылку...</div>
       </div>
     </section>`;
+}
+
+/* ===== RMP V3 interface: Netflix-on-steroids skin, trailer hero, version switch, tactile clicks ===== */
+function initUiVersion() {
+  if (!isRmpV3EventUnlocked()) {
+    lockUiVersionForRmpV3Event();
+    setUiVersion('v2', { glitch: false, silent: true, eventForced: true, skipSave: true });
+    scheduleRmpV3EventUnlock();
+    startRmpV3AmbientGlitches();
+    return;
+  }
+
+  unlockUiVersionAfterRmpV3Event();
+
+  let eventReleased = false;
+  let saved = null;
+  try {
+    eventReleased = localStorage.getItem(RMP_V3_EVENT_RELEASED_STORAGE_KEY) === '1';
+    saved = localStorage.getItem(UI_VERSION_STORAGE_KEY);
+  } catch (error) {
+    console.warn('[v3-event] storage read failed', error);
+  }
+
+  const version = eventReleased && saved === 'v2' ? 'v2' : 'v3';
+  setUiVersion(version, { glitch: false, silent: true, eventDefault: !eventReleased });
+
+  if (!eventReleased) {
+    try {
+      localStorage.setItem(RMP_V3_EVENT_RELEASED_STORAGE_KEY, '1');
+      localStorage.setItem(UI_VERSION_STORAGE_KEY, 'v3');
+    } catch (error) {
+      console.warn('[v3-event] release save failed', error);
+    }
+  }
+}
+
+function getRmpV3EventUnlockTime() {
+  const timestamp = Date.parse(RMP_V3_EVENT_UNLOCK_AT);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isRmpV3EventUnlocked(now = Date.now()) {
+  const unlockAt = getRmpV3EventUnlockTime();
+  return !unlockAt || now >= unlockAt;
+}
+
+function getUiVersionSwitchShell() {
+  return uiVersionSelect?.closest('.ui-version-switch') || null;
+}
+
+function lockUiVersionForRmpV3Event() {
+  rmpV3EventState.unlocked = false;
+  document.documentElement.classList.add('rmp-v3-event-locked');
+  document.documentElement.classList.remove('rmp-v3-event-unlocked');
+  document.body?.classList.add('rmp-v3-event-locked');
+  document.body?.classList.remove('rmp-v3-event-unlocked');
+
+  const switchShell = getUiVersionSwitchShell();
+  if (switchShell) {
+    switchShell.hidden = true;
+    switchShell.setAttribute('aria-hidden', 'true');
+    switchShell.classList.add('event-locked');
+  }
+  if (uiVersionSelect) {
+    uiVersionSelect.value = 'v2';
+    uiVersionSelect.disabled = true;
+  }
+}
+
+function unlockUiVersionAfterRmpV3Event() {
+  rmpV3EventState.unlocked = true;
+  document.documentElement.classList.remove('rmp-v3-event-locked');
+  document.documentElement.classList.add('rmp-v3-event-unlocked');
+  document.body?.classList.remove('rmp-v3-event-locked');
+  document.body?.classList.add('rmp-v3-event-unlocked');
+
+  const switchShell = getUiVersionSwitchShell();
+  if (switchShell) {
+    switchShell.hidden = false;
+    switchShell.removeAttribute('aria-hidden');
+    switchShell.classList.remove('event-locked');
+  }
+  if (uiVersionSelect) {
+    uiVersionSelect.disabled = false;
+  }
+}
+
+function scheduleRmpV3EventUnlock() {
+  if (rmpV3EventState.timer) {
+    window.clearTimeout(rmpV3EventState.timer);
+    rmpV3EventState.timer = null;
+  }
+
+  const delay = Math.max(0, getRmpV3EventUnlockTime() - Date.now());
+  rmpV3EventState.timer = window.setTimeout(triggerRmpV3EventUnlock, Math.min(delay, 2147483647));
+
+  // На всякий случай — страховка, если вкладка была заморожена браузером.
+  window.setTimeout(() => {
+    if (!isRmpV3EventUnlocked()) return;
+    triggerRmpV3EventUnlock();
+  }, delay + 1000);
+}
+
+function triggerRmpV3EventUnlock() {
+  if (!isRmpV3EventUnlocked() || rmpV3EventState.transitionStarted) return;
+  rmpV3EventState.transitionStarted = true;
+
+  stopRmpV3AmbientGlitches();
+  unlockUiVersionAfterRmpV3Event();
+
+  try {
+    localStorage.setItem(RMP_V3_EVENT_RELEASED_STORAGE_KEY, '1');
+    localStorage.setItem(UI_VERSION_STORAGE_KEY, 'v3');
+  } catch (error) {
+    console.warn('[v3-event] live release save failed', error);
+  }
+
+  // В момент события — большой глитч-переход на V3.
+  setUiVersion('v3', { glitch: true, eventUnlock: true });
+}
+
+function getRandomEventGlitchDelay() {
+  const min = Number(RMP_V3_EVENT_AMBIENT_MIN_DELAY) || 1400;
+  const max = Number(RMP_V3_EVENT_AMBIENT_MAX_DELAY) || 5200;
+  return Math.floor(min + Math.random() * Math.max(250, max - min));
+}
+
+function ensureRmpV3AmbientGlitchLayer() {
+  if (rmpV3EventState.ambientLayer?.isConnected) return rmpV3EventState.ambientLayer;
+
+  const layer = document.createElement('div');
+  layer.className = 'rmp-v3-event-glitch-layer';
+  layer.setAttribute('aria-hidden', 'true');
+  layer.innerHTML = '<div class="rmp-v3-event-scanline"></div><div class="rmp-v3-event-vignette"></div>';
+  document.body.appendChild(layer);
+  rmpV3EventState.ambientLayer = layer;
+  return layer;
+}
+
+function startRmpV3AmbientGlitches() {
+  if (isRmpV3EventUnlocked()) return;
+  ensureRmpV3AmbientGlitchLayer();
+
+  const tick = () => {
+    if (isRmpV3EventUnlocked()) {
+      stopRmpV3AmbientGlitches();
+      triggerRmpV3EventUnlock();
+      return;
+    }
+
+    spawnRmpV3AmbientGlitchBurst();
+    rmpV3EventState.ambientTimer = window.setTimeout(tick, getRandomEventGlitchDelay());
+  };
+
+  if (rmpV3EventState.ambientTimer) window.clearTimeout(rmpV3EventState.ambientTimer);
+  rmpV3EventState.ambientTimer = window.setTimeout(tick, getRandomEventGlitchDelay());
+}
+
+function stopRmpV3AmbientGlitches() {
+  if (rmpV3EventState.ambientTimer) {
+    window.clearTimeout(rmpV3EventState.ambientTimer);
+    rmpV3EventState.ambientTimer = null;
+  }
+  rmpV3EventState.ambientLayer?.remove();
+  rmpV3EventState.ambientLayer = null;
+  document.querySelectorAll('.rmp-v3-event-glitch-layer').forEach((layer) => layer.remove());
+}
+
+function spawnRmpV3AmbientGlitchBurst() {
+  const layer = ensureRmpV3AmbientGlitchLayer();
+  const burstSize = 5 + Math.floor(Math.random() * 9);
+
+  layer.classList.add('is-active');
+  window.setTimeout(() => layer.classList.remove('is-active'), 820 + Math.random() * 520);
+
+  for (let i = 0; i < burstSize; i += 1) {
+    const slice = document.createElement('div');
+    slice.className = `rmp-v3-event-glitch-slice slice-${i % 5}`;
+    const h = 3 + Math.random() * 11;
+    const w = 18 + Math.random() * 68;
+    const x = Math.random() * 100;
+    const y = Math.random() * 100;
+    const hue = 175 + Math.random() * 170;
+    slice.style.setProperty('--x', `${x}vw`);
+    slice.style.setProperty('--y', `${y}vh`);
+    slice.style.setProperty('--w', `${w}vw`);
+    slice.style.setProperty('--h', `${h}px`);
+    slice.style.setProperty('--hue', `${hue}`);
+    slice.style.setProperty('--shift', `${(Math.random() * 36 - 18).toFixed(1)}px`);
+    slice.style.setProperty('--life', `${620 + Math.random() * 720}ms`);
+    slice.textContent = Math.random() > 0.5 ? 'RMP_V3_INCOMING' : 'SIGNAL_18:00';
+    layer.appendChild(slice);
+
+    window.setTimeout(() => slice.remove(), 1600);
+  }
+}
+
+function isV3UiActive() {
+  return v3UiState.version === 'v3' && document.body?.classList.contains('rmp-v3');
+}
+
+function shouldSuppressV3HeroForCurrentState() {
+  // In search/AI/favorites modes the hero trailer distracts and can leave a black YouTube layer
+  // while the catalog results are changing. V3 hero is therefore reserved for the normal catalog.
+  return Boolean((state.query || '').trim()) || isAiSearchEnabled() || state.showFavoritesOnly;
+}
+
+function setUiVersion(version, options = {}) {
+  const eventForcedVersion = !isRmpV3EventUnlocked() ? 'v2' : null;
+  const nextVersion = eventForcedVersion || (version === 'v2' ? 'v2' : 'v3');
+  const previous = v3UiState.version;
+
+  if (uiVersionSelect) {
+    uiVersionSelect.value = nextVersion;
+  }
+
+  const apply = () => applyUiVersionState(nextVersion, options);
+
+  if (options.glitch && previous !== nextVersion) {
+    runUiVersionGlitch(nextVersion, apply);
+    return;
+  }
+
+  apply();
+}
+
+function applyUiVersionState(nextVersion, options = {}) {
+  v3UiState.version = nextVersion;
+
+  if (!options.skipSave && !options.eventForced) {
+    try {
+      localStorage.setItem(UI_VERSION_STORAGE_KEY, nextVersion);
+    } catch (error) {
+      console.warn('[ui-version] save failed', error);
+    }
+  }
+
+  if (uiVersionSelect) {
+    uiVersionSelect.value = nextVersion;
+  }
+
+  document.documentElement.dataset.rmpVersion = nextVersion;
+  document.body?.classList.toggle('rmp-v3', nextVersion === 'v3');
+  document.body?.classList.toggle('rmp-v2', nextVersion !== 'v3');
+
+  if (nextVersion !== 'v3') {
+    hideV3Hero();
+    clearV3HeroPlayer();
+    document.body?.classList.remove('v3-filters-open');
+  } else {
+    document.body?.classList.add('v3-sound-ready');
+    const visibleItems = getVisibleCatalogItemsFromDom();
+    if (visibleItems.length && !shouldSuppressV3HeroForCurrentState()) {
+      updateV3HeroFromItems(visibleItems);
+    } else {
+      hideV3Hero();
+      clearV3HeroPlayer();
+    }
+  }
+
+  if (typeof updatePagination === 'function') {
+    updatePagination();
+  }
+}
+
+function runUiVersionGlitch(version, onCovered) {
+  const oldLayer = document.querySelector('.ui-version-glitch');
+  oldLayer?.remove();
+  const label = `RMP ${version.toUpperCase()}`;
+  const layer = document.createElement('div');
+  layer.className = 'ui-version-glitch cinematic epic';
+  layer.innerHTML = `
+    <div class="ui-version-glitch-grid"></div>
+    <div class="ui-version-glitch-vignette"></div>
+    <div class="ui-version-glitch-scan"></div>
+    <div class="ui-version-glitch-scan scan-b"></div>
+    <div class="ui-version-glitch-bar ui-version-glitch-bar-a"></div>
+    <div class="ui-version-glitch-bar ui-version-glitch-bar-b"></div>
+    <div class="ui-version-glitch-bar ui-version-glitch-bar-c"></div>
+    <div class="ui-version-glitch-slice slice-a"></div>
+    <div class="ui-version-glitch-slice slice-b"></div>
+    <div class="ui-version-glitch-slice slice-c"></div>
+    <div class="ui-version-glitch-label" data-text="${label}">${label}</div>
+  `;
+  document.body.appendChild(layer);
+  window.setTimeout(() => {
+    try { onCovered?.(); } catch (error) { console.warn('[ui-version] apply during glitch failed', error); }
+    layer.classList.add('is-switching');
+  }, 260);
+  window.setTimeout(() => {
+    layer.classList.add('is-leaving');
+    window.setTimeout(() => layer.remove(), 620);
+  }, 900);
+}
+
+function bindV3SoundDelegation() {
+  if (document.documentElement.dataset.v3SoundBound === '1') return;
+  document.documentElement.dataset.v3SoundBound = '1';
+
+  const resumeAudibleHero = () => {
+    if (!isV3UiActive() || v3UiState.heroMuted || !v3UiState.heroPlayer) return;
+    try {
+      v3UiState.heroPlayer.unMute?.();
+      v3UiState.heroPlayer.playVideo?.();
+      v3Hero?.classList.remove('is-audio-blocked');
+      syncV3HeroMuteButton();
+    } catch (error) {
+      console.warn('[v3 hero] audible resume failed', error);
+    }
+  };
+
+  document.addEventListener('pointerdown', resumeAudibleHero, { passive: true });
+  document.addEventListener('keydown', resumeAudibleHero);
+  document.addEventListener('pointerdown', (event) => {
+    if (!isV3UiActive()) return;
+    const target = event.target.closest('button, a, .page, .current, select, input, textarea, .multi-option, .dot, .kinowall-tab, .palette-field, .details-actor-card');
+    if (!target) return;
+    const soft = target.matches('select, input[type="range"], textarea, .multi-option, .palette-field');
+    playV3ClickSound(soft ? 'soft' : 'click');
+  }, { passive: true });
+}
+
+function bindV3CinematicHud() {
+  if (document.documentElement.dataset.v3HudBound === '1') return;
+  document.documentElement.dataset.v3HudBound = '1';
+  document.addEventListener('click', async (event) => {
+    const actionNode = event.target.closest('[data-v3-action]');
+    if (!actionNode || !isV3UiActive()) return;
+    const action = actionNode.dataset.v3Action;
+    if (action === 'home') {
+      document.body.classList.remove('v3-filters-open');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    if (action === 'search') {
+      document.body.classList.remove('v3-filters-open');
+      search?.focus();
+      return;
+    }
+    if (action === 'filters') {
+      document.body.classList.toggle('v3-filters-open');
+      return;
+    }
+    if (action === 'filters-close') {
+      document.body.classList.remove('v3-filters-open');
+      return;
+    }
+    if (action === 'random') {
+      document.body.classList.remove('v3-filters-open');
+      await openMovieRoulette();
+      return;
+    }
+    if (action === 'favorites') {
+      favoriteToggle?.click();
+      return;
+    }
+    if (action === 'wall') {
+      kinoWallToggle?.click();
+      return;
+    }
+    if (action === 'palette') {
+      paletteEditorToggle?.click();
+    }
+  });
+}
+function playV3ClickSound(kind = 'click') {
+  // V3 used to play synthetic clicks on most controls, but that made the interface feel noisy.
+  // Keep the engine available for future optional settings, but leave it disabled by default.
+  if (!document.body?.classList.contains('rmp-v3-sfx-on')) return;
+  const now = performance.now();
+  if (now - v3UiState.lastClickSoundAt < 58) return;
+  v3UiState.lastClickSoundAt = now;
+
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    if (!v3UiState.clickAudioCtx) {
+      v3UiState.clickAudioCtx = new AudioContextCtor();
+    }
+    const ctx = v3UiState.clickAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const start = ctx.currentTime;
+    const duration = kind === 'soft' ? 0.026 : 0.032;
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(kind === 'soft' ? 520 : 760, start);
+    osc.frequency.exponentialRampToValueAtTime(kind === 'soft' ? 360 : 520, start + duration);
+    filter.type = 'lowpass';
+    filter.frequency.value = 1850;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(kind === 'soft' ? 0.008 : 0.012, start + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + duration + 0.01);
+  } catch (error) {
+    // optional tactile audio
+  }
+}
+function getVisibleCatalogItemsFromDom() {
+  return Array.from(document.querySelectorAll('.movie[data-id][data-media-type]')).map((card) => ({
+    id: Number(card.dataset.id || 0),
+    mediaType: card.dataset.mediaType === 'tv' ? 'tv' : 'movie',
+    title: card.querySelector('.movie-info h3')?.textContent?.trim() || 'Без названия',
+    overview: card.querySelector('.know-more')?.dataset.overview || '',
+    releaseDate: card.querySelector('.know-more')?.dataset.releaseDate || '',
+    posterUrl: card.querySelector('.movie-poster-wrap img')?.src || '',
+    voteAverage: Number(card.querySelector('.movie-info span')?.textContent?.replace(',', '.') || 0)
+  })).filter((item) => item.id > 0);
+}
+
+function hideV3Hero() {
+  v3Hero?.classList.add('hidden');
+  v3Hero?.classList.remove('has-data', 'is-ready', 'is-muted-off', 'is-loading', 'is-audio-blocked');
+}
+
+function clearV3HeroPlayer() {
+  if (v3UiState.heroAdvanceTimer) {
+    window.clearInterval(v3UiState.heroAdvanceTimer);
+    v3UiState.heroAdvanceTimer = null;
+  }
+  v3UiState.heroSeq += 1;
+  if (v3UiState.heroPlayer && typeof v3UiState.heroPlayer.destroy === 'function') {
+    try { v3UiState.heroPlayer.destroy(); } catch (error) { /* ignore */ }
+  }
+  v3UiState.heroPlayer = null;
+  v3UiState.heroVideoQueue = [];
+  v3UiState.heroVideoIndex = 0;
+  if (v3HeroPlayerHost) {
+    v3HeroPlayerHost.innerHTML = '';
+  }
+}
+
+async function updateV3HeroFromItems(items = []) {
+  const seq = v3UiState.heroSeq + 1;
+  v3UiState.heroSeq = seq;
+
+  if (!isV3UiActive() || !v3Hero || shouldSuppressV3HeroForCurrentState()) {
+    hideV3Hero();
+    clearV3HeroPlayer();
+    return;
+  }
+
+  const candidates = (items || []).filter((item) => item?.id && item?.mediaType).slice(0, V3_HERO_CANDIDATE_LIMIT);
+  if (!candidates.length) {
+    hideV3Hero();
+    clearV3HeroPlayer();
+    return;
+  }
+
+  clearV3HeroPlayer();
+  v3UiState.heroSeq = seq;
+  v3Hero.classList.remove('hidden');
+  v3Hero.classList.add('is-loading');
+
+  for (const item of candidates) {
+    if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+    try {
+      const heroData = await fetchV3HeroData(item);
+      if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+      if (!heroData) continue;
+      renderV3HeroData(heroData);
+      if (heroData.videos.length) {
+        v3UiState.heroItem = heroData.item;
+        v3UiState.heroVideoQueue = heroData.videos;
+        v3UiState.heroVideoIndex = 0;
+        await startV3HeroYouTubePlayer(seq);
+        return;
+      }
+      v3Hero.classList.remove('is-loading', 'is-switching');
+      return;
+    } catch (error) {
+      console.warn('[v3 hero] candidate failed', item, error);
+    }
+  }
+
+  const fallback = candidates[0];
+  renderV3HeroData({ item: fallback, videos: [], backdropUrl: fallback.posterUrl || '', overview: fallback.overview || '' });
+  v3Hero.classList.remove('is-loading');
+}
+
+async function fetchV3HeroData(item) {
+  const mediaType = item.mediaType === 'tv' ? 'tv' : 'movie';
+  const details = await apiFetch(`/${mediaType}/${item.id}`, {
+    language: 'ru-RU',
+    append_to_response: 'videos',
+    include_video_language: V3_HERO_VIDEO_LANGUAGES
+  });
+
+  const fallbackVideos = !details?.videos?.results?.length
+    ? await apiFetch(`/${mediaType}/${item.id}/videos`, { include_video_language: V3_HERO_VIDEO_LANGUAGES }).catch(() => ({ results: [] }))
+    : null;
+
+  const videos = prioritizeVideos((details?.videos?.results || fallbackVideos?.results || [])
+    .filter((video) => video?.site === 'YouTube' && video.key))
+    .map((video) => ({ key: video.key, name: video.name || '', type: video.type || '' }));
+
+  const title = details.title || details.name || details.original_title || details.original_name || item.title || 'Без названия';
+  const releaseDate = details.release_date || details.first_air_date || item.releaseDate || '';
+  const normalized = {
+    ...item,
+    title,
+    originalTitle: details.original_title || details.original_name || item.originalTitle || title,
+    overview: details.overview || item.overview || '',
+    releaseDate,
+    voteAverage: Number(details.vote_average || item.voteAverage || 0),
+    posterUrl: details.poster_path ? buildImageUrl(details.poster_path) : item.posterUrl,
+    backdropUrl: details.backdrop_path ? `${state.imageBackdropBaseUrl}${details.backdrop_path}` : (item.backdropUrl || item.posterUrl || '')
+  };
+
+  return { item: normalized, videos, backdropUrl: normalized.backdropUrl, overview: normalized.overview };
+}
+
+function renderV3HeroData(heroData) {
+  if (!v3Hero || !heroData?.item) return;
+  const item = heroData.item;
+  const backdropUrl = heroData.backdropUrl || item.posterUrl || '';
+  const title = item.title || 'Без названия';
+  const meta = [
+    item.mediaType === 'tv' ? 'Сериал' : 'Фильм',
+    formatFullDate(item.releaseDate),
+    item.voteAverage ? `TMDb ${formatVote(item.voteAverage)}` : ''
+  ].filter(Boolean).join(' • ');
+
+  v3Hero.style.setProperty('--v3-hero-backdrop', backdropUrl ? `url('${escapeKinoWallCssUrl(backdropUrl)}')` : 'linear-gradient(120deg, rgba(74,95,255,.34), rgba(255,74,141,.18))');
+  if (v3HeroPoster) {
+    v3HeroPoster.style.backgroundImage = backdropUrl ? `url('${escapeKinoWallCssUrl(backdropUrl)}')` : '';
+  }
+  if (v3HeroBadge) v3HeroBadge.textContent = '';
+  if (v3HeroTitle) v3HeroTitle.textContent = title;
+  if (v3HeroMeta) v3HeroMeta.textContent = meta || 'RMP V3';
+  if (v3HeroOverview) v3HeroOverview.textContent = (heroData.overview || 'Описание пока отсутствует, но вайб уже загружается.').slice(0, 360);
+  v3UiState.heroItem = item;
+  v3Hero.classList.add('has-data');
+  v3Hero.classList.remove('is-ready', 'is-audio-blocked');
+  v3Hero.classList.toggle('is-muted-off', !v3UiState.heroMuted);
+  syncV3HeroMuteButton();
+}
+
+function loadYouTubeIframeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (v3UiState.ytApiPromise) return v3UiState.ytApiPromise;
+
+  v3UiState.ytApiPromise = new Promise((resolve, reject) => {
+    const previous = window.onYouTubeIframeAPIReady;
+    const timeout = window.setTimeout(() => reject(new Error('YouTube IFrame API timeout')), 9000);
+    window.onYouTubeIframeAPIReady = () => {
+      window.clearTimeout(timeout);
+      if (typeof previous === 'function') {
+        try { previous(); } catch (error) { console.warn('[youtube api previous callback]', error); }
+      }
+      resolve(window.YT);
+    };
+
+    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+      const script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      script.async = true;
+      script.onerror = () => {
+        window.clearTimeout(timeout);
+        reject(new Error('YouTube IFrame API failed to load'));
+      };
+      document.head.appendChild(script);
+    }
+  }).catch((error) => {
+    v3UiState.ytApiPromise = null;
+    throw error;
+  });
+
+  return v3UiState.ytApiPromise;
+}
+
+async function startV3HeroYouTubePlayer(seq) {
+  if (!v3HeroPlayerHost || !v3UiState.heroVideoQueue.length) return;
+  try {
+    const YTApi = await loadYouTubeIframeApi();
+    if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+    createV3HeroPlayer(YTApi, v3UiState.heroVideoQueue[v3UiState.heroVideoIndex]?.key, seq);
+  } catch (error) {
+    console.warn('[v3 hero] youtube api unavailable', error);
+    v3Hero?.classList.remove('is-loading');
+  }
+}
+
+function disableV3HeroPictureInPicture() {
+  if (!v3HeroPlayerHost) return;
+  const iframe = v3HeroPlayerHost.querySelector('iframe');
+  if (!iframe) return;
+  iframe.setAttribute('disablepictureinpicture', 'true');
+  iframe.setAttribute('disableremoteplayback', 'true');
+  iframe.setAttribute('controlslist', 'nodownload nofullscreen noremoteplayback');
+  iframe.setAttribute('allow', 'autoplay; encrypted-media');
+  iframe.removeAttribute('allowfullscreen');
+  iframe.setAttribute('allowfullscreen', 'false');
+  iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+  iframe.setAttribute('tabindex', '-1');
+  iframe.style.pointerEvents = 'none';
+  iframe.style.userSelect = 'none';
+}
+
+function createV3HeroPlayer(YTApi, videoKey, seq) {
+  if (!videoKey || !v3HeroPlayerHost) return;
+  if (v3UiState.heroPlayer && typeof v3UiState.heroPlayer.destroy === 'function') {
+    try { v3UiState.heroPlayer.destroy(); } catch (error) { /* ignore */ }
+  }
+  v3HeroPlayerHost.innerHTML = '<div id="v3HeroYoutubeFrame"></div>';
+
+  v3UiState.heroPlayer = new YTApi.Player('v3HeroYoutubeFrame', {
+    videoId: videoKey,
+    width: '100%',
+    height: '100%',
+    playerVars: {
+      autoplay: 1,
+      mute: v3UiState.heroMuted ? 1 : 0,
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
+      iv_load_policy: 3,
+      modestbranding: 1,
+      rel: 0,
+      playsinline: 1,
+      loop: 0,
+      origin: window.location.origin && window.location.origin !== 'null' ? window.location.origin : undefined
+    },
+    events: {
+      onReady: (event) => {
+        if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+        disableV3HeroPictureInPicture();
+        [50, 120, 300, 700, 1400, 2600, 4200].forEach((delay) => window.setTimeout(disableV3HeroPictureInPicture, delay));
+        try {
+          if (v3UiState.heroMuted) {
+            event.target.mute();
+          } else {
+            event.target.unMute();
+          }
+          event.target.playVideo();
+          window.setTimeout(() => {
+            if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+            try {
+              const playerState = event.target.getPlayerState?.();
+              if (!v3UiState.heroMuted && playerState !== window.YT?.PlayerState?.PLAYING) {
+                // Audible autoplay can be blocked by the browser, but RMP must not switch the user's default to muted.
+                v3Hero?.classList.add('is-audio-blocked');
+                syncV3HeroMuteButton();
+              }
+            } catch (fallbackError) { /* ignore */ }
+          }, 1150);
+        } catch (error) {
+          console.warn('[v3 hero] play failed', error);
+        }
+        scheduleV3HeroAutoAdvance(event.target, seq);
+        v3Hero?.classList.remove('is-loading');
+        v3Hero?.classList.add('is-ready');
+        window.setTimeout(() => v3Hero?.classList.remove('is-switching'), 80);
+      },
+      onStateChange: (event) => {
+        if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+        if (event.data === window.YT?.PlayerState?.ENDED) {
+          void advanceToNextV3HeroTitle(seq);
+        }
+      },
+      onError: () => {
+        if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+        tryNextV3HeroVideo(seq);
+      }
+    }
+  });
+}
+
+
+
+function sleepV3HeroTransition(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function scheduleV3HeroAutoAdvance(player, seq) {
+  if (v3UiState.heroAdvanceTimer) {
+    window.clearInterval(v3UiState.heroAdvanceTimer);
+    v3UiState.heroAdvanceTimer = null;
+  }
+
+  v3UiState.heroAdvanceTimer = window.setInterval(() => {
+    if (seq !== v3UiState.heroSeq || !isV3UiActive() || !player) {
+      window.clearInterval(v3UiState.heroAdvanceTimer);
+      v3UiState.heroAdvanceTimer = null;
+      return;
+    }
+
+    try {
+      const duration = Number(player.getDuration?.() || 0);
+      const currentTime = Number(player.getCurrentTime?.() || 0);
+      if (duration > 8 && currentTime > 2 && duration - currentTime <= 2.8) {
+        window.clearInterval(v3UiState.heroAdvanceTimer);
+        v3UiState.heroAdvanceTimer = null;
+        void advanceToNextV3HeroTitle(seq);
+      }
+    } catch (error) {
+      // optional timing check
+    }
+  }, 900);
+}
+
+async function advanceToNextV3HeroTitle(seq) {
+  if (seq !== v3UiState.heroSeq || v3UiState.heroAdvancing) return;
+  v3UiState.heroAdvancing = true;
+
+  try {
+    const visible = getVisibleCatalogItemsFromDom();
+    if (visible.length > 1 && v3UiState.heroItem?.id) {
+      const currentIndex = visible.findIndex((item) => (
+        Number(item.id) === Number(v3UiState.heroItem.id) &&
+        item.mediaType === v3UiState.heroItem.mediaType
+      ));
+
+      const ordered = currentIndex >= 0
+        ? [...visible.slice(currentIndex + 1), ...visible.slice(0, currentIndex)]
+        : visible.slice(1);
+
+      if (ordered.length) {
+        v3Hero?.classList.add('is-switching');
+        await sleepV3HeroTransition(420);
+        await updateV3HeroFromItems(ordered);
+        return;
+      }
+    }
+
+    v3Hero?.classList.remove('is-switching');
+    tryNextV3HeroVideo(seq);
+  } catch (error) {
+    console.warn('[v3 hero] auto advance failed', error);
+    tryNextV3HeroVideo(seq);
+  } finally {
+    v3UiState.heroAdvancing = false;
+  }
+}
+
+function tryNextV3HeroVideo(seq) {
+  v3UiState.heroVideoIndex += 1;
+  const next = v3UiState.heroVideoQueue[v3UiState.heroVideoIndex];
+  if (!next?.key) {
+    v3Hero?.classList.remove('is-loading');
+    return;
+  }
+  createV3HeroPlayer(window.YT, next.key, seq);
+}
+
+function syncV3HeroMuteButton() {
+  if (!v3HeroMute) return;
+  v3HeroMute.innerHTML = v3UiState.heroMuted ? getSpeakerMutedIconSvg() : getSpeakerOnIconSvg();
+  v3HeroMute.title = v3UiState.heroMuted ? 'Включить звук' : 'Выключить звук';
+  v3HeroMute.setAttribute('aria-label', v3UiState.heroMuted ? 'Включить звук' : 'Выключить звук');
+  v3HeroMute.setAttribute('aria-pressed', String(v3UiState.heroMuted));
+}
+
+function getSpeakerOnIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor"/><path d="M16 8.2a5 5 0 0 1 0 7.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.8 5.4a9 9 0 0 1 0 13.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+}
+
+function getSpeakerMutedIconSvg() {
+  return '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor"/><path d="M17 9l4 4m0-4-4 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
+}
+
+const HERO_MUTE_TOGGLE_DEBOUNCE_MS = 180;
+
+function safeToggleV3HeroMute(forceMuted = null) {
+  const now = Date.now();
+  if (now - (v3UiState.lastHeroMuteToggleAt || 0) < HERO_MUTE_TOGGLE_DEBOUNCE_MS) return;
+  v3UiState.lastHeroMuteToggleAt = now;
+  toggleV3HeroMute(forceMuted);
+}
+
+function toggleV3HeroMute(forceMuted = null) {
+  const nextMuted = typeof forceMuted === 'boolean' ? forceMuted : !v3UiState.heroMuted;
+  v3UiState.heroMuted = nextMuted;
+
+  try {
+    const player = v3UiState.heroPlayer;
+    if (player) {
+      if (nextMuted) {
+        player.mute?.();
+      } else {
+        player.unMute?.();
+        player.setVolume?.(100);
+        player.playVideo?.();
+        window.setTimeout(() => {
+          try {
+            if (!v3UiState.heroMuted) {
+              player.unMute?.();
+              player.setVolume?.(100);
+              player.playVideo?.();
+            }
+          } catch (retryError) { /* ignore retry */ }
+        }, 80);
+      }
+    }
+    v3Hero?.classList.remove('is-audio-blocked');
+  } catch (error) {
+    console.warn('[v3 hero] mute toggle failed', error);
+  }
+
+  v3Hero?.classList.toggle('is-muted-off', !v3UiState.heroMuted);
+  syncV3HeroMuteButton();
+}
+
+async function watchV3HeroItem() {
+  const item = v3UiState.heroItem;
+  if (!item?.id || !item?.mediaType) return;
+  markUserMadeCatalogChoice();
+  try {
+    const payload = await buildPlayerPayloadFromId(item.id, item.mediaType);
+    navigateToCleanPlayerRoute(item.mediaType, item.id);
+    clearV3HeroPlayer();
+    await openKinoBox(payload);
+  } catch (error) {
+    console.error('[v3 hero watch]', error);
+    openPlayerError('Не удалось открыть выбранный тайтл. Попробуй через карточку каталога.');
+  }
+}
+
+async function openV3HeroDetails() {
+  const item = v3UiState.heroItem;
+  if (!item?.id || !item?.mediaType) return;
+  await openNav(item);
 }

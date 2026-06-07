@@ -45,14 +45,40 @@
 
       <button type="button" id="kinoWallToggle" class="kinowall-toggle" title="Моя киностена" aria-label="Моя киностена">👤</button>
 
+      <label class="ui-version-switch" title="Выбор интерфейса сайта">
+        <span>Версия</span>
+        <select id="uiVersionSelect" aria-label="Версия интерфейса">
+          <option value="v3">V3</option>
+          <option value="v2">V2</option>
+        </select>
+      </label>
+
       <button id="favoriteToggle" class="favorite-toggle">Показать избранное</button>
 
       <form id="form" class="search-form">
         <button type="button" id="aiSearchToggle" class="ai-search-toggle" aria-pressed="false" title="AI-поиск по описанию и вайбу">AI🧠</button>
         <textarea placeholder="Поиск по названию" id="search" class="search-input" autocomplete="off" rows="1" wrap="off"></textarea>
+        <button type="submit" class="search-submit" aria-label="Найти" title="Найти">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M10.8 4.2a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2Zm0 2a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2Zm5.1 9.1 4 4a1.1 1.1 0 0 1-1.6 1.6l-4-4a1.1 1.1 0 1 1 1.6-1.6Z" fill="currentColor"/>
+          </svg>
+        </button>
       </form>
     </div>
   </header>
+
+
+  <div id="v3CinematicHud" class="v3-cinematic-hud" aria-hidden="false">
+    <nav class="v3-dock" aria-label="V3 navigation">
+      <button type="button" class="v3-dock-btn" data-v3-action="home" title="Каталог" aria-label="Каталог"><span class="v3-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8.8Z"/></svg></span></button>
+      <button type="button" class="v3-dock-btn" data-v3-action="filters" title="Фильтры" aria-label="Фильтры"><span class="v3-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4V6Zm3 5h10v2H7v-2Zm3 5h4v2h-4v-2Z"/></svg></span></button>
+      <button type="button" class="v3-dock-btn v3-roulette-dock-btn" data-v3-action="random" title="Кинорулетка" aria-label="Кинорулетка"><span class="v3-ico"><svg viewBox="0 0 24 24" aria-hidden="true" class="v3-slot-icon"><path d="M6.4 3.2h8.9c1.95 0 3.4 1.46 3.4 3.42v10.76c0 1.96-1.45 3.42-3.4 3.42H6.4c-1.96 0-3.4-1.46-3.4-3.42V6.62C3 4.66 4.44 3.2 6.4 3.2Zm-.22 2.45c-.47 0-.78.32-.78.8v2.02h10.9V6.45c0-.48-.32-.8-.78-.8H6.18Zm-.78 5.05v4.28h10.9V10.7H5.4Zm0 6.5v.36c0 .48.31.8.78.8h9.34c.46 0 .78-.32.78-.8v-.36H5.4Z"/><path d="M7.2 11.58h2.15v2.54H7.2v-2.54Zm3.58 0h2.15v2.54h-2.15v-2.54Zm3.58 0h2.15v2.54h-2.15v-2.54ZM6.7 6.34h4.35v1.28H6.7V6.34Zm12.85 3.3h.65c.45 0 .8.36.8.8v2.86c0 .44-.35.8-.8.8h-.65V9.64Zm1.16-4.28a1.66 1.66 0 1 1 0 3.32 1.66 1.66 0 0 1 0-3.32Z"/></svg></span></button>
+      <button type="button" class="v3-dock-btn" data-v3-action="favorites" title="Избранное" aria-label="Избранное"><span class="v3-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg></span></button>
+      <button type="button" class="v3-dock-btn" data-v3-action="wall" title="Киностена" aria-label="Киностена"><span class="v3-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12.5a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Zm-8 7.1c.9-3.6 4-5.6 8-5.6s7.1 2 8 5.6c.2.8-.4 1.4-1.1 1.4H5.1c-.7 0-1.3-.6-1.1-1.4Z"/></svg></span></button>
+      <button type="button" class="v3-dock-btn" data-v3-action="palette" title="Палитра" aria-label="Палитра"><span class="v3-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0 0 18h1.1c1.1 0 1.8-.9 1.5-1.9-.2-.6 0-1.2.5-1.6.4-.4 1-.5 1.6-.4A3.3 3.3 0 0 0 21 13.9V12a9 9 0 0 0-9-9ZM7.5 12.2a1.4 1.4 0 1 1 0-2.8 1.4 1.4 0 0 1 0 2.8Zm2.4-4.3a1.4 1.4 0 1 1 0-2.8 1.4 1.4 0 0 1 0 2.8Zm4.2 0a1.4 1.4 0 1 1 0-2.8 1.4 1.4 0 0 1 0 2.8Zm2.4 4.3a1.4 1.4 0 1 1 0-2.8 1.4 1.4 0 0 1 0 2.8Z"/></svg></span></button>
+    </nav>
+    <div class="v3-filter-scrim" data-v3-action="filters-close" aria-hidden="true"></div>
+  </div>
 
   <div class="wrapper">
     <aside class="sidebar">
@@ -163,6 +189,25 @@
     </aside>
 
     <main>
+      <section id="v3Hero" class="v3-hero hidden" aria-live="polite">
+        <div class="v3-hero-media">
+          <div id="v3HeroPoster" class="v3-hero-poster"></div>
+          <div id="v3HeroPlayer" class="v3-hero-player" aria-hidden="true"></div>
+          <div class="v3-hero-noise" aria-hidden="true"></div>
+        </div>
+        <div class="v3-hero-content">
+          <div id="v3HeroBadge" class="v3-hero-badge">RMP V3</div>
+          <h1 id="v3HeroTitle">Выбираем титр...</h1>
+          <p id="v3HeroMeta" class="v3-hero-meta">TMDb • трейлер • каталог</p>
+          <p id="v3HeroOverview" class="v3-hero-overview">Сайт подберёт доступный трейлер и включит его на фоне без интерфейса YouTube.</p>
+          <div class="v3-hero-actions">
+            <button type="button" id="v3HeroWatch" class="v3-hero-primary">Смотреть</button>
+            <button type="button" id="v3HeroDetails" class="v3-hero-secondary">Подробнее</button>
+            <button type="button" id="v3HeroMute" class="v3-hero-ghost" aria-pressed="true">Без звука</button>
+          </div>
+        </div>
+      </section>
+
       <div id="resultsToolbar" class="results-toolbar">
         <div id="resultsStatus" class="results-status">Загрузка...</div>
       </div>
@@ -198,10 +243,19 @@
   </div>
 
   <div class="pagination" id="paginationBlock">
-    <div class="page" id="prev">Пред. стр.</div>
+    <button type="button" class="page" id="prev">Пред. стр.</button>
     <div class="current" id="current">1</div>
-    <div class="page" id="next">След. стр.</div>
+    <div class="v3-page-numbers" id="v3PageNumbers" aria-label="Страницы каталога"></div>
+    <button type="button" class="page" id="next">След. стр.</button>
   </div>
+
+
+  <nav class="v3-footer-links" aria-label="Ссылки RMP V3">
+    <a href="old.html">Старая версия</a>
+    <a href="https://boosty.to/riderr">Boosty</a>
+    <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2">PayPal</a>
+    <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js">Установить скрипт</a>
+  </nav>
 
   <button id="scrollTopBtn" class="scroll-to-top">↑</button>
 
