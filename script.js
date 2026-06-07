@@ -408,8 +408,6 @@ const RMP_V3_EVENT_AMBIENT_MAX_DELAY = 5200;
 
 const V3_HERO_CANDIDATE_LIMIT = 10;
 const V3_HERO_VIDEO_LANGUAGES = 'ru-RU,ru,en-US,en,null';
-const V3_HERO_RANDOM_RAW_PAGE_LIMIT = 120;
-const V3_HERO_RANDOM_POOL_SIZE = 24;
 
 
 const PALETTE_COLOR_FIELDS = [
@@ -543,8 +541,6 @@ const state = {
 const v3UiState = {
   version: 'v3',
   heroSeq: 0,
-  heroRandomSeq: 0,
-  heroRandomRecentKeys: [],
   heroItem: null,
   heroVideoQueue: [],
   heroVideoIndex: 0,
@@ -3535,7 +3531,7 @@ async function loadContent(page = 1) {
       renderMovies(payload.items);
       queueEpisodeCalendarAvailability(payload.items);
       if (allowV3Hero) {
-        updateV3HeroRandom();
+        updateV3HeroFromItems(payload.items);
       } else {
         hideV3Hero();
         clearV3HeroPlayer();
@@ -9730,7 +9726,7 @@ function applyUiVersionState(nextVersion, options = {}) {
     document.body?.classList.add('v3-sound-ready');
     const visibleItems = getVisibleCatalogItemsFromDom();
     if (visibleItems.length && !shouldSuppressV3HeroForCurrentState()) {
-      updateV3HeroRandom();
+      updateV3HeroFromItems(visibleItems);
     } else {
       hideV3Hero();
       clearV3HeroPlayer();
@@ -9780,9 +9776,8 @@ function bindV3SoundDelegation() {
     if (!isV3UiActive() || v3UiState.heroMuted || !v3UiState.heroPlayer) return;
     try {
       v3UiState.heroPlayer.unMute?.();
-      v3UiState.heroPlayer.setVolume?.(100);
       v3UiState.heroPlayer.playVideo?.();
-      v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
+      v3Hero?.classList.remove('is-audio-blocked');
       syncV3HeroMuteButton();
     } catch (error) {
       console.warn('[v3 hero] audible resume failed', error);
@@ -9884,134 +9879,6 @@ function playV3ClickSound(kind = 'click') {
     // optional tactile audio
   }
 }
-
-function shuffleArray(items = []) {
-  const result = Array.isArray(items) ? [...items] : [];
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [result[index], result[randomIndex]] = [result[randomIndex], result[index]];
-  }
-  return result;
-}
-
-function buildV3HeroRandomKey(item) {
-  return `${item?.mediaType || 'movie'}:${Number(item?.id || 0)}`;
-}
-
-function rememberV3HeroRandomKey(item) {
-  const key = buildV3HeroRandomKey(item);
-  if (!key || key.endsWith(':0')) return;
-  v3UiState.heroRandomRecentKeys = [
-    key,
-    ...(v3UiState.heroRandomRecentKeys || []).filter((entry) => entry !== key)
-  ].slice(0, 18);
-}
-
-function filterRecentV3HeroRandomItems(items = []) {
-  const recent = new Set(v3UiState.heroRandomRecentKeys || []);
-  const fresh = items.filter((item) => !recent.has(buildV3HeroRandomKey(item)));
-  return fresh.length ? fresh : items;
-}
-
-function pickRandomV3HeroMediaTypes() {
-  const type = state.appliedFilters.type;
-  if (type === 'movie' || type === 'tv') return [type];
-  return Math.random() > 0.5 ? ['movie', 'tv'] : ['tv', 'movie'];
-}
-
-async function fetchRandomV3HeroPoolForType(mediaType, page) {
-  const endpoint = mediaType === 'tv' ? '/discover/tv' : '/discover/movie';
-  const response = await apiFetch(endpoint, buildDiscoverParams(mediaType, page));
-  const items = (response.results || [])
-    .map((item) => normalizeItem(item, mediaType))
-    .filter((item) => item?.id && item.mediaType && item.posterUrl);
-  return {
-    items,
-    totalPages: normalizeSourceTotalPages(response.total_pages || 1)
-  };
-}
-
-async function fetchRandomV3HeroCandidates() {
-  const types = pickRandomV3HeroMediaTypes();
-  const gathered = [];
-  let maxKnownPages = 1;
-
-  for (const mediaType of types) {
-    if (hasImpossibleGenreCombination(mediaType)) continue;
-
-    const probePage = Math.max(1, Math.floor(Math.random() * 8) + 1);
-    const probe = await fetchRandomV3HeroPoolForType(mediaType, probePage).catch(() => ({ items: [], totalPages: 1 }));
-    maxKnownPages = Math.max(maxKnownPages, probe.totalPages || 1);
-
-    if (probe.items.length) gathered.push(...probe.items);
-
-    const maxPage = Math.max(1, Math.min(V3_HERO_RANDOM_RAW_PAGE_LIMIT, probe.totalPages || maxKnownPages || 1));
-    const extraPages = new Set();
-    while (extraPages.size < 3 && maxPage > 1) {
-      extraPages.add(Math.max(1, Math.floor(Math.random() * maxPage) + 1));
-    }
-
-    const extraResults = await Promise.allSettled(
-      [...extraPages].map((page) => fetchRandomV3HeroPoolForType(mediaType, page))
-    );
-
-    for (const result of extraResults) {
-      if (result.status !== 'fulfilled' || !result.value) continue;
-      gathered.push(...(result.value.items || []));
-      maxKnownPages = Math.max(maxKnownPages, result.value.totalPages || 1);
-    }
-
-    if (gathered.length >= V3_HERO_RANDOM_POOL_SIZE) break;
-  }
-
-  const deduped = [];
-  const seen = new Set();
-  for (const item of gathered) {
-    const key = buildV3HeroRandomKey(item);
-    if (!key || key.endsWith(':0') || seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(item);
-  }
-
-  return shuffleArray(filterRecentV3HeroRandomItems(deduped)).slice(0, V3_HERO_CANDIDATE_LIMIT);
-}
-
-async function updateV3HeroRandom(options = {}) {
-  const randomSeq = (v3UiState.heroRandomSeq || 0) + 1;
-  v3UiState.heroRandomSeq = randomSeq;
-
-  if (!isV3UiActive() || !v3Hero || shouldSuppressV3HeroForCurrentState()) {
-    hideV3Hero();
-    clearV3HeroPlayer();
-    return;
-  }
-
-  try {
-    const candidates = await fetchRandomV3HeroCandidates();
-    if (randomSeq !== v3UiState.heroRandomSeq || !isV3UiActive()) return;
-
-    if (candidates.length) {
-      await updateV3HeroFromItems(candidates);
-      return;
-    }
-
-    const visibleFallback = getVisibleCatalogItemsFromDom();
-    if (visibleFallback.length) {
-      await updateV3HeroFromItems(shuffleArray(visibleFallback));
-      return;
-    }
-
-    hideV3Hero();
-    clearV3HeroPlayer();
-  } catch (error) {
-    console.warn('[v3 hero] random hero failed', error);
-    const visibleFallback = getVisibleCatalogItemsFromDom();
-    if (visibleFallback.length) {
-      await updateV3HeroFromItems(shuffleArray(visibleFallback));
-    }
-  }
-}
-
 function getVisibleCatalogItemsFromDom() {
   return Array.from(document.querySelectorAll('.movie[data-id][data-media-type]')).map((card) => ({
     id: Number(card.dataset.id || 0),
@@ -10078,7 +9945,6 @@ async function updateV3HeroFromItems(items = []) {
       renderV3HeroData(heroData);
       if (heroData.videos.length) {
         v3UiState.heroItem = heroData.item;
-        rememberV3HeroRandomKey(heroData.item);
         v3UiState.heroVideoQueue = heroData.videos;
         v3UiState.heroVideoIndex = 0;
         await startV3HeroYouTubePlayer(seq);
@@ -10230,8 +10096,6 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
     height: '100%',
     playerVars: {
       autoplay: 1,
-      // RMP tries audible autoplay first. If the browser blocks it completely,
-      // we only then fall back to muted playback so the hero does not freeze.
       mute: v3UiState.heroMuted ? 1 : 0,
       controls: 0,
       disablekb: 1,
@@ -10249,53 +10113,23 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
         disableV3HeroPictureInPicture();
         [50, 120, 300, 700, 1400, 2600, 4200].forEach((delay) => window.setTimeout(disableV3HeroPictureInPicture, delay));
         try {
-          const player = event.target;
-
-          const tryPreferredPlayback = () => {
-            if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
-            try {
-              if (v3UiState.heroMuted) {
-                player.mute?.();
-                player.setVolume?.(0);
-              } else {
-                player.unMute?.();
-                player.setVolume?.(100);
-              }
-              player.playVideo?.();
-            } catch (retryError) { /* ignore retry */ }
-          };
-
-          // First try exactly what RMP should do: autoplay with sound.
-          tryPreferredPlayback();
-          [80, 220, 520, 920, 1450].forEach((delay) => window.setTimeout(tryPreferredPlayback, delay));
-
-          v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
-
+          if (v3UiState.heroMuted) {
+            event.target.mute();
+          } else {
+            event.target.unMute();
+          }
+          event.target.playVideo();
           window.setTimeout(() => {
             if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
             try {
-              const playerState = player.getPlayerState?.();
-              const isPlaying = playerState === window.YT?.PlayerState?.PLAYING;
-
-              if (!v3UiState.heroMuted && isPlaying) {
-                player.unMute?.();
-                player.setVolume?.(100);
-                v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
-              }
-
-              // Fallback only if audible autoplay was fully blocked and video did not start at all.
-              // This keeps the page alive, but normal path remains sound-on autoplay.
-              if (!isPlaying) {
-                player.mute?.();
-                player.setVolume?.(0);
-                player.playVideo?.();
-                if (!v3UiState.heroMuted) {
-                  v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
-                }
+              const playerState = event.target.getPlayerState?.();
+              if (!v3UiState.heroMuted && playerState !== window.YT?.PlayerState?.PLAYING) {
+                // Audible autoplay can be blocked by the browser, but RMP must not switch the user's default to muted.
+                v3Hero?.classList.add('is-audio-blocked');
+                syncV3HeroMuteButton();
               }
             } catch (fallbackError) { /* ignore */ }
-            syncV3HeroMuteButton();
-          }, 1850);
+          }, 1150);
         } catch (error) {
           console.warn('[v3 hero] play failed', error);
         }
@@ -10306,14 +10140,6 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
       },
       onStateChange: (event) => {
         if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
-        if (event.data === window.YT?.PlayerState?.PLAYING && !v3UiState.heroMuted) {
-          try {
-            event.target.unMute?.();
-            event.target.setVolume?.(100);
-            v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
-            syncV3HeroMuteButton();
-          } catch (error) { /* ignore */ }
-        }
         if (event.data === window.YT?.PlayerState?.ENDED) {
           void advanceToNextV3HeroTitle(seq);
         }
@@ -10364,12 +10190,29 @@ async function advanceToNextV3HeroTitle(seq) {
   v3UiState.heroAdvancing = true;
 
   try {
-    v3Hero?.classList.add('is-switching');
-    await sleepV3HeroTransition(420);
-    await updateV3HeroRandom({ reason: 'auto-advance' });
-  } catch (error) {
-    console.warn('[v3 hero] random auto advance failed', error);
+    const visible = getVisibleCatalogItemsFromDom();
+    if (visible.length > 1 && v3UiState.heroItem?.id) {
+      const currentIndex = visible.findIndex((item) => (
+        Number(item.id) === Number(v3UiState.heroItem.id) &&
+        item.mediaType === v3UiState.heroItem.mediaType
+      ));
+
+      const ordered = currentIndex >= 0
+        ? [...visible.slice(currentIndex + 1), ...visible.slice(0, currentIndex)]
+        : visible.slice(1);
+
+      if (ordered.length) {
+        v3Hero?.classList.add('is-switching');
+        await sleepV3HeroTransition(420);
+        await updateV3HeroFromItems(ordered);
+        return;
+      }
+    }
+
     v3Hero?.classList.remove('is-switching');
+    tryNextV3HeroVideo(seq);
+  } catch (error) {
+    console.warn('[v3 hero] auto advance failed', error);
     tryNextV3HeroVideo(seq);
   } finally {
     v3UiState.heroAdvancing = false;
@@ -10388,12 +10231,10 @@ function tryNextV3HeroVideo(seq) {
 
 function syncV3HeroMuteButton() {
   if (!v3HeroMute) return;
-  const audioBlocked = Boolean(v3Hero?.classList.contains('is-audio-blocked')) && !v3UiState.heroMuted;
-  const visuallyMuted = v3UiState.heroMuted || audioBlocked;
-  v3HeroMute.innerHTML = visuallyMuted ? getSpeakerMutedIconSvg() : getSpeakerOnIconSvg();
-  v3HeroMute.title = visuallyMuted ? 'Включить звук' : 'Выключить звук';
-  v3HeroMute.setAttribute('aria-label', visuallyMuted ? 'Включить звук' : 'Выключить звук');
-  v3HeroMute.setAttribute('aria-pressed', String(visuallyMuted));
+  v3HeroMute.innerHTML = v3UiState.heroMuted ? getSpeakerMutedIconSvg() : getSpeakerOnIconSvg();
+  v3HeroMute.title = v3UiState.heroMuted ? 'Включить звук' : 'Выключить звук';
+  v3HeroMute.setAttribute('aria-label', v3UiState.heroMuted ? 'Включить звук' : 'Выключить звук');
+  v3HeroMute.setAttribute('aria-pressed', String(v3UiState.heroMuted));
 }
 
 function getSpeakerOnIconSvg() {
@@ -10414,8 +10255,7 @@ function safeToggleV3HeroMute(forceMuted = null) {
 }
 
 function toggleV3HeroMute(forceMuted = null) {
-  const audioBlocked = Boolean(v3Hero?.classList.contains('is-audio-blocked')) && !v3UiState.heroMuted;
-  const nextMuted = typeof forceMuted === 'boolean' ? forceMuted : (audioBlocked ? false : !v3UiState.heroMuted);
+  const nextMuted = typeof forceMuted === 'boolean' ? forceMuted : !v3UiState.heroMuted;
   v3UiState.heroMuted = nextMuted;
 
   try {
@@ -10427,14 +10267,12 @@ function toggleV3HeroMute(forceMuted = null) {
         player.unMute?.();
         player.setVolume?.(100);
         player.playVideo?.();
-        v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
         window.setTimeout(() => {
           try {
             if (!v3UiState.heroMuted) {
               player.unMute?.();
               player.setVolume?.(100);
               player.playVideo?.();
-              v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
             }
           } catch (retryError) { /* ignore retry */ }
         }, 80);
