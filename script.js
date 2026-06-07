@@ -401,7 +401,7 @@ const UI_VERSION_STORAGE_KEY = 'rmpUiVersion';
 // === RMP V3 EVENT SETTINGS ===
 // Тут меняется дата/время ивента. Формат ниже — московское время (UTC+3).
 // Пример: '2026-06-07T16:05:00+03:00' = 7 июня 2026, 16:05 по МСК.
-const RMP_V3_EVENT_UNLOCK_AT = '2026-06-07T18:35:00+03:00';
+const RMP_V3_EVENT_UNLOCK_AT = '2026-06-07T16:05:00+03:00';
 const RMP_V3_EVENT_RELEASED_STORAGE_KEY = 'rmpV3EventReleased';
 const RMP_V3_EVENT_AMBIENT_MIN_DELAY = 1400;
 const RMP_V3_EVENT_AMBIENT_MAX_DELAY = 5200;
