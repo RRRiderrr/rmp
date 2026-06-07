@@ -10267,6 +10267,7 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
 
           if (!v3UiState.heroMuted) {
             v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
+            attemptV3HeroAutoSound(event.target, seq, 'ready');
           } else {
             v3Hero?.classList.remove('is-audio-blocked');
             v3Hero?.classList.add('is-autoplay-muted');
@@ -10279,6 +10280,9 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
               if (playerState !== window.YT?.PlayerState?.PLAYING) {
                 event.target.mute?.();
                 event.target.playVideo?.();
+              }
+              if (!v3UiState.heroMuted) {
+                attemptV3HeroAutoSound(event.target, seq, 'fallback');
               }
             } catch (fallbackError) { /* ignore */ }
             syncV3HeroMuteButton();
@@ -10293,6 +10297,9 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
       },
       onStateChange: (event) => {
         if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
+        if (event.data === window.YT?.PlayerState?.PLAYING && !v3UiState.heroMuted) {
+          attemptV3HeroAutoSound(event.target, seq, 'playing');
+        }
         if (event.data === window.YT?.PlayerState?.ENDED) {
           void advanceToNextV3HeroTitle(seq);
         }
@@ -10365,10 +10372,52 @@ function tryNextV3HeroVideo(seq) {
   createV3HeroPlayer(window.YT, next.key, seq);
 }
 
+
+function attemptV3HeroAutoSound(player, seq, reason = 'auto') {
+  if (!player || seq !== v3UiState.heroSeq || !isV3UiActive() || v3UiState.heroMuted) return;
+
+  const delays = [180, 420, 850, 1400, 2200, 3400, 5200, 7600];
+  delays.forEach((delay) => {
+    window.setTimeout(() => {
+      if (!player || seq !== v3UiState.heroSeq || !isV3UiActive() || v3UiState.heroMuted) return;
+
+      try {
+        player.playVideo?.();
+        player.setVolume?.(100);
+        player.unMute?.();
+
+        window.setTimeout(() => {
+          if (seq !== v3UiState.heroSeq || !isV3UiActive() || v3UiState.heroMuted) return;
+          try {
+            const muted = typeof player.isMuted === 'function' ? player.isMuted() : false;
+            if (!muted) {
+              v3Hero?.classList.remove('is-audio-blocked', 'is-autoplay-muted');
+            } else {
+              v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
+            }
+            syncV3HeroMuteButton();
+          } catch (checkError) {
+            syncV3HeroMuteButton();
+          }
+        }, 120);
+      } catch (error) {
+        v3Hero?.classList.add('is-audio-blocked', 'is-autoplay-muted');
+        syncV3HeroMuteButton();
+      }
+    }, delay);
+  });
+}
+
 function syncV3HeroMuteButton() {
   if (!v3HeroMute) return;
   const audioBlocked = Boolean(v3Hero?.classList.contains('is-audio-blocked')) && !v3UiState.heroMuted;
-  const visuallyMuted = v3UiState.heroMuted || audioBlocked;
+  let playerMuted = false;
+  try {
+    playerMuted = Boolean(v3UiState.heroPlayer?.isMuted?.());
+  } catch (error) {
+    playerMuted = false;
+  }
+  const visuallyMuted = v3UiState.heroMuted || (audioBlocked && playerMuted);
   v3HeroMute.innerHTML = visuallyMuted ? getSpeakerMutedIconSvg() : getSpeakerOnIconSvg();
   v3HeroMute.title = visuallyMuted ? 'Включить звук' : 'Выключить звук';
   v3HeroMute.setAttribute('aria-label', visuallyMuted ? 'Включить звук' : 'Выключить звук');

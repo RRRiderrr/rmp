@@ -10616,3 +10616,16 @@ body.rmp-v3 #v3HeroYoutubeFrame {
 body.rmp-v3 .v3-hero.is-autoplay-muted .v3-hero-player {
   opacity: .56 !important;
 }
+
+
+
+
+/* ===== RMP FIX v20: automatic sound attempts after muted autoplay ===== */
+body.rmp-v3 .v3-hero.is-audio-blocked .v3-hero-mute {
+  animation: rmpAutoSoundPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes rmpAutoSoundPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.055); }
+}
