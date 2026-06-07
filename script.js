@@ -547,6 +547,8 @@ const v3UiState = {
   heroPlayer: null,
   heroAdvanceTimer: null,
   heroAdvancing: false,
+  heroUserActivated: false,
+  heroAutoplayPrimedMuted: false,
   heroMuted: false,
   ytApiPromise: null,
   clickAudioCtx: null,
@@ -624,6 +626,7 @@ async function init() {
 }
 
 function bindEvents() {
+  bindV3HeroAutoplayUnlock();
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const nextQuery = search.value.trim();
@@ -10083,6 +10086,89 @@ function disableV3HeroPictureInPicture() {
   iframe.style.userSelect = 'none';
 }
 
+
+function markV3HeroUserActivated() {
+  v3UiState.heroUserActivated = true;
+  unlockV3HeroAudioAfterGesture();
+}
+
+function bindV3HeroAutoplayUnlock() {
+  if (v3UiState.heroAutoplayUnlockBound) return;
+  v3UiState.heroAutoplayUnlockBound = true;
+
+  const handler = () => markV3HeroUserActivated();
+  ['pointerdown', 'touchstart', 'keydown', 'mousedown'].forEach((eventName) => {
+    document.addEventListener(eventName, handler, { capture: true, passive: true });
+  });
+}
+
+function unlockV3HeroAudioAfterGesture() {
+  const player = v3UiState.heroPlayer;
+  if (!player || v3UiState.heroMuted) return;
+
+  try {
+    player.unMute?.();
+    player.setVolume?.(100);
+    player.playVideo?.();
+    v3UiState.heroAutoplayPrimedMuted = false;
+    v3Hero?.classList.remove('is-audio-blocked');
+    v3Hero?.classList.add('is-muted-off');
+    syncV3HeroMuteButton();
+  } catch (error) {
+    console.warn('[v3 hero] audio unlock after gesture failed', error);
+  }
+}
+
+function primeV3HeroAutoplay(player, seq) {
+  if (!player) return;
+
+  try {
+    // Браузеры почти всегда разрешают autoplay только если iframe стартует muted.
+    // Поэтому сначала гарантированно запускаем видео muted, затем пробуем вернуть звук,
+    // если браузер уже считает страницу активированной пользователем.
+    player.mute?.();
+    player.playVideo?.();
+    v3UiState.heroAutoplayPrimedMuted = true;
+
+    const tryAudible = () => {
+      if (seq !== v3UiState.heroSeq || !isV3UiActive() || v3UiState.heroMuted) return;
+      try {
+        player.unMute?.();
+        player.setVolume?.(100);
+        player.playVideo?.();
+
+        window.setTimeout(() => {
+          try {
+            const stillMuted = Boolean(player.isMuted?.());
+            if (!v3UiState.heroMuted && stillMuted) {
+              v3UiState.heroAutoplayPrimedMuted = true;
+              v3Hero?.classList.add('is-audio-blocked');
+            } else {
+              v3UiState.heroAutoplayPrimedMuted = false;
+              v3Hero?.classList.remove('is-audio-blocked');
+            }
+            syncV3HeroMuteButton();
+          } catch (error) {
+            // ignore
+          }
+        }, 220);
+      } catch (error) {
+        v3Hero?.classList.add('is-audio-blocked');
+      }
+    };
+
+    if (!v3UiState.heroMuted) {
+      if (v3UiState.heroUserActivated) {
+        tryAudible();
+      } else {
+        v3Hero?.classList.add('is-audio-blocked');
+      }
+    }
+  } catch (error) {
+    console.warn('[v3 hero] autoplay prime failed', error);
+  }
+}
+
 function createV3HeroPlayer(YTApi, videoKey, seq) {
   if (!videoKey || !v3HeroPlayerHost) return;
   if (v3UiState.heroPlayer && typeof v3UiState.heroPlayer.destroy === 'function') {
@@ -10096,7 +10182,7 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
     height: '100%',
     playerVars: {
       autoplay: 1,
-      mute: v3UiState.heroMuted ? 1 : 0,
+      mute: 1,
       controls: 0,
       disablekb: 1,
       fs: 0,
@@ -10113,23 +10199,17 @@ function createV3HeroPlayer(YTApi, videoKey, seq) {
         disableV3HeroPictureInPicture();
         [50, 120, 300, 700, 1400, 2600, 4200].forEach((delay) => window.setTimeout(disableV3HeroPictureInPicture, delay));
         try {
-          if (v3UiState.heroMuted) {
-            event.target.mute();
-          } else {
-            event.target.unMute();
-          }
-          event.target.playVideo();
+          primeV3HeroAutoplay(event.target, seq);
           window.setTimeout(() => {
             if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
             try {
               const playerState = event.target.getPlayerState?.();
-              if (!v3UiState.heroMuted && playerState !== window.YT?.PlayerState?.PLAYING) {
-                // Audible autoplay can be blocked by the browser, but RMP must not switch the user's default to muted.
-                v3Hero?.classList.add('is-audio-blocked');
-                syncV3HeroMuteButton();
+              if (playerState !== window.YT?.PlayerState?.PLAYING) {
+                event.target.mute?.();
+                event.target.playVideo?.();
               }
             } catch (fallbackError) { /* ignore */ }
-          }, 1150);
+          }, 900);
         } catch (error) {
           console.warn('[v3 hero] play failed', error);
         }
@@ -10255,11 +10335,25 @@ function safeToggleV3HeroMute(forceMuted = null) {
 }
 
 function toggleV3HeroMute(forceMuted = null) {
-  const nextMuted = typeof forceMuted === 'boolean' ? forceMuted : !v3UiState.heroMuted;
+  const player = v3UiState.heroPlayer;
+  let nextMuted = typeof forceMuted === 'boolean' ? forceMuted : !v3UiState.heroMuted;
+
+  try {
+    const actualMuted = Boolean(player?.isMuted?.());
+    if (forceMuted === null && !v3UiState.heroMuted && actualMuted) {
+      nextMuted = false;
+    }
+  } catch (error) {
+    // ignore actual mute probe
+  }
+
+  if (!nextMuted) {
+    v3UiState.heroUserActivated = true;
+  }
+
   v3UiState.heroMuted = nextMuted;
 
   try {
-    const player = v3UiState.heroPlayer;
     if (player) {
       if (nextMuted) {
         player.mute?.();

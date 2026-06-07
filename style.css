@@ -10600,3 +10600,16 @@ body.rmp-v3 .v3-page-number:disabled {
 body.rmp-v3 .v3-page-ellipsis {
   pointer-events: none !important;
 }
+
+
+
+
+/* ===== RMP FIX v18: robust muted autoplay fallback ===== */
+body.rmp-v3 .v3-hero.is-audio-blocked .v3-hero-ghost {
+  animation: rmpAudioBlockedPulse 1.35s ease-in-out infinite;
+}
+
+@keyframes rmpAudioBlockedPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(255,255,255,0); }
+  50% { box-shadow: 0 0 0 8px rgba(255,255,255,.08); }
+}
