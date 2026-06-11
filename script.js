@@ -409,6 +409,138 @@ const RMP_V3_EVENT_AMBIENT_MAX_DELAY = 5200;
 const V3_HERO_CANDIDATE_LIMIT = 10;
 const V3_HERO_VIDEO_LANGUAGES = 'ru-RU,ru,en-US,en,null';
 
+function isSmartTvV3LiteMode() {
+  const ua = String(navigator.userAgent || '');
+  const platform = String(navigator.platform || '');
+  return /Tizen|SMART-TV|SmartTV|Smart TV|Samsung SmartTV|Maple|Web0S|WebOS|webOS|NetCast|LG Browser|HbbTV|BRAVIA|SonyCEBrowser|Viera|AQUOS|VIDAA|Hisense|PhilipsTV|Philips|Opera TV|OperaTV|Oregan|Roku|CrKey|Android TV|GoogleTV|Google TV|AFTT|AFTS|AFTM|AFTB|Fire TV|AppleTV|Apple TV|DuneHD|Dune HD|CE-HTML|CEHTML|PlayStation|Xbox/i.test(`${ua} ${platform}`);
+}
+
+// Backward-compatible name used by older patches.
+function isTizenV3LiteMode() {
+  return isSmartTvV3LiteMode();
+}
+
+function initSmartTvPerformanceMode() {
+  const enabled = isSmartTvV3LiteMode();
+  document.documentElement.classList.toggle('rmp-smarttv-lite', enabled);
+  document.body?.classList.toggle('rmp-smarttv-lite', enabled);
+  document.documentElement.classList.toggle('rmp-tizen-lite', enabled);
+  document.body?.classList.toggle('rmp-tizen-lite', enabled);
+  if (enabled) enforceSmartTvNoYouTube();
+  return enabled;
+}
+
+// Backward-compatible name used by older patches.
+function initTizenV3PerformanceMode() {
+  return initSmartTvPerformanceMode();
+}
+
+function shouldDisableV3HeroVideoForPerformance() {
+  return isSmartTvV3LiteMode();
+}
+
+function stopSmartTvHeroMediaHard() {
+  if (!isSmartTvV3LiteMode()) return;
+
+  try {
+    if (v3UiState.heroPlayer) {
+      v3UiState.heroPlayer.stopVideo?.();
+      v3UiState.heroPlayer.mute?.();
+      v3UiState.heroPlayer.destroy?.();
+    }
+  } catch (error) {
+    // ignore TV iframe cleanup quirks
+  }
+
+  v3UiState.heroPlayer = null;
+  v3UiState.heroVideoQueue = [];
+  v3UiState.heroVideoIndex = 0;
+  v3UiState.heroAutoplayPrimedMuted = false;
+
+  if (v3HeroPlayerHost) {
+    v3HeroPlayerHost.innerHTML = '';
+  }
+
+  const youtubeSelectors = [
+    '#v3HeroYoutubeFrame',
+    '.v3-hero-player iframe',
+    'iframe[src*="youtube.com/embed"]',
+    'iframe[src*="youtube-nocookie.com/embed"]',
+    'iframe[src*="youtube.com"]',
+    'iframe[src*="youtu.be"]',
+    'embed[src*="youtube.com"]',
+    'object[data*="youtube.com"]'
+  ].join(',');
+
+  document.querySelectorAll(youtubeSelectors).forEach((node) => {
+    try {
+      if (node.tagName === 'IFRAME') {
+        node.contentWindow?.postMessage?.('{"event":"command","func":"mute","args":""}', '*');
+        node.contentWindow?.postMessage?.('{"event":"command","func":"stopVideo","args":""}', '*');
+      }
+      node.removeAttribute('src');
+      node.removeAttribute('data-src');
+      node.remove();
+    } catch (error) {
+      // ignore cross-origin / stale node
+    }
+  });
+}
+
+function enforceSmartTvNoYouTube() {
+  if (!isSmartTvV3LiteMode()) return;
+  stopSmartTvHeroMediaHard();
+
+  if (!v3UiState.smartTvNoYoutubeObserver) {
+    v3UiState.smartTvNoYoutubeObserver = new MutationObserver(() => {
+      if (!isSmartTvV3LiteMode()) return;
+      stopSmartTvHeroMediaHard();
+    });
+    try {
+      v3UiState.smartTvNoYoutubeObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src', 'data-src']
+      });
+    } catch (error) {
+      console.warn('[smart-tv] youtube observer failed', error);
+    }
+  }
+
+  if (!v3UiState.smartTvNoYoutubeInterval) {
+    v3UiState.smartTvNoYoutubeInterval = window.setInterval(() => {
+      if (!isSmartTvV3LiteMode()) return;
+      stopSmartTvHeroMediaHard();
+    }, 650);
+  }
+}
+
+function renderSmartTvStaticHero(seq = v3UiState.heroSeq) {
+  if (!isSmartTvV3LiteMode() || !v3Hero) return false;
+  stopSmartTvHeroMediaHard();
+  enforceSmartTvNoYouTube();
+  if (seq !== v3UiState.heroSeq) return true;
+
+  const rawUrl = v3UiState.heroStaticImageUrl || '';
+  if (rawUrl) {
+    const safeUrl = escapeKinoWallCssUrl(rawUrl);
+    v3Hero.style.setProperty('--v3-hero-smart-poster', `url('${safeUrl}')`);
+    v3Hero.style.backgroundImage = `linear-gradient(90deg, rgba(5,7,13,.86) 0%, rgba(5,7,13,.58) 34%, rgba(5,7,13,.22) 62%, rgba(5,7,13,.50) 100%), url('${safeUrl}')`;
+    v3Hero.style.backgroundSize = 'cover, cover';
+    v3Hero.style.backgroundPosition = 'center, center';
+    v3Hero.style.backgroundRepeat = 'no-repeat, no-repeat';
+  }
+
+  v3Hero.classList.remove('is-loading', 'is-switching', 'is-audio-blocked');
+  v3Hero.classList.add('is-ready', 'is-tizen-static', 'is-smarttv-static');
+  return true;
+}
+
+function isSmartTvRemoteMode() {
+  return isSmartTvV3LiteMode();
+}
+
 
 const PALETTE_COLOR_FIELDS = [
   { key: 'bg-color', label: 'Фон страницы' },
@@ -549,6 +681,9 @@ const v3UiState = {
   heroAdvancing: false,
   heroUserActivated: false,
   heroAutoplayPrimedMuted: false,
+  heroStaticImageUrl: '',
+  smartTvNoYoutubeObserver: null,
+  smartTvNoYoutubeInterval: null,
   heroMuted: false,
   ytApiPromise: null,
   clickAudioCtx: null,
@@ -561,6 +696,12 @@ const rmpV3EventState = {
   ambientLayer: null,
   unlocked: false,
   transitionStarted: false
+};
+
+const smartTvRemoteState = {
+  enabled: false,
+  lastFocused: null,
+  lastMoveAt: 0
 };
 
 let activeSlide = 0;
@@ -598,6 +739,8 @@ function checkRmpV3EventUnlockOnResume() {
 }
 
 async function init() {
+  initSmartTvPerformanceMode();
+  if (shouldDisableV3HeroVideoForPerformance()) stopSmartTvHeroMediaHard();
   initUiVersion();
   initTheme();
   cleanPlayerRouteSearchIfNeeded();
@@ -625,7 +768,356 @@ async function init() {
   }
 }
 
+
+function initSmartTvRemoteNavigation() {
+  if (smartTvRemoteState.enabled || !isSmartTvRemoteMode()) return;
+
+  try {
+    smartTvRemoteState.enabled = true;
+    document.documentElement.classList.add('rmp-tv-remote');
+    document.body?.classList.add('rmp-tv-remote');
+
+    makeStaticTvRemoteTargetsFocusable();
+
+    document.addEventListener('keydown', handleSmartTvRemoteKeydown, true);
+
+    let refreshTimer = null;
+    const refreshTargets = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        makeStaticTvRemoteTargetsFocusable();
+      }, 160);
+    };
+
+    if (typeof MutationObserver !== 'undefined' && document.body) {
+      const observer = new MutationObserver(refreshTargets);
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+  } catch (error) {
+    smartTvRemoteState.enabled = false;
+    document.documentElement.classList.remove('rmp-tv-remote');
+    document.body?.classList.remove('rmp-tv-remote');
+    console.warn('[smart-tv remote] init failed; regular controls remain enabled', error);
+  }
+}
+
+function makeStaticTvRemoteTargetsFocusable() {
+  if (!isSmartTvRemoteMode()) return;
+  document.querySelectorAll('.movie, .episode-calendar-wrapper, .multi-select-option, .v3-page-number, .v3-page-ellipsis').forEach((el) => {
+    if (el.classList.contains('v3-page-ellipsis')) return;
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+  });
+
+  document.querySelectorAll('button, a[href], select, textarea, input, [tabindex]').forEach((el) => {
+    if (el.matches('[disabled], [aria-disabled="true"]')) return;
+    if (!el.hasAttribute('tabindex') && !el.matches('a[href], button, select, textarea, input')) {
+      el.setAttribute('tabindex', '0');
+    }
+  });
+}
+
+function isSmartTvTextEditingElement(element) {
+  if (!element) return false;
+  const tag = element.tagName?.toLowerCase();
+  return tag === 'textarea' || tag === 'input' || element.isContentEditable;
+}
+
+function normalizeSmartTvRemoteKey(event) {
+  const key = event.key || '';
+  const code = Number(event.keyCode || event.which || 0);
+
+  if (key === 'ArrowUp' || code === 38) return 'up';
+  if (key === 'ArrowDown' || code === 40) return 'down';
+  if (key === 'ArrowLeft' || code === 37) return 'left';
+  if (key === 'ArrowRight' || code === 39) return 'right';
+  if (key === 'Enter' || key === 'NumpadEnter' || key === 'Select' || key === 'OK' || code === 13) return 'ok';
+  if (key === 'Backspace' || key === 'Escape' || key === 'BrowserBack' || key === 'GoBack' || code === 10009 || code === 461 || code === 27 || code === 8) return 'back';
+
+  return '';
+}
+
+function handleSmartTvRemoteKeydown(event) {
+  if (!isSmartTvRemoteMode()) return;
+
+  const action = normalizeSmartTvRemoteKey(event);
+  if (!action) return;
+
+  const active = document.activeElement;
+  const isTextEditing = isSmartTvTextEditingElement(active);
+
+  if (isTextEditing && action !== 'ok' && action !== 'back') {
+    return;
+  }
+
+  if (action === 'back') {
+    if (isTextEditing) {
+      active.blur();
+      event.preventDefault();
+      return;
+    }
+    if (closeTopSmartTvLayer()) {
+      event.preventDefault();
+      return;
+    }
+    return;
+  }
+
+  if (action === 'ok') {
+    if (active && active !== document.body && active !== document.documentElement) {
+      activateSmartTvRemoteTarget(active, event);
+    } else {
+      focusInitialSmartTvTarget();
+      event.preventDefault();
+    }
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const now = Date.now();
+  if (now - smartTvRemoteState.lastMoveAt < 90) return;
+  smartTvRemoteState.lastMoveAt = now;
+
+  moveSmartTvFocus(action);
+}
+
+function closeTopSmartTvLayer() {
+  const personModal = document.querySelector('.details-person-modal:not(.hidden), .person-modal:not(.hidden)');
+  if (personModal) {
+    personModal.querySelector('.details-person-close, .person-modal-close, .closebtn')?.click();
+    return true;
+  }
+
+  const paletteModal = document.querySelector('.palette-editor-modal:not(.hidden), .palette-editor-overlay:not(.hidden)');
+  if (paletteModal) {
+    paletteModal.querySelector('.palette-editor-close, .closebtn')?.click();
+    return true;
+  }
+
+  const kinoWall = document.querySelector('.kinowall-modal:not(.hidden), .kinowall-overlay:not(.hidden)');
+  if (kinoWall) {
+    kinoWall.querySelector('.kinowall-close, .closebtn')?.click();
+    return true;
+  }
+
+  if (overlay && overlay.getAttribute('aria-hidden') !== 'true') {
+    overlayCloseBtn?.click();
+    return true;
+  }
+
+  return false;
+}
+
+function getSmartTvRemoteTargets() {
+  makeStaticTvRemoteTargetsFocusable();
+
+  const selector = [
+    'button:not([disabled])',
+    'a[href]',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    'input:not([disabled])',
+    '.movie[tabindex]',
+    '.multi-select-option[tabindex]',
+    '.v3-page-number[tabindex]',
+    '[role="button"]:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(',');
+
+  const nodes = Array.from(document.querySelectorAll(selector));
+  return nodes.filter((el) => {
+    if (!el || el.matches('[disabled], [aria-disabled="true"], .disabled, .hidden')) return false;
+    if (el.closest('[hidden], .hidden')) return false;
+    const style = window.getComputedStyle(el);
+    if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) return false;
+
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return false;
+    if (rect.bottom < 0 || rect.right < 0 || rect.top > window.innerHeight || rect.left > window.innerWidth) return false;
+
+    return true;
+  });
+}
+
+function getSmartTvFocusRect(element) {
+  const rect = element?.getBoundingClientRect?.();
+  if (rect && rect.width > 0 && rect.height > 0) return rect;
+
+  const last = smartTvRemoteState.lastFocused?.getBoundingClientRect?.();
+  if (last && last.width > 0 && last.height > 0) return last;
+
+  return {
+    left: window.innerWidth / 2 - 1,
+    right: window.innerWidth / 2 + 1,
+    top: window.innerHeight / 2 - 1,
+    bottom: window.innerHeight / 2 + 1,
+    width: 2,
+    height: 2
+  };
+}
+
+function moveSmartTvFocus(direction) {
+  const targets = getSmartTvRemoteTargets();
+  if (!targets.length) return;
+
+  const active = document.activeElement;
+  if (!active || active === document.body || active === document.documentElement || !targets.includes(active)) {
+    focusInitialSmartTvTarget(targets);
+    return;
+  }
+
+  const currentRect = getSmartTvFocusRect(active);
+  const currentCenter = {
+    x: currentRect.left + currentRect.width / 2,
+    y: currentRect.top + currentRect.height / 2
+  };
+
+  let best = null;
+  let bestScore = Infinity;
+
+  for (const target of targets) {
+    if (target === active) continue;
+
+    const rect = target.getBoundingClientRect();
+    const center = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+
+    const dx = center.x - currentCenter.x;
+    const dy = center.y - currentCenter.y;
+
+    let primary;
+    let secondary;
+
+    if (direction === 'right') {
+      if (dx <= 8) continue;
+      primary = dx;
+      secondary = Math.abs(dy);
+    } else if (direction === 'left') {
+      if (dx >= -8) continue;
+      primary = -dx;
+      secondary = Math.abs(dy);
+    } else if (direction === 'down') {
+      if (dy <= 8) continue;
+      primary = dy;
+      secondary = Math.abs(dx);
+    } else {
+      if (dy >= -8) continue;
+      primary = -dy;
+      secondary = Math.abs(dx);
+    }
+
+    const overlapBonus = direction === 'left' || direction === 'right'
+      ? getAxisOverlap(currentRect.top, currentRect.bottom, rect.top, rect.bottom)
+      : getAxisOverlap(currentRect.left, currentRect.right, rect.left, rect.right);
+
+    const score = primary * primary + secondary * 1.65 - overlapBonus * 420;
+    if (score < bestScore) {
+      bestScore = score;
+      best = target;
+    }
+  }
+
+  if (!best) {
+    scrollSmartTvViewport(direction);
+    window.setTimeout(() => {
+      const afterScrollTargets = getSmartTvRemoteTargets();
+      const fallback = findInitialSmartTvTarget(afterScrollTargets, direction);
+      focusSmartTvTarget(fallback || active);
+    }, 80);
+    return;
+  }
+
+  focusSmartTvTarget(best);
+}
+
+function getAxisOverlap(a1, a2, b1, b2) {
+  return Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+}
+
+function findInitialSmartTvTarget(targets = getSmartTvRemoteTargets(), direction = 'down') {
+  if (!targets.length) return null;
+  const viewportCenterX = window.innerWidth / 2;
+  const viewportCenterY = window.innerHeight / 2;
+
+  return targets
+    .map((target) => {
+      const rect = target.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const topBias = direction === 'down' ? Math.max(0, centerY - 80) : Math.abs(centerY - viewportCenterY);
+      const score = Math.abs(centerX - viewportCenterX) * 1.25 + topBias;
+      return { target, score };
+    })
+    .sort((a, b) => a.score - b.score)[0]?.target || null;
+}
+
+function focusInitialSmartTvTarget(targets = getSmartTvRemoteTargets()) {
+  const target = findInitialSmartTvTarget(targets);
+  focusSmartTvTarget(target);
+}
+
+function focusSmartTvTarget(target) {
+  if (!target) return;
+  try {
+    target.focus({ preventScroll: true });
+  } catch (error) {
+    try { target.focus(); } catch (focusError) { return; }
+  }
+
+  smartTvRemoteState.lastFocused = target;
+
+  const rect = target.getBoundingClientRect();
+  const margin = Math.min(140, Math.max(72, window.innerHeight * 0.16));
+  if (rect.top < margin || rect.bottom > window.innerHeight - margin) {
+    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+  }
+}
+
+function scrollSmartTvViewport(direction) {
+  const amount = Math.max(260, Math.floor(window.innerHeight * 0.68));
+  if (direction === 'down') {
+    window.scrollBy({ top: amount, behavior: 'smooth' });
+  } else if (direction === 'up') {
+    window.scrollBy({ top: -amount, behavior: 'smooth' });
+  } else if (direction === 'right') {
+    window.scrollBy({ left: Math.floor(window.innerWidth * 0.45), behavior: 'smooth' });
+  } else if (direction === 'left') {
+    window.scrollBy({ left: -Math.floor(window.innerWidth * 0.45), behavior: 'smooth' });
+  }
+}
+
+function activateSmartTvRemoteTarget(target, event) {
+  const direct = target.closest('button, a[href], select, textarea, input, [role="button"], .movie, .multi-select-option, .v3-page-number');
+  if (!direct) return;
+
+  if (direct.matches('textarea, input')) {
+    direct.focus();
+    return;
+  }
+
+  event?.preventDefault?.();
+
+  if (direct.matches('select')) {
+    direct.focus();
+    direct.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    return;
+  }
+
+  if (direct.classList.contains('movie')) {
+    const primary = direct.querySelector('.watch-online, .know-more, button, a[href]');
+    primary?.click();
+    return;
+  }
+
+  direct.click();
+}
+
 function bindEvents() {
+  initSmartTvRemoteNavigation();
   bindV3HeroAutoplayUnlock();
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -5112,7 +5604,7 @@ async function openNav(item) {
     const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(resolvedDate)}`;
     const genresMarkup = buildOverlayGenresMarkup(item.mediaType, details?.genres, item.genreIds);
 
-    if (videos.length) {
+    if (videos.length && !isSmartTvV3LiteMode()) {
       const isLocalFile = window.location.protocol === 'file:';
       const embed = videos.map((video) => {
         const safeTitle = escapeHtml(video.name || title);
@@ -7538,7 +8030,9 @@ async function openNav(item) {
         }).catch(() => ({ results: [] }))
       : null;
 
-    const videos = prioritizeVideos((details?.videos?.results || fallbackVideos?.results || []).filter((video) => video.site === 'YouTube' && video.key));
+    const videos = isSmartTvV3LiteMode()
+      ? []
+      : prioritizeVideos((details?.videos?.results || fallbackVideos?.results || []).filter((video) => video.site === 'YouTube' && video.key));
     const cast = Array.isArray(details?.credits?.cast) ? details.credits.cast.slice(0, 14) : [];
 
     overlay.style.width = '100%';
@@ -7593,13 +8087,15 @@ async function openNav(item) {
     `;
 
     activeSlide = 0;
-    showVideos();
-    document.querySelectorAll('.dot').forEach((dot, index) => {
-      dot.addEventListener('click', () => {
-        activeSlide = index;
-        showVideos();
+    if (!isSmartTvV3LiteMode()) {
+      showVideos();
+      document.querySelectorAll('.dot').forEach((dot, index) => {
+        dot.addEventListener('click', () => {
+          activeSlide = index;
+          showVideos();
+        });
       });
-    });
+    }
     bindDetailsActorEvents();
   } catch (error) {
     console.error('[openNav patched]', error);
@@ -7610,6 +8106,9 @@ async function openNav(item) {
 }
 
 function buildDetailsTrailerMarkup(videos, title) {
+  if (isSmartTvV3LiteMode()) {
+    return '';
+  }
   if (!videos.length) {
     return `<div class="rmp-details-video-empty"><b>Трейлеры не найдены</b><span>Но описание и актёры доступны ниже.</span></div>`;
   }
@@ -9616,6 +10115,7 @@ function ensureRmpV3AmbientGlitchLayer() {
 }
 
 function startRmpV3AmbientGlitches() {
+  if (isSmartTvV3LiteMode()) return;
   if (isRmpV3EventUnlocked()) return;
   ensureRmpV3AmbientGlitchLayer();
 
@@ -9703,6 +10203,10 @@ function setUiVersion(version, options = {}) {
 }
 
 function applyUiVersionState(nextVersion, options = {}) {
+  document.documentElement.classList.toggle('rmp-smarttv-lite', isSmartTvV3LiteMode());
+  document.body?.classList.toggle('rmp-smarttv-lite', isSmartTvV3LiteMode());
+  document.documentElement.classList.toggle('rmp-tizen-lite', isSmartTvV3LiteMode());
+  document.body?.classList.toggle('rmp-tizen-lite', isSmartTvV3LiteMode());
   v3UiState.version = nextVersion;
 
   if (!options.skipSave && !options.eventForced) {
@@ -9895,7 +10399,8 @@ function getVisibleCatalogItemsFromDom() {
 }
 
 function hideV3Hero() {
-  v3Hero?.classList.remove('v3-hero-title-long', 'v3-hero-title-very-long');
+  if (shouldDisableV3HeroVideoForPerformance()) stopSmartTvHeroMediaHard();
+  v3Hero?.classList.remove('v3-hero-title-long', 'v3-hero-title-very-long', 'is-smarttv-static', 'is-tizen-static');
   v3Hero?.classList.add('hidden');
   v3Hero?.classList.remove('has-data', 'is-ready', 'is-muted-off', 'is-loading', 'is-audio-blocked');
 }
@@ -9946,6 +10451,11 @@ async function updateV3HeroFromItems(items = []) {
       if (seq !== v3UiState.heroSeq || !isV3UiActive()) return;
       if (!heroData) continue;
       renderV3HeroData(heroData);
+      if (shouldDisableV3HeroVideoForPerformance()) {
+        v3UiState.heroItem = heroData.item;
+        renderSmartTvStaticHero(seq);
+        return;
+      }
       if (heroData.videos.length) {
         v3UiState.heroItem = heroData.item;
         v3UiState.heroVideoQueue = heroData.videos;
@@ -9962,6 +10472,10 @@ async function updateV3HeroFromItems(items = []) {
 
   const fallback = candidates[0];
   renderV3HeroData({ item: fallback, videos: [], backdropUrl: fallback.posterUrl || '', overview: fallback.overview || '' });
+  if (shouldDisableV3HeroVideoForPerformance()) {
+    renderSmartTvStaticHero(seq);
+    return;
+  }
   v3Hero.classList.remove('is-loading');
 }
 
@@ -10008,9 +10522,13 @@ function renderV3HeroData(heroData) {
     item.voteAverage ? `TMDb ${formatVote(item.voteAverage)}` : ''
   ].filter(Boolean).join(' • ');
 
+  const smartPosterUrl = item.posterUrl || backdropUrl || '';
+  v3UiState.heroStaticImageUrl = smartPosterUrl || backdropUrl || '';
   v3Hero.style.setProperty('--v3-hero-backdrop', backdropUrl ? `url('${escapeKinoWallCssUrl(backdropUrl)}')` : 'linear-gradient(120deg, rgba(74,95,255,.34), rgba(255,74,141,.18))');
+  v3Hero.style.setProperty('--v3-hero-smart-poster', smartPosterUrl ? `url('${escapeKinoWallCssUrl(smartPosterUrl)}')` : (backdropUrl ? `url('${escapeKinoWallCssUrl(backdropUrl)}')` : 'linear-gradient(120deg, rgba(74,95,255,.34), rgba(255,74,141,.18))'));
   if (v3HeroPoster) {
-    v3HeroPoster.style.backgroundImage = backdropUrl ? `url('${escapeKinoWallCssUrl(backdropUrl)}')` : '';
+    const posterForHero = shouldDisableV3HeroVideoForPerformance() ? smartPosterUrl : backdropUrl;
+    v3HeroPoster.style.backgroundImage = posterForHero ? `url('${escapeKinoWallCssUrl(posterForHero)}')` : '';
   }
   if (v3HeroBadge) v3HeroBadge.textContent = '';
   if (v3HeroTitle) v3HeroTitle.textContent = title;
@@ -10026,6 +10544,10 @@ function renderV3HeroData(heroData) {
 }
 
 function loadYouTubeIframeApi() {
+  if (shouldDisableV3HeroVideoForPerformance()) {
+    stopSmartTvHeroMediaHard();
+    return Promise.reject(new Error('YouTube disabled in Smart TV Lite mode'));
+  }
   if (window.YT?.Player) return Promise.resolve(window.YT);
   if (v3UiState.ytApiPromise) return v3UiState.ytApiPromise;
 
@@ -10059,6 +10581,10 @@ function loadYouTubeIframeApi() {
 }
 
 async function startV3HeroYouTubePlayer(seq) {
+  if (shouldDisableV3HeroVideoForPerformance()) {
+    renderSmartTvStaticHero(seq);
+    return;
+  }
   if (!v3HeroPlayerHost || !v3UiState.heroVideoQueue.length) return;
   try {
     const YTApi = await loadYouTubeIframeApi();
@@ -10088,6 +10614,7 @@ function disableV3HeroPictureInPicture() {
 
 
 function markV3HeroUserActivated() {
+  if (shouldDisableV3HeroVideoForPerformance()) { stopSmartTvHeroMediaHard(); return; }
   v3UiState.heroUserActivated = true;
   unlockV3HeroAudioAfterGesture();
 }
@@ -10103,6 +10630,11 @@ function bindV3HeroAutoplayUnlock() {
 }
 
 function unlockV3HeroAudioAfterGesture() {
+  if (shouldDisableV3HeroVideoForPerformance()) { stopSmartTvHeroMediaHard(); return; }
+  if (shouldDisableV3HeroVideoForPerformance()) {
+    stopSmartTvHeroMediaHard();
+    return;
+  }
   const player = v3UiState.heroPlayer;
   if (!player || v3UiState.heroMuted) return;
 
@@ -10120,6 +10652,11 @@ function unlockV3HeroAudioAfterGesture() {
 }
 
 function primeV3HeroAutoplay(player, seq) {
+  if (shouldDisableV3HeroVideoForPerformance()) { stopSmartTvHeroMediaHard(); return; }
+  if (shouldDisableV3HeroVideoForPerformance()) {
+    stopSmartTvHeroMediaHard();
+    return;
+  }
   if (!player) return;
 
   try {
@@ -10170,6 +10707,10 @@ function primeV3HeroAutoplay(player, seq) {
 }
 
 function createV3HeroPlayer(YTApi, videoKey, seq) {
+  if (shouldDisableV3HeroVideoForPerformance()) {
+    renderSmartTvStaticHero(seq);
+    return;
+  }
   if (!videoKey || !v3HeroPlayerHost) return;
   if (v3UiState.heroPlayer && typeof v3UiState.heroPlayer.destroy === 'function') {
     try { v3UiState.heroPlayer.destroy(); } catch (error) { /* ignore */ }
@@ -10335,6 +10876,13 @@ function safeToggleV3HeroMute(forceMuted = null) {
 }
 
 function toggleV3HeroMute(forceMuted = null) {
+  if (shouldDisableV3HeroVideoForPerformance()) { stopSmartTvHeroMediaHard(); return; }
+  if (shouldDisableV3HeroVideoForPerformance()) {
+    v3UiState.heroMuted = true;
+    stopSmartTvHeroMediaHard();
+    syncV3HeroMuteButton();
+    return;
+  }
   const player = v3UiState.heroPlayer;
   let nextMuted = typeof forceMuted === 'boolean' ? forceMuted : !v3UiState.heroMuted;
 

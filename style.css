@@ -10613,3 +10613,433 @@ body.rmp-v3 .v3-hero.is-audio-blocked .v3-hero-ghost {
   0%, 100% { box-shadow: 0 0 0 rgba(255,255,255,0); }
   50% { box-shadow: 0 0 0 8px rgba(255,255,255,.08); }
 }
+
+
+
+/* ===== RMP FIX v19: Tizen OS V3 Lite Mode ===== */
+/* Auto-enabled by JS for Tizen / Samsung Smart TV user agents. */
+html.rmp-tizen-lite body.rmp-v3 .header-content,
+html.rmp-tizen-lite body.rmp-v3 .search-form,
+html.rmp-tizen-lite body.rmp-v3 .ui-version-switch,
+html.rmp-tizen-lite body.rmp-v3 .theme-switch,
+html.rmp-tizen-lite body.rmp-v3 .sidebar,
+html.rmp-tizen-lite body.rmp-v3 .movie,
+html.rmp-tizen-lite body.rmp-v3 .pagination,
+html.rmp-tizen-lite body.rmp-v3 .kinowall-dialog,
+html.rmp-tizen-lite body.rmp-v3 .overlay-content,
+html.rmp-tizen-lite body.rmp-v3 .palette-editor-dialog,
+body.rmp-v3.rmp-tizen-lite .header-content,
+body.rmp-v3.rmp-tizen-lite .search-form,
+body.rmp-v3.rmp-tizen-lite .ui-version-switch,
+body.rmp-v3.rmp-tizen-lite .theme-switch,
+body.rmp-v3.rmp-tizen-lite .sidebar,
+body.rmp-v3.rmp-tizen-lite .movie,
+body.rmp-v3.rmp-tizen-lite .pagination,
+body.rmp-v3.rmp-tizen-lite .kinowall-dialog,
+body.rmp-v3.rmp-tizen-lite .overlay-content,
+body.rmp-v3.rmp-tizen-lite .palette-editor-dialog {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,.20) !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-player,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-player iframe,
+html.rmp-tizen-lite body.rmp-v3 #v3HeroYoutubeFrame,
+body.rmp-v3.rmp-tizen-lite .v3-hero-player,
+body.rmp-v3.rmp-tizen-lite .v3-hero-player iframe,
+body.rmp-v3.rmp-tizen-lite #v3HeroYoutubeFrame {
+  display: none !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .v3-hero,
+body.rmp-v3.rmp-tizen-lite .v3-hero {
+  min-height: min(54vh, 560px) !important;
+  background: #05070d !important;
+  box-shadow: 0 18px 52px rgba(0,0,0,.30) !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-poster,
+body.rmp-v3.rmp-tizen-lite .v3-hero-poster {
+  opacity: .46 !important;
+  transform: scale(1.04) !important;
+  filter: none !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-noise,
+html.rmp-tizen-lite body.rmp-v3 .rmp-v3-event-glitch-layer,
+html.rmp-tizen-lite body.rmp-v3 .ui-version-glitch-grid,
+html.rmp-tizen-lite body.rmp-v3 .ui-version-glitch-scan,
+html.rmp-tizen-lite body.rmp-v3 .ui-version-glitch-bar,
+body.rmp-v3.rmp-tizen-lite .v3-hero-noise,
+body.rmp-v3.rmp-tizen-lite .rmp-v3-event-glitch-layer,
+body.rmp-v3.rmp-tizen-lite .ui-version-glitch-grid,
+body.rmp-v3.rmp-tizen-lite .ui-version-glitch-scan,
+body.rmp-v3.rmp-tizen-lite .ui-version-glitch-bar {
+  display: none !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .movie,
+html.rmp-tizen-lite body.rmp-v3 .movie-poster-wrap img,
+html.rmp-tizen-lite body.rmp-v3 button,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-content,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-poster,
+body.rmp-v3.rmp-tizen-lite .movie,
+body.rmp-v3.rmp-tizen-lite .movie-poster-wrap img,
+body.rmp-v3.rmp-tizen-lite button,
+body.rmp-v3.rmp-tizen-lite .v3-hero-content,
+body.rmp-v3.rmp-tizen-lite .v3-hero-poster {
+  transition-duration: .01ms !important;
+  animation-duration: .01ms !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .movie:hover,
+html.rmp-tizen-lite body.rmp-v3 .movie:hover .movie-poster-wrap img,
+body.rmp-v3.rmp-tizen-lite .movie:hover,
+body.rmp-v3.rmp-tizen-lite .movie:hover .movie-poster-wrap img {
+  transform: none !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-ghost,
+html.rmp-tizen-lite body.rmp-v3 .scroll-to-top,
+body.rmp-v3.rmp-tizen-lite .v3-hero-ghost,
+body.rmp-v3.rmp-tizen-lite .scroll-to-top {
+  display: none !important;
+}
+
+html.rmp-tizen-lite body.rmp-v3 .movie-body,
+body.rmp-v3.rmp-tizen-lite .movie-body {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+
+
+/* ===== RMP FIX v20: Smart TV optimization + remote navigation ===== */
+/* Auto-enabled by JS for Smart TV user agents: Tizen, webOS, Android TV, Google TV, Fire TV, Roku, VIDAA, Bravia, etc. */
+html.rmp-smarttv-lite body.rmp-v3 .header-content,
+html.rmp-smarttv-lite body.rmp-v3 .search-form,
+html.rmp-smarttv-lite body.rmp-v3 .ui-version-switch,
+html.rmp-smarttv-lite body.rmp-v3 .theme-switch,
+html.rmp-smarttv-lite body.rmp-v3 .sidebar,
+html.rmp-smarttv-lite body.rmp-v3 .movie,
+html.rmp-smarttv-lite body.rmp-v3 .pagination,
+html.rmp-smarttv-lite body.rmp-v3 .kinowall-dialog,
+html.rmp-smarttv-lite body.rmp-v3 .overlay-content,
+html.rmp-smarttv-lite body.rmp-v3 .palette-editor-dialog,
+body.rmp-v3.rmp-smarttv-lite .header-content,
+body.rmp-v3.rmp-smarttv-lite .search-form,
+body.rmp-v3.rmp-smarttv-lite .ui-version-switch,
+body.rmp-v3.rmp-smarttv-lite .theme-switch,
+body.rmp-v3.rmp-smarttv-lite .sidebar,
+body.rmp-v3.rmp-smarttv-lite .movie,
+body.rmp-v3.rmp-smarttv-lite .pagination,
+body.rmp-v3.rmp-smarttv-lite .kinowall-dialog,
+body.rmp-v3.rmp-smarttv-lite .overlay-content,
+body.rmp-v3.rmp-smarttv-lite .palette-editor-dialog {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,.20) !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-player,
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-player iframe,
+html.rmp-smarttv-lite body.rmp-v3 #v3HeroYoutubeFrame,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-player,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-player iframe,
+body.rmp-v3.rmp-smarttv-lite #v3HeroYoutubeFrame {
+  display: none !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero,
+body.rmp-v3.rmp-smarttv-lite .v3-hero {
+  min-height: min(54vh, 560px) !important;
+  background: #05070d !important;
+  box-shadow: 0 18px 52px rgba(0,0,0,.30) !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-poster,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-poster {
+  opacity: .46 !important;
+  transform: scale(1.04) !important;
+  filter: none !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-noise,
+html.rmp-smarttv-lite body.rmp-v3 .rmp-v3-event-glitch-layer,
+html.rmp-smarttv-lite body.rmp-v3 .ui-version-glitch-grid,
+html.rmp-smarttv-lite body.rmp-v3 .ui-version-glitch-scan,
+html.rmp-smarttv-lite body.rmp-v3 .ui-version-glitch-bar,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-noise,
+body.rmp-v3.rmp-smarttv-lite .rmp-v3-event-glitch-layer,
+body.rmp-v3.rmp-smarttv-lite .ui-version-glitch-grid,
+body.rmp-v3.rmp-smarttv-lite .ui-version-glitch-scan,
+body.rmp-v3.rmp-smarttv-lite .ui-version-glitch-bar {
+  display: none !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .movie,
+html.rmp-smarttv-lite body.rmp-v3 .movie-poster-wrap img,
+html.rmp-smarttv-lite body.rmp-v3 button,
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-content,
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-poster,
+body.rmp-v3.rmp-smarttv-lite .movie,
+body.rmp-v3.rmp-smarttv-lite .movie-poster-wrap img,
+body.rmp-v3.rmp-smarttv-lite button,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-content,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-poster {
+  transition-duration: .01ms !important;
+  animation-duration: .01ms !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .movie:hover,
+html.rmp-smarttv-lite body.rmp-v3 .movie:hover .movie-poster-wrap img,
+body.rmp-v3.rmp-smarttv-lite .movie:hover,
+body.rmp-v3.rmp-smarttv-lite .movie:hover .movie-poster-wrap img {
+  transform: none !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-ghost,
+html.rmp-smarttv-lite body.rmp-v3 .scroll-to-top,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-ghost,
+body.rmp-v3.rmp-smarttv-lite .scroll-to-top {
+  display: none !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .movie-body,
+body.rmp-v3.rmp-smarttv-lite .movie-body {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Remote navigation focus for V2 and V3 */
+html.rmp-tv-remote :focus,
+body.rmp-tv-remote :focus {
+  outline: 4px solid #00e5ff !important;
+  outline-offset: 5px !important;
+  box-shadow:
+    0 0 0 8px rgba(0,229,255,.20),
+    0 0 34px rgba(0,229,255,.45) !important;
+}
+
+html.rmp-tv-remote .movie:focus,
+body.rmp-tv-remote .movie:focus {
+  transform: translateY(-4px) scale(1.018) !important;
+  z-index: 8 !important;
+}
+
+html.rmp-tv-remote .movie:focus .movie-poster-wrap img,
+body.rmp-tv-remote .movie:focus .movie-poster-wrap img {
+  transform: scale(1.035) !important;
+}
+
+html.rmp-tv-remote .v3-page-number:focus,
+html.rmp-tv-remote .page:focus,
+body.rmp-tv-remote .v3-page-number:focus,
+body.rmp-tv-remote .page:focus {
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--v3-accent), var(--v3-accent-2)) !important;
+  border-color: transparent !important;
+}
+
+html.rmp-tv-remote .multi-select-option:focus,
+body.rmp-tv-remote .multi-select-option:focus {
+  background: color-mix(in oklab, var(--v3-accent) 28%, rgba(255,255,255,.08)) !important;
+}
+
+html.rmp-tv-remote textarea:focus,
+html.rmp-tv-remote input:focus,
+body.rmp-tv-remote textarea:focus,
+body.rmp-tv-remote input:focus {
+  outline-offset: 3px !important;
+}
+
+
+/* ===== RMP FIX v22: Smart TV static hero poster + no hidden YouTube audio ===== */
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero,
+body.rmp-v3.rmp-smarttv-lite .v3-hero,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero,
+body.rmp-v3.rmp-tizen-lite .v3-hero {
+  background:
+    radial-gradient(circle at 72% 38%, rgba(125, 92, 255, .18), transparent 34%),
+    linear-gradient(120deg, #05070d 0%, #080b17 45%, #03050b 100%) !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-poster,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-poster,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-poster,
+body.rmp-v3.rmp-tizen-lite .v3-hero-poster {
+  display: block !important;
+  opacity: .82 !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  transform: scale(1.02) !important;
+  filter: none !important;
+  background-image:
+    linear-gradient(90deg, rgba(5,7,13,.96) 0%, rgba(5,7,13,.74) 34%, rgba(5,7,13,.28) 62%, rgba(5,7,13,.62) 100%),
+    var(--v3-hero-smart-poster, var(--v3-hero-backdrop)) !important;
+  background-size: cover, min(36vw, 520px) auto !important;
+  background-position: center, right 8% center !important;
+  background-repeat: no-repeat !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-media::before,
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-media::after,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-media::before,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-media::after,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-media::before,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-media::after,
+body.rmp-v3.rmp-tizen-lite .v3-hero-media::before,
+body.rmp-v3.rmp-tizen-lite .v3-hero-media::after {
+  pointer-events: none !important;
+  background:
+    linear-gradient(90deg, rgba(5,7,13,.98) 0%, rgba(5,7,13,.84) 26%, transparent 62%, rgba(5,7,13,.74) 100%),
+    linear-gradient(180deg, rgba(5,7,13,.45) 0%, transparent 44%, #05070d 100%) !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-player,
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-player *,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-player,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-player *,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-player,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-player *,
+body.rmp-v3.rmp-tizen-lite .v3-hero-player,
+body.rmp-v3.rmp-tizen-lite .v3-hero-player * {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-mute,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-mute,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-mute,
+body.rmp-v3.rmp-tizen-lite .v3-hero-mute {
+  display: none !important;
+}
+
+
+/* ===== RMP FIX v23: Smart TV hard static hero + no YouTube audio leak ===== */
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero,
+body.rmp-v3.rmp-smarttv-lite .v3-hero,
+body.rmp-v3.rmp-tizen-lite .v3-hero {
+  background-image:
+    linear-gradient(90deg, rgba(5,7,13,.86) 0%, rgba(5,7,13,.58) 34%, rgba(5,7,13,.22) 62%, rgba(5,7,13,.50) 100%),
+    var(--v3-hero-smart-poster, var(--v3-hero-backdrop)) !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat, no-repeat !important;
+  background-color: #05070d !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-poster,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-poster,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-poster,
+body.rmp-v3.rmp-tizen-lite .v3-hero-poster {
+  display: block !important;
+  opacity: .70 !important;
+  visibility: visible !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  transform: scale(1.02) !important;
+  filter: none !important;
+  background-image:
+    linear-gradient(90deg, rgba(5,7,13,.88) 0%, rgba(5,7,13,.62) 34%, rgba(5,7,13,.20) 62%, rgba(5,7,13,.48) 100%),
+    var(--v3-hero-smart-poster, var(--v3-hero-backdrop)) !important;
+  background-size: cover, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat, no-repeat !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero.is-ready .v3-hero-poster,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero.is-ready .v3-hero-poster,
+body.rmp-v3.rmp-smarttv-lite .v3-hero.is-ready .v3-hero-poster,
+body.rmp-v3.rmp-tizen-lite .v3-hero.is-ready .v3-hero-poster {
+  opacity: .70 !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero::before,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero::before,
+body.rmp-v3.rmp-smarttv-lite .v3-hero::before,
+body.rmp-v3.rmp-tizen-lite .v3-hero::before {
+  background:
+    linear-gradient(90deg, rgba(5,7,13,.92) 0%, rgba(5,7,13,.66) 38%, rgba(5,7,13,.28) 66%, rgba(5,7,13,.70) 100%),
+    linear-gradient(0deg, #05070d 0%, transparent 28%, rgba(5,7,13,.28) 100%) !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-media::before,
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-media::after,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-media::before,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-media::after,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-media::before,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-media::after,
+body.rmp-v3.rmp-tizen-lite .v3-hero-media::before,
+body.rmp-v3.rmp-tizen-lite .v3-hero-media::after {
+  background:
+    linear-gradient(90deg, rgba(5,7,13,.86) 0%, rgba(5,7,13,.52) 35%, transparent 68%, rgba(5,7,13,.62) 100%),
+    linear-gradient(180deg, rgba(5,7,13,.30) 0%, transparent 45%, #05070d 100%) !important;
+}
+
+html.rmp-smarttv-lite iframe[src*="youtube"],
+html.rmp-tizen-lite iframe[src*="youtube"],
+body.rmp-smarttv-lite iframe[src*="youtube"],
+body.rmp-tizen-lite iframe[src*="youtube"],
+html.rmp-smarttv-lite .v3-hero-player,
+html.rmp-tizen-lite .v3-hero-player,
+body.rmp-smarttv-lite .v3-hero-player,
+body.rmp-tizen-lite .v3-hero-player,
+html.rmp-smarttv-lite #v3HeroYoutubeFrame,
+html.rmp-tizen-lite #v3HeroYoutubeFrame,
+body.rmp-smarttv-lite #v3HeroYoutubeFrame,
+body.rmp-tizen-lite #v3HeroYoutubeFrame {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+html.rmp-smarttv-lite body.rmp-v3 .v3-hero-mute,
+html.rmp-tizen-lite body.rmp-v3 .v3-hero-mute,
+body.rmp-v3.rmp-smarttv-lite .v3-hero-mute,
+body.rmp-v3.rmp-tizen-lite .v3-hero-mute,
+html.rmp-smarttv-lite body.rmp-v3 #v3HeroMute,
+html.rmp-tizen-lite body.rmp-v3 #v3HeroMute,
+body.rmp-v3.rmp-smarttv-lite #v3HeroMute,
+body.rmp-v3.rmp-tizen-lite #v3HeroMute {
+  display: none !important;
+}
+
+
+
+
+/* ===== RMP FIX v24: hide details trailers on Smart TV ===== */
+html.rmp-smarttv-lite body .overlay-content .rmp-details-video-card,
+html.rmp-smarttv-lite body .overlay-content .rmp-details-video-empty,
+html.rmp-smarttv-lite body .overlay-content .embed,
+html.rmp-smarttv-lite body .overlay-content .dots,
+body.rmp-smarttv-lite .overlay-content .rmp-details-video-card,
+body.rmp-smarttv-lite .overlay-content .rmp-details-video-empty,
+body.rmp-smarttv-lite .overlay-content .embed,
+body.rmp-smarttv-lite .overlay-content .dots,
+html.rmp-tizen-lite body .overlay-content .rmp-details-video-card,
+html.rmp-tizen-lite body .overlay-content .rmp-details-video-empty,
+html.rmp-tizen-lite body .overlay-content .embed,
+html.rmp-tizen-lite body .overlay-content .dots,
+body.rmp-tizen-lite .overlay-content .rmp-details-video-card,
+body.rmp-tizen-lite .overlay-content .rmp-details-video-empty,
+body.rmp-tizen-lite .overlay-content .embed,
+body.rmp-tizen-lite .overlay-content .dots {
+  display: none !important;
+}
+
+html.rmp-smarttv-lite body .rmp-details-main,
+body.rmp-smarttv-lite .rmp-details-main,
+html.rmp-tizen-lite body .rmp-details-main,
+body.rmp-tizen-lite .rmp-details-main {
+  gap: 0 !important;
+}
