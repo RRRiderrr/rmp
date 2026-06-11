@@ -409,10 +409,75 @@ const RMP_V3_EVENT_AMBIENT_MAX_DELAY = 5200;
 const V3_HERO_CANDIDATE_LIMIT = 10;
 const V3_HERO_VIDEO_LANGUAGES = 'ru-RU,ru,en-US,en,null';
 
+const SMART_TV_MODE_STORAGE_KEY = 'rmpForceSmartTvMode';
+
+function getRmpSmartTvUrlOverride() {
+  const value = `${window.location.search || ''} ${window.location.hash || ''}`.toLowerCase();
+  if (/(?:[?&#]|^)\s*(?:tv|smarttv|smart-tv|rmp-tv|rmp_smarttv)=(?:1|true|on|yes)\b/.test(value)) return '1';
+  if (/(?:[?&#]|^)\s*(?:tv|smarttv|smart-tv|rmp-tv|rmp_smarttv)=(?:0|false|off|no)\b/.test(value)) return '0';
+  if (/(?:[?&#]|^)\s*(?:force-tv|tv-mode)\b/.test(value)) return '1';
+  return '';
+}
+
+function getRmpStoredSmartTvOverride() {
+  try {
+    const value = localStorage.getItem(SMART_TV_MODE_STORAGE_KEY);
+    return value === '1' || value === '0' ? value : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function persistRmpSmartTvOverrideFromUrl() {
+  const value = getRmpSmartTvUrlOverride();
+  if (!value) return '';
+  try {
+    localStorage.setItem(SMART_TV_MODE_STORAGE_KEY, value);
+  } catch (error) {
+    // ignore storage restrictions in TV browsers
+  }
+  return value;
+}
+
+function isLikelyAndroidTvShell(ua, platform) {
+  const text = `${ua} ${platform}`;
+  const hasAndroid = /Android/i.test(text);
+  if (!hasAndroid) return false;
+
+  const looksLikePhoneOrTablet = /Mobile|wv\)|Tablet|SM-G|SM-A|SM-S|Pixel \d|Redmi|Mi \d|M200|M210|M220|iPhone|iPad/i.test(text);
+  const largeScreen = Math.max(screen?.width || 0, screen?.height || 0, window.innerWidth || 0, window.innerHeight || 0) >= 1200;
+  const noTouch = Number(navigator.maxTouchPoints || 0) === 0;
+  const noFinePointer = typeof matchMedia === 'function' ? matchMedia('(hover: none)').matches || matchMedia('(pointer: coarse)').matches : false;
+
+  return largeScreen && (noTouch || noFinePointer) && !looksLikePhoneOrTablet;
+}
+
 function isSmartTvV3LiteMode() {
+  const urlOverride = persistRmpSmartTvOverrideFromUrl();
+  const storedOverride = urlOverride || getRmpStoredSmartTvOverride();
+  if (storedOverride === '1') return true;
+  if (storedOverride === '0') return false;
+
   const ua = String(navigator.userAgent || '');
   const platform = String(navigator.platform || '');
-  return /Tizen|SMART-TV|SmartTV|Smart TV|Samsung SmartTV|Maple|Web0S|WebOS|webOS|NetCast|LG Browser|HbbTV|BRAVIA|SonyCEBrowser|Viera|AQUOS|VIDAA|Hisense|PhilipsTV|Philips|Opera TV|OperaTV|Oregan|Roku|CrKey|Android TV|GoogleTV|Google TV|AFTT|AFTS|AFTM|AFTB|Fire TV|AppleTV|Apple TV|DuneHD|Dune HD|CE-HTML|CEHTML|PlayStation|Xbox/i.test(`${ua} ${platform}`);
+  const text = `${ua} ${platform}`;
+
+  const explicitTv = /Tizen|SMART-TV|SmartTV|Smart TV|Samsung SmartTV|Maple|Web0S|WebOS|webOS|NetCast|LG Browser|HbbTV|BRAVIA|SonyCEBrowser|Viera|AQUOS|VIDAA|Hisense|PhilipsTV|Philips|Opera TV|OperaTV|Oregan|Roku|CrKey|Android TV|GoogleTV|Google TV|AFTT|AFTS|AFTM|AFTB|Fire TV|AppleTV|Apple TV|DuneHD|Dune HD|CE-HTML|CEHTML|PlayStation|Xbox|ZEUS|Zeus|BrowseHere|Browse Here|BrowseHere_TV|TV Bro|TVBrowser|TV Browser|HiBrowser|Hisense_VT|browser-app|goodtoolapps|TCL|MiTV|MIBOX|Mibox|Shield Android TV|NVIDIA SHIELD|Chromecast|Onn\. Android TV|JioPages|Puffin TV|Open Browser/i.test(text);
+
+  return explicitTv || isLikelyAndroidTvShell(ua, platform);
+}
+
+function forceSmartTvModeFromRemoteInput() {
+  if (isSmartTvV3LiteMode()) return;
+  try {
+    localStorage.setItem(SMART_TV_MODE_STORAGE_KEY, '1');
+  } catch (error) {
+    // ignore
+  }
+  initSmartTvPerformanceMode();
+  initSmartTvRemoteNavigation?.();
+  enforceSmartTvNoYouTube?.();
+  renderSmartTvStaticHero?.();
 }
 
 // Backward-compatible name used by older patches.
@@ -424,6 +489,7 @@ function initSmartTvPerformanceMode() {
   const enabled = isSmartTvV3LiteMode();
   document.documentElement.classList.toggle('rmp-smarttv-lite', enabled);
   document.body?.classList.toggle('rmp-smarttv-lite', enabled);
+  document.documentElement.dataset.smartTvLite = enabled ? '1' : '0';
   document.documentElement.classList.toggle('rmp-tizen-lite', enabled);
   document.body?.classList.toggle('rmp-tizen-lite', enabled);
   if (enabled) enforceSmartTvNoYouTube();
@@ -737,6 +803,19 @@ function checkRmpV3EventUnlockOnResume() {
     triggerRmpV3EventUnlock();
   }
 }
+
+
+function maybeForceSmartTvModeFromRemoteKey(event) {
+  const key = event?.key || '';
+  const code = Number(event?.keyCode || event?.which || 0);
+  const isDpad = key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight' || key === 'Enter' || key === 'Select' || code === 38 || code === 40 || code === 37 || code === 39 || code === 13;
+  if (!isDpad) return;
+  const text = `${navigator.userAgent || ''} ${navigator.platform || ''}`;
+  const likelyTvBrowser = isLikelyAndroidTvShell(String(navigator.userAgent || ''), String(navigator.platform || '')) || /Zeus|BrowseHere|TV Bro|HiBrowser|Android|Linux arm|AArch64|SMART|TV/i.test(text);
+  if (likelyTvBrowser) forceSmartTvModeFromRemoteInput();
+}
+
+document.addEventListener('keydown', maybeForceSmartTvModeFromRemoteKey, true);
 
 async function init() {
   initSmartTvPerformanceMode();
