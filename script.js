@@ -29,7 +29,7 @@ const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
 
 // === RMP VPN / Cloudflare Worker proxy ===
 // Вставь сюда URL своего бесплатного Cloudflare Worker, например:
-// const RMP_WORKER_PROXY_URL = 'https://rmp-vpn-proxy.yourname.workers.dev';
+// const RMP_WORKER_PROXY_URL = 'https://rmp-vpn-proxy.kakuchiy034.workers.dev';
 const RMP_WORKER_PROXY_URL = 'https://rmp-vpn-proxy.kakuchiy034.workers.dev';
 const RMP_VPN_STORAGE_KEY = 'rmpVpnProxyEnabled';
 const RMP_VPN_LIMIT_RESET_MODE = 'utc-midnight';
@@ -5920,9 +5920,7 @@ function normalizeItem(item, mediaTypeHint = 'movie') {
 }
 
 function buildImageUrl(path) {
-  if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
-  return `${state.imageBaseUrl}${path}`;
+  return buildTmdbImageUrlFromBase(state.imageBaseUrl, path);
 }
 
 function sortByPopularity(a, b) {
@@ -6012,6 +6010,34 @@ function buildRmpWorkerAuthHeaders(extraHeaders = {}) {
     headers['Authorization'] = `Bearer ${OPENROUTER_API_KEY}`;
   }
   return headers;
+}
+
+
+function buildRmpWorkerImageUrl(sourceUrl = '') {
+  if (!sourceUrl || !isRmpVpnEnabled() || !isRmpVpnProxyConfigured()) return sourceUrl;
+
+  try {
+    const parsed = new URL(sourceUrl, window.location.href);
+    if (!/^(image\.)?tmdb\.org$/i.test(parsed.hostname) && !/image\.tmdb\.org$/i.test(parsed.hostname)) {
+      return sourceUrl;
+    }
+    const path = parsed.pathname.startsWith('/') ? parsed.pathname : `/${parsed.pathname}`;
+    return buildRmpWorkerUrl(`/image${path}${parsed.search || ''}`);
+  } catch (error) {
+    return sourceUrl;
+  }
+}
+
+function buildTmdbImageUrlFromBase(baseUrl, path) {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return buildRmpWorkerImageUrl(path);
+  }
+  return buildRmpWorkerImageUrl(`${baseUrl}${path}`);
+}
+
+function buildBackdropImageUrl(path) {
+  return buildTmdbImageUrlFromBase(state.imageBackdropBaseUrl, path);
 }
 
 function isRmpVpnEnabled() {
@@ -6912,7 +6938,7 @@ async function fetchKinoWallEntryDetails(entry) {
         voteCount: Number(details.vote_count || 0),
         popularity: Number(details.popularity || 0),
         posterUrl: details.poster_path ? buildImageUrl(details.poster_path) : '',
-        backdropUrl: details.backdrop_path ? `${state.imageBackdropBaseUrl}${details.backdrop_path}` : '',
+        backdropUrl: details.backdrop_path ? buildBackdropImageUrl(details.backdrop_path) : '',
         genres: resolveGenreLabelsForItem(mediaType, details.genres || [], []),
         genreIds: Array.isArray(details.genres) ? details.genres.map((genre) => Number(genre.id)).filter(Boolean) : [],
         runtime: mediaType === 'tv' ? Number(details.number_of_episodes || 0) : Number(details.runtime || 0),
@@ -8397,7 +8423,7 @@ async function openNav(item) {
     const resolvedDate = item.releaseDate || details.release_date || details.first_air_date || '';
     const subtitle = `${item.mediaType === 'tv' ? 'Сериал' : 'Фильм'} • ${formatFullDate(resolvedDate)}`;
     const genresMarkup = buildOverlayGenresMarkup(item.mediaType, details?.genres, item.genreIds);
-    const backdrop = details.backdrop_path ? `${state.imageBackdropBaseUrl}${details.backdrop_path}` : '';
+    const backdrop = details.backdrop_path ? buildBackdropImageUrl(details.backdrop_path) : '';
     const trailerMarkup = buildDetailsTrailerMarkup(videos, title);
 
     overlayContent.innerHTML = `
@@ -10859,7 +10885,7 @@ async function fetchV3HeroData(item) {
     releaseDate,
     voteAverage: Number(details.vote_average || item.voteAverage || 0),
     posterUrl: details.poster_path ? buildImageUrl(details.poster_path) : item.posterUrl,
-    backdropUrl: details.backdrop_path ? `${state.imageBackdropBaseUrl}${details.backdrop_path}` : (item.backdropUrl || item.posterUrl || '')
+    backdropUrl: details.backdrop_path ? buildBackdropImageUrl(details.backdrop_path) : (item.backdropUrl || item.posterUrl || '')
   };
 
   return { item: normalized, videos, backdropUrl: normalized.backdropUrl, overview: normalized.overview };
