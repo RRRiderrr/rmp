@@ -26,6 +26,14 @@ const EPISODE_CALENDAR_MAX_ITEMS = 24;
 const OPENROUTER_API_KEY = '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';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
+
+// === RMP VPN / Cloudflare Worker proxy ===
+// Вставь сюда URL своего бесплатного Cloudflare Worker, например:
+// const RMP_WORKER_PROXY_URL = 'https://rmp-vpn-proxy.yourname.workers.dev';
+const RMP_WORKER_PROXY_URL = 'https://rmp-vpn-proxy.kakuchiy034.workers.dev';
+const RMP_VPN_STORAGE_KEY = 'rmpVpnProxyEnabled';
+const RMP_VPN_LIMIT_RESET_MODE = 'utc-midnight';
+
 const AI_SEARCH_REASONING_MAX_LINES = 22;
 const AI_SEARCH_ROASTS_FILE = 'ai_roasts.txt';
 const KSAWER_EASTER_PHRASES_FILE = 'ksawer_phrases.txt';
@@ -733,7 +741,9 @@ const state = {
     lastReasoning: [],
     usedWebSearch: false,
     lastPlanGeneratedAt: 0
-  }
+  },
+  vpnDirectFailed: false,
+  vpnLastError: null
 };
 
 const v3UiState = {
@@ -842,7 +852,11 @@ async function init() {
     await openKinoWallFromHashIfNeeded();
   } catch (error) {
     console.error('[init]', error);
-    renderError('Не удалось инициализировать каталог. Попробуй обновить страницу чуть позже.');
+    if (!isRmpVpnEnabled()) markRmpVpnDirectFailure(error);
+    renderError('Не удалось инициализировать каталог. Попробуй обновить страницу чуть позже.', {
+      showVpn: true,
+      vpnMessage: isRmpVpnEnabled() ? getRmpVpnErrorText(error) : ''
+    });
     updateResultsStatus('Ошибка инициализации каталога.');
   }
 }
@@ -1196,6 +1210,8 @@ function activateSmartTvRemoteTarget(target, event) {
 }
 
 function bindEvents() {
+  ensureRmpVpnHeaderControl();
+  syncRmpVpnControls();
   initSmartTvRemoteNavigation();
   bindV3HeroAutoplayUnlock();
   form.addEventListener('submit', async (event) => {
@@ -3125,18 +3141,24 @@ async function requestAiSearchPlan(query) {
     stream: true
   };
 
-  const headers = {
-    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-    'Content-Type': 'application/json',
-    'X-OpenRouter-Title': 'RMP AI Search'
-  };
+  const useVpnForAi = isRmpVpnEnabled();
+  const headers = useVpnForAi
+    ? buildRmpWorkerAuthHeaders({
+        'Content-Type': 'application/json',
+        'X-OpenRouter-Title': 'RMP AI Search'
+      })
+    : {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'X-OpenRouter-Title': 'RMP AI Search'
+      };
 
   if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
     headers['HTTP-Referer'] = window.location.origin;
   }
 
   try {
-    const response = await fetch(OPENROUTER_URL, {
+    const response = await fetch(useVpnForAi ? buildRmpWorkerUrl('/openrouter') : OPENROUTER_URL, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -3145,6 +3167,13 @@ async function requestAiSearchPlan(query) {
 
     if (!response.ok) {
       stopAiSearchFallbackLog();
+      if (useVpnForAi) {
+        const proxyError = await parseRmpProxyError(response);
+        appendAiSearchLog(`• RMP VPN: ${getRmpVpnErrorText(proxyError)}`);
+        aiSearchSummary.textContent = getRmpVpnErrorText(proxyError);
+        setAiSearchStatus('ошибка', 'error');
+        throw proxyError;
+      }
       const errorText = await response.text().catch(() => '');
       appendAiSearchLog(`• OpenRouter вернул ${response.status}. ${errorText.slice(0, 260)}`);
       aiSearchSummary.textContent = 'ИИ не смог собрать план поиска. Проверь консоль и попробуй ещё раз.';
@@ -4091,6 +4120,7 @@ async function loadContent(page = 1) {
     state.totalPages = Math.max(1, payload.totalPages || 1);
     state.currentPage = Math.min(requestedPage, state.totalPages);
     state.catalogLoading = false;
+    clearRmpVpnDirectFailureIfDirectWorks();
     writeCatalogStateToUrl(state.currentPage);
 
     const allowV3Hero = isV3UiActive() && !shouldSuppressV3HeroForCurrentState();
@@ -4119,7 +4149,12 @@ async function loadContent(page = 1) {
     if (loadSeq !== state.catalogLoadSeq) return;
     state.catalogLoading = false;
     console.error('[loadContent]', error);
-    renderError('Ошибка сети или запроса к TMDB. Попробуй ещё раз чуть позже.');
+    if (!isRmpVpnEnabled()) markRmpVpnDirectFailure(error);
+    const vpnMessage = isRmpVpnEnabled() ? getRmpVpnErrorText(error) : '';
+    renderError(isRmpVpnEnabled() ? 'Не удалось загрузить каталог через RMP VPN.' : 'Ошибка сети или запроса к TMDB. Попробуй включить RMP VPN ниже.', {
+      showVpn: true,
+      vpnMessage
+    });
     updatePagination({ forceDisabled: true });
     updateResultsStatus('Не удалось загрузить данные.');
   }
@@ -4951,14 +4986,22 @@ function renderNoResults() {
   `;
 }
 
-function renderError(message) {
+function renderError(message, options = {}) {
   if (!shouldSuppressV3HeroForCurrentState()) updateV3HeroFromItems([]);
+  const vpnMarkup = shouldShowRmpVpnControls() || options.showVpn
+    ? buildRmpVpnPromptMarkup(options.vpnMessage || '')
+    : '';
   main.innerHTML = `
     <div class="error-box">
       <h2>Ошибка загрузки</h2>
       <p style="margin-top:0.65rem;color:var(--muted-text);line-height:1.6;">${escapeHtml(message)}</p>
+      ${vpnMarkup}
     </div>
   `;
+  main.querySelector('.rmp-vpn-inline-toggle')?.addEventListener('click', async () => {
+    await toggleRmpVpnFromUi(true);
+  });
+  syncRmpVpnControls();
 }
 
 function renderLoading(message) {
@@ -5941,17 +5984,249 @@ function getCatalogSorter(filters = state.appliedFilters) {
   };
 }
 
+
+function isRmpVpnProxyConfigured() {
+  return Boolean(RMP_WORKER_PROXY_URL && !/YOUR_SUBDOMAIN|example\.workers\.dev|CHANGE_ME/i.test(RMP_WORKER_PROXY_URL));
+}
+
+function normalizeRmpWorkerBaseUrl() {
+  return String(RMP_WORKER_PROXY_URL || '').trim().replace(/\/+$/, '');
+}
+
+function buildRmpWorkerUrl(path) {
+  if (!isRmpVpnProxyConfigured()) {
+    const error = new Error('RMP VPN Worker URL is not configured');
+    error.code = 'RMP_VPN_NOT_CONFIGURED';
+    throw error;
+  }
+  return `${normalizeRmpWorkerBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function buildRmpWorkerAuthHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  if (API_KEY) {
+    headers['X-TMDB-Key'] = API_KEY;
+  }
+  if (OPENROUTER_API_KEY) {
+    headers['X-OpenRouter-Key'] = OPENROUTER_API_KEY;
+    headers['Authorization'] = `Bearer ${OPENROUTER_API_KEY}`;
+  }
+  return headers;
+}
+
+function isRmpVpnEnabled() {
+  try {
+    return localStorage.getItem(RMP_VPN_STORAGE_KEY) === '1';
+  } catch (error) {
+    return false;
+  }
+}
+
+function setRmpVpnEnabled(enabled) {
+  try {
+    localStorage.setItem(RMP_VPN_STORAGE_KEY, enabled ? '1' : '0');
+  } catch (error) {
+    // ignore private mode storage quirks
+  }
+  document.documentElement.classList.toggle('rmp-vpn-enabled', enabled);
+  document.body?.classList.toggle('rmp-vpn-enabled', enabled);
+  syncRmpVpnControls();
+}
+
+function getSecondsUntilNextUtcMidnight() {
+  const now = new Date();
+  const reset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+  return Math.max(1, Math.ceil((reset.getTime() - now.getTime()) / 1000));
+}
+
+function formatRmpVpnRetryTime(seconds = getSecondsUntilNextUtcMidnight()) {
+  const safe = Math.max(1, Number(seconds) || 1);
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.ceil((safe % 3600) / 60);
+  if (hours <= 0) return `${minutes} мин.`;
+  return `${hours} ч. ${String(minutes).padStart(2, '0')} мин.`;
+}
+
+function markRmpVpnDirectFailure(error = null) {
+  state.vpnDirectFailed = true;
+  state.vpnLastError = error;
+  document.documentElement.classList.add('rmp-vpn-available');
+  document.body?.classList.add('rmp-vpn-available');
+  syncRmpVpnControls();
+}
+
+function clearRmpVpnDirectFailureIfDirectWorks() {
+  if (isRmpVpnEnabled()) return;
+  state.vpnDirectFailed = false;
+  state.vpnLastError = null;
+  document.documentElement.classList.remove('rmp-vpn-available');
+  document.body?.classList.remove('rmp-vpn-available');
+  syncRmpVpnControls();
+}
+
+function shouldShowRmpVpnControls() {
+  return isRmpVpnEnabled() || state.vpnDirectFailed;
+}
+
+function getRmpVpnLimitMessage(seconds = null) {
+  const retry = formatRmpVpnRetryTime(seconds || getSecondsUntilNextUtcMidnight());
+  return `Дневной лимит RMP VPN на Cloudflare Worker закончился. Попробуй снова примерно через ${retry}.`;
+}
+
+async function parseRmpProxyError(response) {
+  const status = response?.status || 0;
+  const retryHeader = response?.headers?.get?.('x-rmp-vpn-retry-after') || response?.headers?.get?.('retry-after');
+  const retryAfterSeconds = Number(retryHeader) || getSecondsUntilNextUtcMidnight();
+  let text = '';
+  try { text = await response.text(); } catch (error) { text = ''; }
+
+  const error = new Error(`RMP VPN request failed: ${status}`);
+  error.status = status;
+  error.retryAfterSeconds = retryAfterSeconds;
+
+  if (status === 429 || status === 1027 || /error\s*1027|daily request limit|workers daily|limit exceeded/i.test(text)) {
+    error.code = 'RMP_VPN_LIMIT_EXHAUSTED';
+    error.message = getRmpVpnLimitMessage(retryAfterSeconds);
+  } else if (status === 401 || status === 403) {
+    error.code = 'RMP_VPN_AUTH_ERROR';
+    error.message = 'RMP VPN Worker настроен, но не получил API-ключи из script.js. Проверь API_KEY / OPENROUTER_API_KEY.';
+  } else {
+    error.code = 'RMP_VPN_REQUEST_FAILED';
+    error.message = text ? text.slice(0, 500) : `RMP VPN Worker вернул ошибку ${status}.`;
+  }
+  return error;
+}
+
+async function fetchRmpWorkerJson(url, options = {}) {
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    if (isRmpVpnEnabled()) {
+      const wrapped = new Error(getRmpVpnLimitMessage());
+      wrapped.code = 'RMP_VPN_LIMIT_OR_NETWORK';
+      wrapped.cause = error;
+      throw wrapped;
+    }
+    throw error;
+  }
+  if (!response.ok) throw await parseRmpProxyError(response);
+  return response.json();
+}
+
+function getRmpVpnErrorText(error) {
+  if (!error) return '';
+  if (error.code === 'RMP_VPN_NOT_CONFIGURED') return 'RMP VPN ещё не настроен владельцем сайта: не указан URL Cloudflare Worker.';
+  if (error.code === 'RMP_VPN_LIMIT_EXHAUSTED' || error.code === 'RMP_VPN_LIMIT_OR_NETWORK') return error.message || getRmpVpnLimitMessage();
+  if (error.code === 'RMP_VPN_AUTH_ERROR') return error.message;
+  return error.message || 'Не удалось подключиться через RMP VPN.';
+}
+
+function ensureRmpVpnHeaderControl() {
+  let node = document.getElementById('rmpVpnControl');
+  if (node) return node;
+  const headerContent = document.querySelector('.header-content');
+  if (!headerContent) return null;
+  node = document.createElement('button');
+  node.type = 'button';
+  node.id = 'rmpVpnControl';
+  node.className = 'rmp-vpn-control hidden';
+  node.setAttribute('aria-pressed', 'false');
+  node.innerHTML = '<span class="rmp-vpn-dot"></span><span class="rmp-vpn-label">VPN</span>';
+  node.addEventListener('click', async () => {
+    await toggleRmpVpnFromUi();
+  });
+  const versionSwitch = document.querySelector('.ui-version-switch');
+  if (versionSwitch && versionSwitch.parentElement === headerContent) {
+    headerContent.insertBefore(node, versionSwitch);
+  } else {
+    headerContent.appendChild(node);
+  }
+  return node;
+}
+
+function syncRmpVpnControls() {
+  const enabled = isRmpVpnEnabled();
+  const shouldShow = shouldShowRmpVpnControls();
+  const headerControl = ensureRmpVpnHeaderControl();
+  if (headerControl) {
+    headerControl.classList.toggle('hidden', !shouldShow);
+    headerControl.classList.toggle('active', enabled);
+    headerControl.setAttribute('aria-pressed', String(enabled));
+    headerControl.title = enabled ? 'RMP VPN включён: запросы TMDb и AI идут через Cloudflare Worker' : 'Включить RMP VPN через Cloudflare Worker';
+  }
+  document.querySelectorAll('.rmp-vpn-inline-toggle').forEach((button) => {
+    button.classList.toggle('active', enabled);
+    button.textContent = enabled ? 'VPN включён — повторить загрузку' : 'Включить VPN и повторить';
+  });
+}
+
+async function toggleRmpVpnFromUi(force = null) {
+  const next = typeof force === 'boolean' ? force : !isRmpVpnEnabled();
+  if (next && !isRmpVpnProxyConfigured()) {
+    state.vpnLastError = Object.assign(new Error('RMP VPN Worker URL is not configured'), { code: 'RMP_VPN_NOT_CONFIGURED' });
+    renderRmpVpnNotice(getRmpVpnErrorText(state.vpnLastError), 'error');
+    syncRmpVpnControls();
+    return;
+  }
+  setRmpVpnEnabled(next);
+  renderRmpVpnNotice(next ? 'RMP VPN включён. Пробую загрузить каталог через Cloudflare Worker…' : 'RMP VPN выключен. Пробую прямое подключение…', 'info');
+  if (state.catalogLoading) return;
+  await loadContent(state.currentPage || 1);
+}
+
+function renderRmpVpnNotice(message, type = 'info') {
+  let notice = document.getElementById('rmpVpnNotice');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.id = 'rmpVpnNotice';
+    notice.className = 'rmp-vpn-notice';
+    const parent = document.querySelector('main') || document.body;
+    parent.prepend(notice);
+  }
+  notice.className = `rmp-vpn-notice ${type}`;
+  notice.textContent = message;
+  window.clearTimeout(notice._hideTimer);
+  notice._hideTimer = window.setTimeout(() => notice.classList.add('faded'), 6000);
+  notice.classList.remove('faded');
+}
+
+function buildRmpVpnPromptMarkup(message = '') {
+  const enabled = isRmpVpnEnabled();
+  const errorText = escapeHtml(message || (state.vpnLastError ? getRmpVpnErrorText(state.vpnLastError) : 'Похоже, TMDb/OpenRouter не открывается напрямую. Можно попробовать RMP VPN через Cloudflare Worker.'));
+  return `
+    <div class="rmp-vpn-prompt">
+      <div class="rmp-vpn-prompt-title">RMP VPN</div>
+      <div class="rmp-vpn-prompt-text">${errorText}</div>
+      <button type="button" class="rmp-vpn-inline-toggle ${enabled ? 'active' : ''}">${enabled ? 'VPN включён — повторить загрузку' : 'Включить VPN и повторить'}</button>
+      <div class="rmp-vpn-prompt-note">Через VPN идут только TMDb, AI-поиск и данные трейлеров. Просмотр фильма не трогаем.</div>
+    </div>
+  `;
+}
 async function apiFetch(path, params = {}) {
-  const url = new URL(`${BASE_URL}${path}`);
   const preparedParams = { ...params };
-  if (!preparedParams.api_key) {
-    preparedParams.api_key = API_KEY;
+  let url;
+
+  if (isRmpVpnEnabled()) {
+    url = new URL(buildRmpWorkerUrl(`/tmdb/3${path}`));
+  } else {
+    url = new URL(`${BASE_URL}${path}`);
+    if (!preparedParams.api_key) {
+      preparedParams.api_key = API_KEY;
+    }
   }
 
   Object.entries(preparedParams).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     url.searchParams.set(key, String(value));
   });
+
+  if (isRmpVpnEnabled()) {
+    return fetchRmpWorkerJson(url.toString(), {
+      cache: 'no-store',
+      headers: buildRmpWorkerAuthHeaders()
+    });
+  }
 
   const response = await fetch(url.toString(), { cache: 'no-store' });
   if (!response.ok) {

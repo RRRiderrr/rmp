@@ -385,25 +385,5 @@
   </div>
 
   <script src="script.js"></script>
-  <script>
-    function redirectToOldPage() {
-      if (window.location.hash) return;
-      if (window.location.protocol === 'file:') {
-        console.info('Local file mode detected: geolocation redirect is skipped.');
-        return;
-      }
-      fetch('https://ipapi.co/json/')
-        .then((response) => response.json())
-        .then((data) => {
-          if (data && data.country === 'RU') {
-            window.location.href = 'old.html';
-          }
-        })
-        .catch((error) => {
-          console.error('Error fetching user location:', error);
-        });
-    }
-    window.addEventListener('load', redirectToOldPage);
-  </script>
 </body>
 </html>
