@@ -23,7 +23,7 @@
         <a href="https://boosty.to/riderr">Boosty</a>
         <a href="https://www.patreon.com/MichailPimakhov">Patreon</a>
         <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2">PayPal</a>
-        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js">Установить скрипт</a>
+        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js" data-rmp-userscript-install>Установить скрипт</a>
       </nav>
 
       <label class="theme-switch" aria-label="Переключить тему">
@@ -254,7 +254,7 @@
     <a href="old.html">Старая версия</a>
     <a href="https://boosty.to/riderr">Boosty</a>
     <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2">PayPal</a>
-    <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js">Установить скрипт</a>
+    <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js" data-rmp-userscript-install>Установить скрипт</a>
   </nav>
 
   <button id="scrollTopBtn" class="scroll-to-top">↑</button>
@@ -385,5 +385,18 @@
   </div>
 
   <script src="script.js"></script>
+
+  <script id="rmp-userscript-domain-switch">
+    (() => {
+      const isVercelMirror = window.location.hostname.toLowerCase() === 'rmp-page.vercel.app';
+      const installUrl = isVercelMirror
+        ? `${window.location.origin}/tms-vercel.user.js`
+        : 'https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js';
+
+      document.querySelectorAll('[data-rmp-userscript-install]').forEach((link) => {
+        link.href = installUrl;
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -177,7 +177,7 @@
         <a href="https://boosty.to/riderr" target="_blank" class="link">Boosty</a>
         <a href="https://www.patreon.com/MichailPimakhov" target="_blank" class="link">Patreon</a>
         <a href="https://www.paypal.com/donate/?hosted_button_id=QV2Y3VZNQD7L2" target="_blank" class="link">PayPal</a>
-        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js" class="link">Install TamperMonkey Script for Kinopoisk and IMDb</a>
+        <a href="https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js" class="link" data-rmp-userscript-install>Install TamperMonkey Script for Kinopoisk and IMDb</a>
     </div>
 
     <div id="header">
@@ -528,5 +528,18 @@
         animatePopcorn();
     });
     </script>
+
+  <script id="rmp-userscript-domain-switch">
+    (() => {
+      const isVercelMirror = window.location.hostname.toLowerCase() === 'rmp-page.vercel.app';
+      const installUrl = isVercelMirror
+        ? `${window.location.origin}/tms-vercel.user.js`
+        : 'https://raw.githubusercontent.com/RRRiderrr/rmp/main/tms.user.js';
+
+      document.querySelectorAll('[data-rmp-userscript-install]').forEach((link) => {
+        link.href = installUrl;
+      });
+    })();
+  </script>
 </body>
 </html>
