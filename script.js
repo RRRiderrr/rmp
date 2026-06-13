@@ -3674,7 +3674,10 @@ function disposeCatalogMediaResources(container = main) {
 
 function isPlayerRouteHash(hashValue = window.location.hash) {
   const rawHash = String(hashValue || '').replace(/^#/, '').trim().toLowerCase();
-  return /^(movie|tv)-\d+$/.test(rawHash) || /^tm\d+$/.test(rawHash) || /^tt\d+/.test(rawHash);
+  return /^(movie|tv)-\d+$/.test(rawHash)
+    || /^tm\d+$/.test(rawHash)
+    || /^tt\d+/.test(rawHash)
+    || /^resolve-[a-z0-9_-]+$/i.test(rawHash);
 }
 
 function shouldBlockDecisionPromptTimer() {
@@ -6392,8 +6395,181 @@ async function buildPlayerPayloadFromId(id, mediaType) {
   });
 }
 
+
+function decodeRmpResolverPayload(hashVal) {
+  const encoded = String(hashVal || '').replace(/^resolve-/, '');
+  if (!encoded) throw new Error('Resolver payload is empty');
+
+  const normalized = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  const binary = window.atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const json = new TextDecoder().decode(bytes);
+  const payload = JSON.parse(json);
+
+  return {
+    title: String(payload?.title || '').trim(),
+    originalTitle: String(payload?.originalTitle || '').trim(),
+    year: String(payload?.year || '').match(/\d{4}/)?.[0] || '',
+    mediaType: payload?.mediaType === 'tv' ? 'tv' : payload?.mediaType === 'movie' ? 'movie' : '',
+    kinopoisk: String(payload?.kinopoisk || '').replace(/\D/g, '')
+  };
+}
+
+function normalizeResolverTitle(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/&/g, ' and ')
+    .replace(/[«»"'`´’‘]/g, '')
+    .replace(/[^a-zа-я0-9]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getResolverCandidateTitle(candidate) {
+  return candidate?.title
+    || candidate?.name
+    || candidate?.original_title
+    || candidate?.original_name
+    || '';
+}
+
+function getResolverCandidateYear(candidate) {
+  return String(candidate?.release_date || candidate?.first_air_date || '').slice(0, 4);
+}
+
+function scoreRmpResolverCandidate(candidate, payload) {
+  const candidateTitle = normalizeResolverTitle(getResolverCandidateTitle(candidate));
+  const candidateOriginal = normalizeResolverTitle(candidate?.original_title || candidate?.original_name || '');
+  const requestedTitles = [payload.title, payload.originalTitle]
+    .map(normalizeResolverTitle)
+    .filter(Boolean);
+
+  let score = 0;
+  for (const requested of requestedTitles) {
+    if (candidateTitle === requested || candidateOriginal === requested) {
+      score = Math.max(score, 120);
+      continue;
+    }
+    if (candidateTitle.startsWith(requested) || requested.startsWith(candidateTitle)) {
+      score = Math.max(score, 92);
+      continue;
+    }
+    if (candidateOriginal.startsWith(requested) || requested.startsWith(candidateOriginal)) {
+      score = Math.max(score, 88);
+      continue;
+    }
+
+    const requestedWords = new Set(requested.split(' ').filter(Boolean));
+    const candidateWords = new Set(`${candidateTitle} ${candidateOriginal}`.split(' ').filter(Boolean));
+    const intersection = [...requestedWords].filter((word) => candidateWords.has(word)).length;
+    const coverage = requestedWords.size ? intersection / requestedWords.size : 0;
+    score = Math.max(score, coverage * 72);
+  }
+
+  const candidateYear = Number(getResolverCandidateYear(candidate));
+  const requestedYear = Number(payload.year);
+  if (requestedYear && candidateYear) {
+    const diff = Math.abs(requestedYear - candidateYear);
+    if (diff === 0) score += 36;
+    else if (diff === 1) score += 18;
+    else if (diff <= 2) score += 7;
+    else score -= Math.min(25, diff * 2);
+  }
+
+  const candidateType = candidate?.media_type === 'tv'
+    ? 'tv'
+    : candidate?.media_type === 'movie'
+      ? 'movie'
+      : payload.mediaType;
+
+  if (payload.mediaType && candidateType === payload.mediaType) score += 20;
+  if (Number(candidate?.popularity) > 0) score += Math.min(10, Math.log10(Number(candidate.popularity) + 1) * 3);
+
+  return score;
+}
+
+async function searchTmdbForRmpResolver(payload) {
+  const queries = [...new Set([payload.originalTitle, payload.title].filter(Boolean))];
+  if (!queries.length) return null;
+
+  const collected = [];
+  const endpoints = payload.mediaType
+    ? [`/search/${payload.mediaType}`]
+    : ['/search/multi', '/search/movie', '/search/tv'];
+
+  for (const query of queries) {
+    for (const endpoint of endpoints) {
+      try {
+        const params = {
+          language: 'ru-RU',
+          query,
+          include_adult: false,
+          page: 1
+        };
+
+        if (payload.year && endpoint.endsWith('/movie')) params.year = payload.year;
+        if (payload.year && endpoint.endsWith('/tv')) params.first_air_date_year = payload.year;
+
+        const response = await apiFetch(endpoint, params);
+        const results = Array.isArray(response?.results) ? response.results : [];
+
+        for (const item of results.slice(0, 12)) {
+          const mediaType = item.media_type === 'tv'
+            ? 'tv'
+            : item.media_type === 'movie'
+              ? 'movie'
+              : endpoint.endsWith('/tv')
+                ? 'tv'
+                : 'movie';
+
+          if (!item?.id || (item.media_type && !['movie', 'tv'].includes(item.media_type))) continue;
+          collected.push({ ...item, media_type: mediaType });
+        }
+      } catch (error) {
+        console.warn('[kinopoisk resolver] TMDb search failed', endpoint, query, error);
+      }
+    }
+  }
+
+  const unique = new Map();
+  for (const candidate of collected) {
+    unique.set(`${candidate.media_type}-${candidate.id}`, candidate);
+  }
+
+  return [...unique.values()]
+    .map((candidate) => ({
+      candidate,
+      score: scoreRmpResolverCandidate(candidate, payload)
+    }))
+    .sort((a, b) => b.score - a.score)[0] || null;
+}
+
+async function resolveKinopoiskPayloadViaTmdb(hashVal) {
+  const payload = decodeRmpResolverPayload(hashVal);
+  const match = await searchTmdbForRmpResolver(payload);
+
+  if (match?.candidate?.id && match.score >= 58) {
+    return buildPlayerPayloadFromId(match.candidate.id, match.candidate.media_type === 'tv' ? 'tv' : 'movie');
+  }
+
+  // Последний бесплатный fallback: Kinobox умеет принимать Kinopoisk ID напрямую.
+  return sanitizeMovieData({
+    kinopoisk: payload.kinopoisk,
+    title: payload.title || payload.originalTitle || 'RMP Player',
+    originalTitle: payload.originalTitle,
+    year: payload.year,
+    mediaType: payload.mediaType || 'movie'
+  });
+}
+
 async function buildPlayerPayloadFromHash(hashVal) {
   if (!hashVal) throw new Error('Empty hash');
+
+  if (hashVal.startsWith('resolve-')) {
+    return resolveKinopoiskPayloadViaTmdb(hashVal);
+  }
 
   if (hashVal.startsWith('movie-')) {
     return buildPlayerPayloadFromId(hashVal.substring(6), 'movie');
