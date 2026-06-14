@@ -33,6 +33,9 @@ const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
 const RMP_WORKER_PROXY_URL = 'https://rmp-vpn-proxy.kakuchiy034.workers.dev';
 const RMP_VPN_STORAGE_KEY = 'rmpVpnProxyEnabled';
 const RMP_VPN_LIMIT_RESET_MODE = 'utc-midnight';
+const RMP_DEBUG_FORCE_CATALOG_FAIL_KEY = 'rmpDebugForceCatalogFail';
+const RMP_VPN_RKN_LOGO_URL = 'rkn-pixel.png';
+const RMP_VPN_HAND_URL = 'vpn-hand.png';
 
 const AI_SEARCH_REASONING_MAX_LINES = 22;
 const AI_SEARCH_ROASTS_FILE = 'ai_roasts.txt';
@@ -828,6 +831,7 @@ function maybeForceSmartTvModeFromRemoteKey(event) {
 document.addEventListener('keydown', maybeForceSmartTvModeFromRemoteKey, true);
 
 async function init() {
+  installRmpVpnDebugHelpers();
   initSmartTvPerformanceMode();
   if (shouldDisableV3HeroVideoForPerformance()) stopSmartTvHeroMediaHard();
   initUiVersion();
@@ -853,7 +857,7 @@ async function init() {
   } catch (error) {
     console.error('[init]', error);
     if (!isRmpVpnEnabled()) markRmpVpnDirectFailure(error);
-    renderError('Не удалось инициализировать каталог. Попробуй обновить страницу чуть позже.', {
+    renderError('Не удалось инициализировать каталог. Попробуй обновить страницу или включи встроенный VPN', {
       showVpn: true,
       vpnMessage: isRmpVpnEnabled() ? getRmpVpnErrorText(error) : ''
     });
@@ -4154,7 +4158,7 @@ async function loadContent(page = 1) {
     console.error('[loadContent]', error);
     if (!isRmpVpnEnabled()) markRmpVpnDirectFailure(error);
     const vpnMessage = isRmpVpnEnabled() ? getRmpVpnErrorText(error) : '';
-    renderError(isRmpVpnEnabled() ? 'Не удалось загрузить каталог через RMP VPN.' : 'Ошибка сети или запроса к TMDB. Попробуй включить RMP VPN ниже.', {
+    renderError(isRmpVpnEnabled() ? 'Не удалось загрузить каталог через встроенный VPN.' : 'Не удалось инициализировать каталог. Попробуй обновить страницу или включи встроенный VPN', {
       showVpn: true,
       vpnMessage
     });
@@ -5001,7 +5005,7 @@ function renderError(message, options = {}) {
       ${vpnMarkup}
     </div>
   `;
-  main.querySelector('.rmp-vpn-inline-toggle')?.addEventListener('click', async () => {
+  main.querySelector('.rmp-vpn-inline-toggle')?.addEventListener('change', async () => {
     await toggleRmpVpnFromUi(true);
   });
   syncRmpVpnControls();
@@ -6151,6 +6155,97 @@ function getRmpVpnErrorText(error) {
   return error.message || 'Не удалось подключиться через RMP VPN.';
 }
 
+
+function isRmpVpnDebugCatalogFailureForced() {
+  try {
+    return localStorage.getItem(RMP_DEBUG_FORCE_CATALOG_FAIL_KEY) === '1';
+  } catch (error) {
+    return false;
+  }
+}
+
+function setRmpVpnDebugCatalogFailureForced(enabled) {
+  try {
+    if (enabled) {
+      localStorage.setItem(RMP_DEBUG_FORCE_CATALOG_FAIL_KEY, '1');
+    } else {
+      localStorage.removeItem(RMP_DEBUG_FORCE_CATALOG_FAIL_KEY);
+    }
+  } catch (error) {
+    console.warn('[rmpDebugForceCatalogFail]', error);
+  }
+  return enabled;
+}
+
+function installRmpVpnDebugHelpers() {
+  if (window.rmpDebugForceCatalogFail) return;
+  window.rmpDebugForceCatalogFail = (enabled = true, shouldReload = true) => {
+    setRmpVpnDebugCatalogFailureForced(Boolean(enabled));
+    if (shouldReload) window.location.reload();
+    return isRmpVpnDebugCatalogFailureForced();
+  };
+  window.rmpDebugClearCatalogFail = (shouldReload = true) => {
+    setRmpVpnDebugCatalogFailureForced(false);
+    if (shouldReload) window.location.reload();
+    return false;
+  };
+}
+
+function shouldSimulateCatalogDirectFailure() {
+  return !isRmpVpnEnabled() && isRmpVpnDebugCatalogFailureForced();
+}
+
+function ensureRmpVpnActivationOverlay() {
+  let overlay = document.getElementById('rmpVpnActivationOverlay');
+  if (overlay) return overlay;
+  overlay = document.createElement('div');
+  overlay.id = 'rmpVpnActivationOverlay';
+  overlay.className = 'rmp-vpn-activation-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.innerHTML = `
+    <div class="rmp-vpn-activation-scene">
+      <img src="${RMP_VPN_RKN_LOGO_URL}" alt="РКН" class="rmp-vpn-activation-logo">
+      <img src="${RMP_VPN_HAND_URL}" alt="" class="rmp-vpn-activation-hand left" aria-hidden="true">
+      <img src="${RMP_VPN_HAND_URL}" alt="" class="rmp-vpn-activation-hand right" aria-hidden="true">
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+async function playRmpVpnActivationSequence() {
+  const overlay = ensureRmpVpnActivationOverlay();
+  if (overlay._runningPromise) return overlay._runningPromise;
+
+  overlay._runningPromise = new Promise((resolve) => {
+    document.body.classList.add('rmp-vpn-sequence-running');
+    overlay.classList.remove('ending');
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+
+    window.setTimeout(() => {
+      overlay.classList.add('ending');
+    }, 1700);
+
+    window.setTimeout(() => {
+      overlay.classList.remove('active', 'ending');
+      overlay.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('rmp-vpn-sequence-running');
+      overlay._runningPromise = null;
+      resolve();
+    }, 2600);
+  });
+
+  return overlay._runningPromise;
+}
+
+function getRmpVpnPromptBodyText(message = '') {
+  const raw = String(message || state.vpnLastError?.message || '').trim();
+  if (!raw || /failed to fetch/i.test(raw)) return '';
+  if (/RMP VPN Worker URL is not configured/i.test(raw)) return 'Встроенный VPN пока не настроен владельцем сайта.';
+  return escapeHtml(raw);
+}
+
 function ensureRmpVpnHeaderControl() {
   let node = document.getElementById('rmpVpnControl');
   if (node) return node;
@@ -6184,20 +6279,32 @@ function syncRmpVpnControls() {
     headerControl.setAttribute('aria-pressed', String(enabled));
     headerControl.title = enabled ? 'RMP VPN включён: запросы TMDb и AI идут через Cloudflare Worker' : 'Включить RMP VPN через Cloudflare Worker';
   }
-  document.querySelectorAll('.rmp-vpn-inline-toggle').forEach((button) => {
-    button.classList.toggle('active', enabled);
-    button.textContent = enabled ? 'VPN включён — повторить загрузку' : 'Включить VPN и повторить';
+  document.querySelectorAll('.rmp-vpn-inline-toggle').forEach((input) => {
+    input.checked = enabled;
+    input.setAttribute('aria-checked', String(enabled));
+  });
+  document.querySelectorAll('.rmp-vpn-switch').forEach((toggle) => {
+    toggle.classList.toggle('active', enabled);
+  });
+  document.querySelectorAll('.rmp-vpn-inline-copy').forEach((node) => {
+    node.textContent = 'Включить VPN и повторить';
   });
 }
 
 async function toggleRmpVpnFromUi(force = null) {
-  const next = typeof force === 'boolean' ? force : !isRmpVpnEnabled();
+  const currentEnabled = isRmpVpnEnabled();
+  const next = typeof force === 'boolean' ? force : !currentEnabled;
   if (next && !isRmpVpnProxyConfigured()) {
     state.vpnLastError = Object.assign(new Error('RMP VPN Worker URL is not configured'), { code: 'RMP_VPN_NOT_CONFIGURED' });
     renderRmpVpnNotice(getRmpVpnErrorText(state.vpnLastError), 'error');
     syncRmpVpnControls();
     return;
   }
+
+  if (next && !currentEnabled) {
+    await playRmpVpnActivationSequence();
+  }
+
   setRmpVpnEnabled(next);
   renderRmpVpnNotice(next ? 'RMP VPN включён. Пробую загрузить каталог через Cloudflare Worker…' : 'RMP VPN выключен. Пробую прямое подключение…', 'info');
   if (state.catalogLoading) return;
@@ -6222,17 +6329,31 @@ function renderRmpVpnNotice(message, type = 'info') {
 
 function buildRmpVpnPromptMarkup(message = '') {
   const enabled = isRmpVpnEnabled();
-  const errorText = escapeHtml(message || (state.vpnLastError ? getRmpVpnErrorText(state.vpnLastError) : 'Похоже, TMDb/OpenRouter не открывается напрямую. Можно попробовать RMP VPN через Cloudflare Worker.'));
+  const helperText = getRmpVpnPromptBodyText(message);
   return `
     <div class="rmp-vpn-prompt">
       <div class="rmp-vpn-prompt-title">RMP VPN</div>
-      <div class="rmp-vpn-prompt-text">${errorText}</div>
-      <button type="button" class="rmp-vpn-inline-toggle ${enabled ? 'active' : ''}">${enabled ? 'VPN включён — повторить загрузку' : 'Включить VPN и повторить'}</button>
-      <div class="rmp-vpn-prompt-note">Через VPN идут только TMDb, AI-поиск и данные трейлеров. Просмотр фильма не трогаем.</div>
+      ${helperText ? `<div class="rmp-vpn-prompt-text">${helperText}</div>` : ''}
+      <div class="rmp-vpn-inline-row">
+        <span class="rmp-vpn-inline-copy">Включить VPN и повторить</span>
+        <label class="rmp-vpn-switch ${enabled ? 'active' : ''}" aria-label="Включить VPN и повторить">
+          <input type="checkbox" class="rmp-vpn-inline-toggle" ${enabled ? 'checked' : ''} aria-checked="${enabled ? 'true' : 'false'}">
+          <span class="rmp-vpn-switch-track">
+            <span class="rmp-vpn-switch-thumb"></span>
+          </span>
+        </label>
+      </div>
+      <div class="rmp-vpn-prompt-note">(Никаких установок приложений или расширений НЕ требуется - функция работает в пределах сайта и НЕ затрагивает пакеты данных, а также ваши системные файлы)</div>
     </div>
   `;
 }
 async function apiFetch(path, params = {}) {
+  if (shouldSimulateCatalogDirectFailure()) {
+    const debugError = new Error('Simulated catalog direct failure');
+    debugError.code = 'RMP_DEBUG_FORCED_CATALOG_FAILURE';
+    throw debugError;
+  }
+
   const preparedParams = { ...params };
   let url;
 
