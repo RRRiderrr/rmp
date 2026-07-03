@@ -5706,6 +5706,25 @@ function buildOverlayGenresMarkup(mediaType, detailsGenres = [], fallbackGenreId
   `;
 }
 
+function buildCountryLabelsFromDetails(details = {}) {
+  const codes = extractCountryCodes(details);
+  if (!codes.length) return '';
+
+  const labels = codes
+    .map((code) => {
+      const fromState = state.countriesByCode?.get?.(code)?.label;
+      return resolveCountryLabel(code, fromState || code);
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(labels)).join(', ');
+}
+
+function buildCountryFactMarkup(details = {}, label = 'Страна') {
+  const countries = buildCountryLabelsFromDetails(details);
+  return countries ? `<div class="rmp-details-fact"><span>${escapeHtml(label)}</span><b>${escapeHtml(countries)}</b></div>` : '';
+}
+
 async function openNav(item) {
   try {
     const details = await apiFetch(`/${item.mediaType}/${item.id}`, {
@@ -8745,6 +8764,7 @@ async function openNav(item) {
           </div>
           <aside class="rmp-details-side">
             <div class="rmp-details-fact"><span>Рейтинг TMDB</span><b>${formatVote(details.vote_average)}</b></div>
+            ${buildCountryFactMarkup(details, item.mediaType === 'tv' ? 'Страна' : 'Страна')}
             <div class="rmp-details-fact"><span>Голосов</span><b>${escapeHtml(String(details.vote_count || '—'))}</b></div>
             ${details.runtime ? `<div class="rmp-details-fact"><span>Длительность</span><b>${details.runtime} мин.</b></div>` : ''}
             ${details.number_of_seasons ? `<div class="rmp-details-fact"><span>Сезонов</span><b>${details.number_of_seasons}</b></div>` : ''}
@@ -8977,6 +8997,7 @@ function renderPlayerShell(meta = {}) {
           <div id="rmp-sources" class="rmp-player-sources"></div>
           <div id="rmp-player-content" class="rmp-player-content"></div>
           <div id="rmp-player-status" class="rmp-player-status">Подключаемся к Kinobox API...</div>
+          ${renderPlayerDetailsAction(meta)}
           ${renderKinoWallPlayerReviewBox(meta)}
         </div>
       </div>
@@ -8984,6 +9005,7 @@ function renderPlayerShell(meta = {}) {
   `;
 
   document.getElementById('rmp-home-button').addEventListener('click', navigateBackToCatalog);
+  document.getElementById('rmp-player-details-button')?.addEventListener('click', () => openPlayerDetailsModal(meta));
   bindKinoWallPlayerReviewEvents(meta);
 }
 
@@ -9027,6 +9049,147 @@ function showPlayerPlaceholder(message) {
   const contentEl = document.getElementById('rmp-player-content');
   if (!contentEl) return;
   contentEl.innerHTML = `<div class="rmp-player-placeholder">${escapeHtml(message)}</div>`;
+}
+
+
+function renderPlayerDetailsAction(meta = {}) {
+  if (!meta.tmdb && !meta.imdb) return '';
+  return `
+    <div class="rmp-player-details-action">
+      <button type="button" id="rmp-player-details-button" class="rmp-player-details-button">Подробнее</button>
+      <span>Информация о тайтле, страна, жанры и описание — без закрытия плеера.</span>
+    </div>
+  `;
+}
+
+async function resolvePlayerDetailsMeta(meta = {}) {
+  const mediaType = meta.mediaType === 'tv' ? 'tv' : 'movie';
+  if (meta.tmdb) {
+    return {
+      id: String(meta.tmdb),
+      mediaType
+    };
+  }
+
+  if (meta.imdb) {
+    const findRes = await apiFetch(`/find/${String(meta.imdb).toLowerCase()}`, { language: 'ru-RU', external_source: 'imdb_id' });
+    const movie = findRes?.movie_results?.[0] || null;
+    const tv = findRes?.tv_results?.[0] || null;
+    const found = mediaType === 'tv' ? (tv || movie) : (movie || tv);
+    if (found?.id) {
+      return {
+        id: String(found.id),
+        mediaType: found.media_type === 'tv' ? 'tv' : mediaType
+      };
+    }
+  }
+
+  throw new Error('Не удалось определить TMDb ID для вкладки «Подробнее».');
+}
+
+function ensurePlayerDetailsModal() {
+  let modal = document.getElementById('rmpPlayerDetailsModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'rmpPlayerDetailsModal';
+  modal.className = 'rmp-player-details-modal hidden';
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function closePlayerDetailsModal() {
+  const modal = document.getElementById('rmpPlayerDetailsModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  modal.innerHTML = '';
+}
+
+async function openPlayerDetailsModal(meta = {}) {
+  const modal = ensurePlayerDetailsModal();
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  modal.innerHTML = `
+    <div class="rmp-player-details-dialog">
+      <button type="button" class="rmp-player-details-close" aria-label="Закрыть">&times;</button>
+      <div class="rmp-player-details-loading"><span class="loader"></span><b>Загружаем подробности...</b></div>
+    </div>
+  `;
+  modal.querySelector('.rmp-player-details-close')?.addEventListener('click', closePlayerDetailsModal);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closePlayerDetailsModal();
+  }, { once: true });
+
+  try {
+    const resolved = await resolvePlayerDetailsMeta(meta);
+    const details = await apiFetch(`/${resolved.mediaType}/${resolved.id}`, {
+      language: 'ru-RU',
+      append_to_response: 'credits',
+      include_video_language: 'ru-RU,ru,en-US,en,null'
+    });
+    renderPlayerDetailsModal(meta, details, resolved.mediaType);
+  } catch (error) {
+    console.error('[player details]', error);
+    modal.innerHTML = `
+      <div class="rmp-player-details-dialog compact-error">
+        <button type="button" class="rmp-player-details-close" aria-label="Закрыть">&times;</button>
+        <h2>Не удалось загрузить подробности</h2>
+        <p>${escapeHtml(error.message || 'TMDb не ответил.')}</p>
+      </div>
+    `;
+    modal.querySelector('.rmp-player-details-close')?.addEventListener('click', closePlayerDetailsModal);
+  }
+}
+
+function renderPlayerDetailsModal(meta, details, mediaType) {
+  const modal = ensurePlayerDetailsModal();
+  const title = details.title || details.name || details.original_title || details.original_name || meta.title || 'Без названия';
+  const originalTitle = details.original_title || details.original_name || meta.originalTitle || '';
+  const releaseDate = details.release_date || details.first_air_date || '';
+  const overview = details.overview || meta.overview || 'Описание отсутствует.';
+  const countryLabels = buildCountryLabelsFromDetails(details) || '—';
+  const genres = resolveGenreLabelsForItem(mediaType, details.genres || [], []);
+  const backdrop = details.backdrop_path ? buildBackdropImageUrl(details.backdrop_path) : (meta.poster || '');
+  const poster = details.poster_path ? buildImageUrl(details.poster_path) : (meta.poster || '');
+  const cast = Array.isArray(details?.credits?.cast) ? details.credits.cast.slice(0, 8) : [];
+  const facts = [
+    ['Тип', mediaType === 'tv' ? 'Сериал' : 'Фильм'],
+    ['Страна', countryLabels],
+    ['Дата', formatFullDate(releaseDate) || '—'],
+    ['Рейтинг TMDb', formatVote(details.vote_average)],
+    ['Голосов', String(details.vote_count || '—')],
+    details.runtime ? ['Длительность', `${details.runtime} мин.`] : null,
+    details.number_of_seasons ? ['Сезонов', String(details.number_of_seasons)] : null,
+    details.status ? ['Статус', details.status] : null,
+    originalTitle && originalTitle !== title ? ['Оригинал', originalTitle] : null
+  ].filter(Boolean);
+
+  modal.innerHTML = `
+    <div class="rmp-player-details-dialog" ${backdrop ? `style="--player-details-backdrop:url('${escapeKinoWallCssUrl(backdrop)}')"` : ''}>
+      <button type="button" class="rmp-player-details-close" aria-label="Закрыть">&times;</button>
+      <div class="rmp-player-details-hero">
+        <div class="rmp-player-details-backdrop"></div>
+        <div class="rmp-player-details-poster">${poster ? `<img src="${escapeHtml(poster)}" alt="${escapeHtml(title)}">` : '<span>RMP</span>'}</div>
+        <div class="rmp-player-details-headline">
+          <div class="rmp-player-details-kicker">${escapeHtml(mediaType === 'tv' ? 'сериал' : 'фильм')} • подробности</div>
+          <h2>${escapeHtml(title)}</h2>
+          ${genres.length ? `<div class="rmp-player-details-genres">${genres.map((genre) => `<span>${escapeHtml(genre)}</span>`).join('')}</div>` : ''}
+        </div>
+      </div>
+      <div class="rmp-player-details-body">
+        <div class="rmp-player-details-overview">
+          <h3>Описание</h3>
+          <p>${escapeHtml(overview)}</p>
+        </div>
+        <div class="rmp-player-details-facts">
+          ${facts.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join('')}
+        </div>
+      </div>
+      ${cast.length ? `<section class="rmp-player-details-cast"><h3>В главных ролях</h3><div>${cast.map((actor) => `<span>${escapeHtml(actor.name || '')}</span>`).join('')}</div></section>` : ''}
+    </div>
+  `;
+  modal.querySelector('.rmp-player-details-close')?.addEventListener('click', closePlayerDetailsModal);
 }
 
 function renderKinoWallPlayerReviewBox(meta) {
