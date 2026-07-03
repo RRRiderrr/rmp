@@ -8857,8 +8857,9 @@ function renderDetailsActorCard(actor) {
     </article>`;
 }
 
-function bindDetailsActorEvents() {
-  overlayContent.querySelectorAll('.details-actor-fav').forEach((button) => {
+function bindDetailsActorEvents(root = overlayContent) {
+  const actorEventsRoot = root || document;
+  actorEventsRoot.querySelectorAll('.details-actor-fav').forEach((button) => {
     button.addEventListener('click', () => {
       const card = button.closest('.details-actor-card');
       const isActive = toggleKinoWallActor({
@@ -8872,7 +8873,7 @@ function bindDetailsActorEvents() {
       button.title = isActive ? 'Убрать из любимых актёров' : 'Добавить в любимые актёры';
     });
   });
-  overlayContent.querySelectorAll('.details-actor-more').forEach((button) => {
+  actorEventsRoot.querySelectorAll('.details-actor-more').forEach((button) => {
     button.addEventListener('click', async () => {
       const card = button.closest('.details-actor-card');
       const personId = Number(card?.dataset.personId || 0);
@@ -9153,7 +9154,7 @@ function renderPlayerDetailsModal(meta, details, mediaType) {
   const genres = resolveGenreLabelsForItem(mediaType, details.genres || [], []);
   const backdrop = details.backdrop_path ? buildBackdropImageUrl(details.backdrop_path) : (meta.poster || '');
   const poster = details.poster_path ? buildImageUrl(details.poster_path) : (meta.poster || '');
-  const cast = Array.isArray(details?.credits?.cast) ? details.credits.cast.slice(0, 8) : [];
+  const cast = Array.isArray(details?.credits?.cast) ? details.credits.cast.slice(0, 14) : [];
   const facts = [
     ['Тип', mediaType === 'tv' ? 'Сериал' : 'Фильм'],
     ['Страна', countryLabels],
@@ -9187,10 +9188,18 @@ function renderPlayerDetailsModal(meta, details, mediaType) {
           ${facts.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join('')}
         </div>
       </div>
-      ${cast.length ? `<section class="rmp-player-details-cast"><h3>В главных ролях</h3><div>${cast.map((actor) => `<span>${escapeHtml(actor.name || '')}</span>`).join('')}</div></section>` : ''}
+      ${cast.length ? `
+        <section class="rmp-player-details-cast rmp-details-cast-section">
+          <h3 class="rmp-details-section-title">В главных ролях</h3>
+          <div class="rmp-details-cast-grid">
+            ${cast.map(renderDetailsActorCard).join('')}
+          </div>
+        </section>
+      ` : ''}
     </div>
   `;
   modal.querySelector('.rmp-player-details-close')?.addEventListener('click', closePlayerDetailsModal);
+  bindDetailsActorEvents(modal);
 }
 
 function renderKinoWallPlayerReviewBox(meta) {

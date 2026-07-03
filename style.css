@@ -11987,3 +11987,43 @@ html[data-theme="light"] .rmp-player-details-dialog {
     align-items: flex-start;
   }
 }
+
+
+/* ===== RMP FIX v36: player details actor cards identical to catalog details ===== */
+.rmp-player-details-cast.rmp-details-cast-section {
+  margin: 0 clamp(1.35rem, 4vw, 2.5rem) clamp(1.35rem, 4vw, 2.5rem);
+  padding: 1.2rem;
+}
+.rmp-player-details-cast .rmp-details-cast-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: .8rem;
+}
+.rmp-player-details-cast .details-actor-card {
+  min-height: 100%;
+}
+.rmp-player-details-cast .details-actor-actions button {
+  font-size: .82rem;
+}
+@media (max-width: 760px) {
+  .rmp-player-details-cast.rmp-details-cast-section {
+    margin: 0 1rem 1rem;
+    padding: 1rem;
+  }
+  .rmp-player-details-cast .rmp-details-cast-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .65rem;
+  }
+  .rmp-player-details-cast .details-actor-actions {
+    padding: .55rem;
+  }
+  .rmp-player-details-cast .details-actor-actions button {
+    padding: .55rem .45rem;
+    font-size: .72rem;
+  }
+}
+@media (max-width: 420px) {
+  .rmp-player-details-cast .rmp-details-cast-grid {
+    grid-template-columns: 1fr;
+  }
+}
