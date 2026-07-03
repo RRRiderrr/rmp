@@ -763,7 +763,8 @@ const v3UiState = {
   heroStaticImageUrl: '',
   smartTvNoYoutubeObserver: null,
   smartTvNoYoutubeInterval: null,
-  heroMuted: false,
+  heroMuted: true,
+  // RMP v35: V3 catalog hero trailers must start muted by default.
   ytApiPromise: null,
   clickAudioCtx: null,
   lastClickSoundAt: 0
