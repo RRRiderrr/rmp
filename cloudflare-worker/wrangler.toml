@@ -1,8 +1,0 @@
-name = "rmp-vpn-proxy"
-main = "worker.js"
-compatibility_date = "2026-06-12"
-
-[vars]
-# Поставь свой домен сайта, например: https://rmp.pages.dev
-# Можно оставить "*" для теста, но лучше указать точный домен.
-ALLOWED_ORIGIN = "*"
