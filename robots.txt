@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://rmp.pages.dev/sitemap.xml
