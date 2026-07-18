@@ -25,7 +25,11 @@ const EPISODE_CALENDAR_CONCURRENCY = 4;
 const EPISODE_CALENDAR_MAX_ITEMS = 24;
 const OPENROUTER_API_KEY = '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';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
+const OPENROUTER_MODEL = 'openrouter/free';
+const OPENROUTER_MODEL_FALLBACKS = [
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'openai/gpt-oss-20b:free'
+];
 const OPENROUTER_WEB_SEARCH_ENABLED = false;
 const OPENROUTER_FORCE_WEB_TITLE_RESOLVER = false;
 const OPENROUTER_WEB_SEARCH_MAX_RESULTS = 0;
@@ -3167,7 +3171,7 @@ function buildFallbackAiPlanFromResolver(query, resolverPayload) {
   const strongest = candidates[0] || null;
   const raw = {
     media_type: strongest?.mediaType === 'movie' || strongest?.mediaType === 'tv' ? strongest.mediaType : 'all',
-    search_strategy: strongest ? 'title-first' : 'hybrid',
+    search_strategy: 'title-first',
     text_query: strongest?.title || strongest?.originalTitle || query,
     title_hints: strongest ? [strongest.title, strongest.originalTitle, ...(strongest.knownAs || [])].filter(Boolean) : [],
     resolver_queries: [],
@@ -3194,7 +3198,7 @@ function buildFallbackAiPlanFromResolver(query, resolverPayload) {
     avoid_terms: [],
     explanation: strongest
       ? `Бесплатный интернет-резолвер нашёл и проверил тайтл через TMDb: ${strongest.title || strongest.originalTitle}.`
-      : 'Бесплатный интернет-резолвер не нашёл проверенного конкретного тайтла; использую исходный запрос.',
+      : 'Бесплатный интернет-резолвер не нашёл проверенного конкретного тайтла. Выполняю только точный поиск по исходному запросу без жанровой подмешки.',
     confidence: strongest?.confidence ?? 0.45,
     for_tv: { only_currently_airing: false }
   };
@@ -3551,6 +3555,74 @@ async function ensureAiSearchPlan() {
   return requestAiSearchPlan(query);
 }
 
+function getOpenRouterFreeModelChain() {
+  return normalizeStringArray([OPENROUTER_MODEL, ...(OPENROUTER_MODEL_FALLBACKS || [])], 8);
+}
+
+function isRetryableFreeModelFailure(status, errorText = '') {
+  const numericStatus = Number(status || 0);
+  if ([408, 409, 425, 429, 500, 502, 503, 504].includes(numericStatus)) return true;
+  return /rate[- ]?limit|temporar(?:y|ily)|provider returned error|overloaded|unavailable|capacity/i.test(String(errorText || ''));
+}
+
+function buildDeterministicResolverQueries(query) {
+  const raw = String(query || '').trim();
+  if (!raw) return [];
+  const compact = raw
+    .replace(/^(?:найди|помоги найти|ищу|что за|как называется)\s+/i, '')
+    .replace(/^(?:фильм|кино|сериал)\s+(?:про|где|в котором|в котором|о)\s+/i, '')
+    .replace(/(?:[,.!?;:]|\s)+(?:драма|комедия|мелодрама|триллер|ужасы|боевик|фантастика|детектив)\s*$/i, '')
+    .trim();
+  return normalizeStringArray([
+    compact,
+    `название фильма ${compact}`,
+    `сюжет фильма ${compact}`,
+    `movie plot ${compact}`,
+    `what movie ${compact}`
+  ], RMP_FREE_TITLE_RESOLVER_MAX_QUERIES);
+}
+
+async function fetchOpenRouterWithFreeFailover(payload, endpoint, headers, signal) {
+  const models = getOpenRouterFreeModelChain();
+  let lastFailure = null;
+
+  for (let index = 0; index < models.length; index += 1) {
+    const model = models[index];
+    appendAiSearchLog(`• Бесплатная модель ${index + 1}/${models.length}: ${model}`);
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...payload, model }),
+        signal
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      lastFailure = { status: 0, errorText: error?.message || 'Network error', model };
+      if (index < models.length - 1) {
+        appendAiSearchLog(`• ${model} недоступна по сети — пробую следующую бесплатную модель`);
+        continue;
+      }
+      break;
+    }
+
+    if (response.ok) {
+      return { ok: true, response, model };
+    }
+
+    const errorText = await response.text().catch(() => '');
+    lastFailure = { status: response.status, errorText, model };
+    if (index < models.length - 1 && isRetryableFreeModelFailure(response.status, errorText)) {
+      appendAiSearchLog(`• ${model} вернула ${response.status} (временный лимит/сбой провайдера) — переключаюсь дальше`);
+      continue;
+    }
+    break;
+  }
+
+  return { ok: false, ...(lastFailure || { status: 0, errorText: 'No free model response', model: '' }) };
+}
+
 async function requestAiSearchPlan(query) {
   if (!query) return null;
 
@@ -3617,42 +3689,49 @@ async function requestAiSearchPlan(query) {
 
   try {
     setAiSearchStatus('анализ', 'thinking');
-    appendAiSearchLog(`• ИИ ранжирует web-контекст: ${OPENROUTER_MODEL}`);
-    const response = await fetch(useVpnForAi ? buildRmpWorkerUrl('/openrouter') : OPENROUTER_URL, {
-      method: 'POST',
+    appendAiSearchLog('• ИИ ранжирует web-контекст через цепочку бесплатных моделей');
+    const modelResult = await fetchOpenRouterWithFreeFailover(
+      payload,
+      useVpnForAi ? buildRmpWorkerUrl('/openrouter') : OPENROUTER_URL,
       headers,
-      body: JSON.stringify(payload),
-      signal: aiSearchAbortController.signal
-    });
+      aiSearchAbortController.signal
+    );
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      if (firstResolver?.candidates?.length) {
-        stopAiSearchFallbackLog();
-        appendAiSearchLog(`• OpenRouter ${response.status}; использую проверенные результаты бесплатного web-resolver без ИИ`);
-        const fallbackPlan = buildFallbackAiPlanFromResolver(query, firstResolver);
-        state.aiSearch.plan = fallbackPlan;
-        state.aiSearch.lastRawResponse = errorText;
-        state.aiSearch.lastReasoning = [];
-        state.aiSearch.lastPlanGeneratedAt = Date.now();
-        setAiSearchStatus('готово', 'ready');
-        updateAiPlanPresentation(fallbackPlan);
-        return fallbackPlan;
+    if (!modelResult.ok) {
+      const errorText = modelResult.errorText || '';
+      appendAiSearchLog(`• Все доступные бесплатные модели временно не ответили. Последняя: ${modelResult.model || 'unknown'} (${modelResult.status || 'network'})`);
+
+      let emergencyResolver = firstResolver;
+      try {
+        setAiSearchStatus('проверка', 'working');
+        const deterministicQueries = buildDeterministicResolverQueries(query);
+        appendAiSearchLog(`• Запускаю аварийный бесплатный web-resolver без LLM: ${deterministicQueries.slice(0, 3).join(' • ')}`);
+        const retryResolver = await requestFreeTitleResolver(query, deterministicQueries, aiSearchAbortController.signal);
+        if ((retryResolver?.candidates?.length || 0) >= (emergencyResolver?.candidates?.length || 0)) {
+          emergencyResolver = retryResolver;
+        }
+      } catch (resolverError) {
+        console.warn('[AI emergency free title resolver]', resolverError);
       }
 
       stopAiSearchFallbackLog();
-      if (useVpnForAi) {
-        const proxyError = new Error(`OpenRouter request failed: ${response.status} ${errorText.slice(0, 260)}`);
-        appendAiSearchLog(`• RMP VPN/OpenRouter: ${response.status}. ${errorText.slice(0, 260)}`);
-        aiSearchSummary.textContent = 'ИИ и бесплатный title-resolver не смогли найти рабочий результат.';
-        setAiSearchStatus('ошибка', 'error');
-        throw proxyError;
+      const fallbackPlan = buildFallbackAiPlanFromResolver(query, emergencyResolver || firstResolver || { candidates: [] });
+      state.aiSearch.plan = fallbackPlan;
+      state.aiSearch.lastRawResponse = errorText;
+      state.aiSearch.lastReasoning = [];
+      state.aiSearch.lastPlanGeneratedAt = Date.now();
+      if (fallbackPlan.webTitleCandidates?.length) {
+        appendAiSearchLog('• Продолжаю без LLM: использую тайтлы, подтверждённые бесплатным web-resolver через TMDb');
+      } else {
+        appendAiSearchLog('• Точного тайтла не подтверждено. Жанровую/случайную выдачу не подмешиваю');
       }
-      appendAiSearchLog(`• OpenRouter вернул ${response.status}. ${errorText.slice(0, 260)}`);
-      aiSearchSummary.textContent = 'ИИ не смог собрать план, а бесплатный title-resolver не нашёл проверенного кандидата.';
-      setAiSearchStatus('ошибка', 'error');
-      throw new Error(`OpenRouter request failed: ${response.status}`);
+      setAiSearchStatus('готово', 'ready');
+      updateAiPlanPresentation(fallbackPlan);
+      return fallbackPlan;
     }
+
+    const response = modelResult.response;
+    appendAiSearchLog(`• Модель ответила: ${modelResult.model}`);
 
     let rawContent = '';
 
