@@ -4082,6 +4082,7 @@ async function executeAiSearchPlan(plan, page) {
       ? (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b)
       : getCatalogSorter(),
     maxRawPages,
+    itemConsolidator: titleIntentMode ? dedupeAiLocalizedTitleVariants : null,
     cacheKey: buildCatalogCollectionKey('ai-search', { plan: summarizeAiPlanForCache(plan), textQuery: effectiveTextQuery, titleQueries, titleIntentMode })
   });
 }
@@ -4192,6 +4193,58 @@ function dedupeItemsByMediaAndId(items) {
     result.push(item);
   }
   return result;
+}
+
+function hasCyrillicTitle(value) {
+  return /[а-яёіїєґ]/i.test(String(value || ''));
+}
+
+function getAiLocalizedDuplicateKey(item) {
+  if (!item) return '';
+  const canonicalTitle = normalizeSearchText(item.originalTitle || item.title || '');
+  if (!canonicalTitle || canonicalTitle.length < 3) return '';
+  const year = getItemYear(item.releaseDate);
+  return `${item.mediaType || 'unknown'}:${canonicalTitle}:${year ?? 'unknown'}`;
+}
+
+function getAiLocalizedVariantPreference(item) {
+  let score = 0;
+
+  // Каталог запрашивает TMDb с language=ru-RU. Если для одного произведения есть
+  // русская локализация и отдельная англоязычная карточка-дубликат, всегда
+  // оставляем локализованный вариант. Английский остаётся fallback'ом, если
+  // русской карточки действительно нет.
+  if (hasCyrillicTitle(item?.title)) score += 100000;
+  if (item?.__aiDirectMatch) score += 5000;
+
+  const title = normalizeSearchText(item?.title || '');
+  const originalTitle = normalizeSearchText(item?.originalTitle || '');
+  if (title && originalTitle && title !== originalTitle) score += 750;
+
+  score += Math.min(100, Number(item?.voteAverage || 0) * 5);
+  score += Math.min(50, Math.log10(Math.max(1, Number(item?.voteCount || 0))) * 10);
+  score += Math.min(25, Number(item?.popularity || 0) * 0.02);
+  return score;
+}
+
+function dedupeAiLocalizedTitleVariants(items) {
+  const source = Array.isArray(items) ? items : [];
+  const groups = new Map();
+  const passthrough = [];
+
+  for (const item of source) {
+    const key = getAiLocalizedDuplicateKey(item);
+    if (!key) {
+      passthrough.push(item);
+      continue;
+    }
+    const current = groups.get(key);
+    if (!current || getAiLocalizedVariantPreference(item) > getAiLocalizedVariantPreference(current)) {
+      groups.set(key, item);
+    }
+  }
+
+  return [...groups.values(), ...passthrough];
 }
 
 function matchesAiPlanFilters(item, plan) {
@@ -5187,6 +5240,9 @@ async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
         batchFiltered = batchFiltered.sort(sorter);
       }
       cache.items.push(...batchFiltered);
+      if (typeof options.itemConsolidator === 'function') {
+        cache.items = options.itemConsolidator(cache.items);
+      }
     }
 
     const lastFetchedPage = batchPages[batchPages.length - 1];
