@@ -25,7 +25,7 @@ const EPISODE_CALENDAR_CONCURRENCY = 4;
 const EPISODE_CALENDAR_MAX_ITEMS = 24;
 const OPENROUTER_API_KEY = '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';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL = 'google/gemma-4-31b-it:free';
+const OPENROUTER_MODEL = 'openai/gpt-oss-20b:free';
 const OPENROUTER_WEB_SEARCH_ENABLED = true;
 
 // === RMP VPN / Cloudflare Worker proxy ===
