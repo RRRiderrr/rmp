@@ -26,9 +26,12 @@ const EPISODE_CALENDAR_MAX_ITEMS = 24;
 const OPENROUTER_API_KEY = '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';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
-const OPENROUTER_WEB_SEARCH_ENABLED = true;
-const OPENROUTER_FORCE_WEB_TITLE_RESOLVER = true;
-const OPENROUTER_WEB_SEARCH_MAX_RESULTS = 6;
+const OPENROUTER_WEB_SEARCH_ENABLED = false;
+const OPENROUTER_FORCE_WEB_TITLE_RESOLVER = false;
+const OPENROUTER_WEB_SEARCH_MAX_RESULTS = 0;
+const RMP_FREE_TITLE_RESOLVER_ENABLED = true;
+const RMP_FREE_TITLE_RESOLVER_MAX_QUERIES = 6;
+const RMP_FREE_TITLE_RESOLVER_MAX_EVIDENCE = 18;
 
 // === RMP VPN / Cloudflare Worker proxy ===
 // Вставь сюда URL своего бесплатного Cloudflare Worker, например:
@@ -2966,9 +2969,12 @@ function buildAiHardConstraintText() {
 function buildAiSearchSystemPrompt() {
   return [
     'You are RMP AI Search Planner.',
-    'Convert the user\'s free-text movie/TV request into strict JSON for TMDb search and discover.',
+    'Convert the user\'s free-text movie/TV request into strict JSON for TMDb retrieval.',
     'Return ONLY valid JSON. No markdown, no prose outside JSON, no code fences.',
-    'Prefer precision over variety. Avoid childish, family, or animation results when the request is clearly adult, violent, cynical, satirical, gritty, erotic, or dark unless the user explicitly asks for those genres.',
+    'You do NOT have direct web access in this request. RMP may provide FREE_RESOLVER_CONTEXT collected from Wikipedia, Wikidata and TMDb. Treat that context as external search evidence and never invent that you browsed other sites.',
+    'Prefer precision over variety. If resolver evidence strongly identifies a concrete title, use title-first and put that title first.',
+    'When the evidence is uncertain, generate resolver_queries: concise multilingual search queries that a downstream free resolver can search. Include at least one English plot-description query and one query in the user\'s original language when possible. Queries should contain distinctive plot facts, names, quotes or likely title variants rather than generic genres.',
+    'Avoid childish, family, or animation results when the request is clearly adult, violent, cynical, satirical, gritty, erotic, or dark unless the user explicitly asks for those genres.',
     'Use only genre IDs from the provided reference. If unsure, leave arrays empty instead of inventing IDs.',
     'Schema:',
     '{',
@@ -2976,6 +2982,7 @@ function buildAiSearchSystemPrompt() {
     '  "search_strategy": "title-first" | "hybrid" | "discover-only",',
     '  "text_query": string,',
     '  "title_hints": string[],',
+    '  "resolver_queries": string[],',
     '  "web_title_candidates": [',
     '    { "title": string, "original_title": string, "known_as": string[], "year": number | null, "media_type": "movie" | "tv" | "unknown", "tmdb_id": number | null, "imdb_id": string | null, "confidence": number, "why": string }',
     '  ],',
@@ -2993,21 +3000,205 @@ function buildAiSearchSystemPrompt() {
     '  "confidence": number,',
     '  "for_tv": { "only_currently_airing": boolean }',
     '}',
-    'Always perform a web-first title resolution step before returning JSON. Use web search to identify concrete movie/TV title candidates for the user request, especially when the request is in Russian/Ukrainian, vague, contains plot fragments, memes, actors, quotes, fresh releases, or partially remembered details.',
-    'For web_title_candidates, return the most likely titles found on the web. Include localized title, original title, known alternate titles, year, media type, and external ids when available. Prefer direct IMDb/TMDb ids because RMP can verify them more accurately than plain text. Prefer IMDb, TMDb, Wikipedia, official pages, streaming pages, Kinopoisk-like pages, reliable review databases, and news pages for fresh releases.',
-    'If the user describes a known title, put the strongest resolved candidate in text_query, include alternates in title_hints, and prefer title-first or hybrid.',
-    'If the user describes only vibe or plot fragments and web search still does not identify a specific title, prefer hybrid or discover-only and keep text_query concise.',
+    'For web_title_candidates, only copy or refine candidates supported by FREE_RESOLVER_CONTEXT, or leave the array empty. Do not fabricate TMDb/IMDb IDs.',
+    'If a concrete title is identified, put the strongest candidate in text_query, add alternate/localized names to title_hints, and prefer title-first.',
+    'If the request is only about vibe/theme and no concrete title is identified, use hybrid or discover-only.',
     'Do not include impossible years, fake languages, fake genre IDs, or commentary.'
   ].join('\n');
 }
 
-function buildAiSearchUserPrompt(rawQuery) {
+function buildAiSearchUserPrompt(rawQuery, resolverPayload = null) {
+  const resolverContext = buildFreeTitleResolverContextText(resolverPayload);
   return [
     `User request: ${rawQuery}`,
     buildAiHardConstraintText(),
     buildAiGenreReferenceText(),
-    'Use internet search BEFORE answering to resolve the likely title candidates. Search the web for this exact request and likely English/Russian/Ukrainian title variants. Return ONLY the JSON schema from the system prompt, even if web search was used.'
+    resolverContext || 'FREE_RESOLVER_CONTEXT: no external matches were found in the first pass.',
+    'Use the resolver evidence to identify the title when possible. Generate resolver_queries for a second free search pass when the first-pass evidence is incomplete. Return ONLY the JSON schema from the system prompt.'
   ].join('\n\n');
+}
+
+function normalizeFreeTitleResolverCandidate(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const title = String(entry.title || '').trim();
+  const originalTitle = String(entry.original_title || entry.originalTitle || '').trim();
+  const knownAs = normalizeStringArray(entry.known_as || entry.knownAs || [], 8);
+  const mediaType = ['movie', 'tv'].includes(entry.media_type || entry.mediaType) ? (entry.media_type || entry.mediaType) : 'unknown';
+  const year = normalizeOptionalYear(entry.year);
+  const tmdbId = normalizeOptionalInteger(entry.tmdb_id ?? entry.tmdbId, 1, 999999999);
+  const imdbId = normalizeImdbId(entry.imdb_id || entry.imdbId || '');
+  const confidence = normalizeOptionalNumber(entry.confidence, 0, 1, 2) ?? 0.5;
+  const why = String(entry.why || entry.source || '').trim();
+  if (!title && !originalTitle && !tmdbId && !imdbId) return null;
+  return { title, originalTitle, knownAs, mediaType, year, tmdbId, imdbId, confidence, why };
+}
+
+function normalizeFreeTitleResolverPayload(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const candidates = [];
+  const seen = new Set();
+  for (const entry of source.candidates || []) {
+    const candidate = normalizeFreeTitleResolverCandidate(entry);
+    if (!candidate) continue;
+    const key = candidate.tmdbId
+      ? `${candidate.mediaType}:${candidate.tmdbId}`
+      : normalizeSearchText(`${candidate.title} ${candidate.originalTitle} ${candidate.year || ''} ${candidate.mediaType}`);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(candidate);
+  }
+  return {
+    query: String(source.query || '').trim(),
+    candidates: candidates.slice(0, 12),
+    evidence: Array.isArray(source.evidence) ? source.evidence.slice(0, RMP_FREE_TITLE_RESOLVER_MAX_EVIDENCE) : [],
+    searchedQueries: normalizeStringArray(source.searched_queries || source.searchedQueries || [], RMP_FREE_TITLE_RESOLVER_MAX_QUERIES),
+    sourceCounts: source.source_counts && typeof source.source_counts === 'object' ? source.source_counts : {}
+  };
+}
+
+function buildFreeTitleResolverContextText(payload) {
+  if (!payload) return '';
+  const normalized = normalizeFreeTitleResolverPayload(payload);
+  const lines = ['FREE_RESOLVER_CONTEXT (free Wikipedia/Wikidata/TMDb search evidence):'];
+
+  if (normalized.candidates.length) {
+    lines.push('VERIFIED_TMDB_CANDIDATES:');
+    normalized.candidates.slice(0, 10).forEach((candidate, index) => {
+      lines.push(`${index + 1}. ${JSON.stringify({
+        title: candidate.title,
+        original_title: candidate.originalTitle,
+        known_as: candidate.knownAs,
+        year: candidate.year,
+        media_type: candidate.mediaType,
+        tmdb_id: candidate.tmdbId,
+        imdb_id: candidate.imdbId || null,
+        confidence: candidate.confidence,
+        why: candidate.why
+      })}`);
+    });
+  }
+
+  if (normalized.evidence.length) {
+    lines.push('SEARCH_EVIDENCE:');
+    normalized.evidence.slice(0, RMP_FREE_TITLE_RESOLVER_MAX_EVIDENCE).forEach((entry, index) => {
+      const compact = {
+        source: entry?.source || '',
+        lang: entry?.lang || '',
+        title: entry?.title || entry?.label || '',
+        description: entry?.description || entry?.snippet || entry?.extract || '',
+        id: entry?.id || entry?.pageid || null
+      };
+      if (compact.description.length > 420) compact.description = `${compact.description.slice(0, 417)}...`;
+      lines.push(`${index + 1}. ${JSON.stringify(compact)}`);
+    });
+  }
+
+  return lines.length > 1 ? lines.join('\n') : '';
+}
+
+async function requestFreeTitleResolver(query, resolverQueries = [], signal = null) {
+  if (!RMP_FREE_TITLE_RESOLVER_ENABLED || !isRmpVpnProxyConfigured()) return null;
+  const queries = normalizeStringArray(resolverQueries, RMP_FREE_TITLE_RESOLVER_MAX_QUERIES);
+  const response = await fetch(buildRmpWorkerUrl('/title-resolver'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(API_KEY ? { 'X-TMDB-Key': API_KEY } : {})
+    },
+    body: JSON.stringify({ query, queries }),
+    signal
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Free title resolver failed: ${response.status} ${errorText.slice(0, 180)}`);
+  }
+  return normalizeFreeTitleResolverPayload(await response.json());
+}
+
+function mergeFreeResolverCandidates(plan, ...resolverPayloads) {
+  const merged = [];
+  const seen = new Set();
+  const add = (candidate) => {
+    const normalized = normalizeFreeTitleResolverCandidate(candidate);
+    if (!normalized) return;
+    const key = normalized.tmdbId
+      ? `${normalized.mediaType}:${normalized.tmdbId}`
+      : normalizeSearchText(`${normalized.title} ${normalized.originalTitle} ${normalized.year || ''} ${normalized.mediaType}`);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized);
+  };
+
+  for (const payload of resolverPayloads) {
+    for (const candidate of payload?.candidates || []) add(candidate);
+  }
+
+  // Не доверяем непроверенным candidate/ID, придуманным LLM: exact-кандидаты идут только из бесплатного resolver, где они подтверждены через TMDb.
+  merged.sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+  const candidates = merged.slice(0, 10);
+  if (!candidates.length) return { ...plan, webTitleCandidates: [] };
+
+  const strongest = candidates[0];
+  const verifiedStrong = Boolean(strongest.tmdbId) && Number(strongest.confidence || 0) >= 0.72;
+  const shouldPreferExact = verifiedStrong && plan.searchStrategy !== 'discover-only';
+  const titleHints = normalizeStringArray([
+    strongest.title,
+    strongest.originalTitle,
+    ...(strongest.knownAs || []),
+    ...(plan.titleHints || [])
+  ], 10);
+
+  return {
+    ...plan,
+    searchStrategy: shouldPreferExact ? 'title-first' : plan.searchStrategy,
+    textQuery: shouldPreferExact ? (strongest.title || strongest.originalTitle || plan.textQuery) : plan.textQuery,
+    titleHints,
+    webTitleCandidates: candidates,
+    includeGenreIds: shouldPreferExact ? [] : plan.includeGenreIds,
+    excludeGenreIds: shouldPreferExact ? [] : plan.excludeGenreIds,
+    voteAverageGte: shouldPreferExact ? null : plan.voteAverageGte,
+    voteCountGte: shouldPreferExact ? null : plan.voteCountGte,
+    confidence: shouldPreferExact ? Math.max(Number(plan.confidence || 0), Number(strongest.confidence || 0)) : plan.confidence
+  };
+}
+
+function buildFallbackAiPlanFromResolver(query, resolverPayload) {
+  const candidates = resolverPayload?.candidates || [];
+  const strongest = candidates[0] || null;
+  const raw = {
+    media_type: strongest?.mediaType === 'movie' || strongest?.mediaType === 'tv' ? strongest.mediaType : 'all',
+    search_strategy: strongest ? 'title-first' : 'hybrid',
+    text_query: strongest?.title || strongest?.originalTitle || query,
+    title_hints: strongest ? [strongest.title, strongest.originalTitle, ...(strongest.knownAs || [])].filter(Boolean) : [],
+    resolver_queries: [],
+    web_title_candidates: candidates.map((candidate) => ({
+      title: candidate.title,
+      original_title: candidate.originalTitle,
+      known_as: candidate.knownAs,
+      year: candidate.year,
+      media_type: candidate.mediaType,
+      tmdb_id: candidate.tmdbId,
+      imdb_id: candidate.imdbId || null,
+      confidence: candidate.confidence,
+      why: candidate.why
+    })),
+    include_genre_ids: [],
+    exclude_genre_ids: [],
+    primary_year_from: strongest?.year ?? null,
+    primary_year_to: strongest?.year ?? null,
+    vote_average_gte: null,
+    vote_count_gte: null,
+    original_languages: [],
+    sort_by: 'popularity.desc',
+    must_match_terms: [],
+    avoid_terms: [],
+    explanation: strongest
+      ? `Бесплатный интернет-резолвер нашёл и проверил тайтл через TMDb: ${strongest.title || strongest.originalTitle}.`
+      : 'Бесплатный интернет-резолвер не нашёл проверенного конкретного тайтла; использую исходный запрос.',
+    confidence: strongest?.confidence ?? 0.45,
+    for_tv: { only_currently_airing: false }
+  };
+  return normalizeAiSearchPlan(raw);
 }
 
 
@@ -3250,6 +3441,7 @@ function normalizeAiSearchPlan(rawPlan) {
   const includeGenres = normalizeNumericIdArray(source.include_genre_ids);
   const excludeGenres = normalizeNumericIdArray(source.exclude_genre_ids).filter((id) => !includeGenres.includes(id));
   const titleHints = normalizeStringArray(source.title_hints, 7);
+  const resolverQueries = normalizeStringArray(source.resolver_queries || source.resolverQueries, RMP_FREE_TITLE_RESOLVER_MAX_QUERIES);
   const webTitleCandidates = normalizeAiWebTitleCandidates(source.web_title_candidates, 7);
   const textQuery = String(source.text_query || '').trim();
   const mustMatchTerms = normalizeStringArray(source.must_match_terms, 8);
@@ -3269,6 +3461,7 @@ function normalizeAiSearchPlan(rawPlan) {
     searchStrategy: strategy,
     textQuery,
     titleHints,
+    resolverQueries,
     webTitleCandidates,
     includeGenreIds: includeGenres,
     excludeGenreIds: excludeGenres,
@@ -3372,42 +3565,39 @@ async function requestAiSearchPlan(query) {
   state.aiSearch.lastReasoning = [];
   state.aiSearch.usedWebSearch = false;
   syncAiSearchUi();
-  aiSearchSummary.textContent = `Разбираю запрос: «${query}». Сейчас ИИ переведёт его в TMDb-фильтры и план поиска.`;
+  aiSearchSummary.textContent = `Разбираю запрос: «${query}». Сначала ищу совпадения бесплатным интернет-резолвером, затем ИИ ранжирует кандидатов.`;
   aiSearchPlanChips.innerHTML = '';
-  aiSearchLog.textContent = `• Запускаю ИИ-поиск: ${OPENROUTER_MODEL}${OPENROUTER_FORCE_WEB_TITLE_RESOLVER ? ' + forced web title resolver' : OPENROUTER_WEB_SEARCH_ENABLED ? ' + web' : ''}`;
-  setAiSearchStatus('анализ', 'thinking');
+  aiSearchLog.textContent = '• Бесплатный web-resolver: Wikipedia + Wikidata + TMDb';
+  setAiSearchStatus('поиск', 'thinking');
   startAiSearchFallbackLog();
+
+  let firstResolver = null;
+  try {
+    firstResolver = await requestFreeTitleResolver(query, [], aiSearchAbortController.signal);
+    if (firstResolver?.evidence?.length || firstResolver?.candidates?.length) {
+      state.aiSearch.usedWebSearch = true;
+      appendAiSearchLog(`• Web-resolver: ${firstResolver.candidates.length} проверенных TMDb-кандидатов, ${firstResolver.evidence.length} источников контекста`);
+    } else {
+      appendAiSearchLog('• Web-resolver: первый проход не дал точного совпадения');
+    }
+  } catch (resolverError) {
+    console.warn('[AI free title resolver first pass]', resolverError);
+    appendAiSearchLog('• Web-resolver временно недоступен; продолжаю через бесплатную модель без платного web-search');
+  }
 
   const payload = {
     model: OPENROUTER_MODEL,
     messages: [
       { role: 'system', content: buildAiSearchSystemPrompt() },
-      { role: 'user', content: buildAiSearchUserPrompt(query) }
+      { role: 'user', content: buildAiSearchUserPrompt(query, firstResolver) }
     ],
-    temperature: 0.2,
-    max_completion_tokens: 900,
+    temperature: 0.15,
+    max_completion_tokens: 1100,
     stream: true
   };
 
-  if (OPENROUTER_WEB_SEARCH_ENABLED) {
-    payload.tools = [{
-      type: 'openrouter:web_search',
-      parameters: {
-        engine: 'auto',
-        max_results: OPENROUTER_WEB_SEARCH_MAX_RESULTS,
-        max_total_results: OPENROUTER_WEB_SEARCH_MAX_RESULTS,
-        search_context_size: 'medium'
-      }
-    }];
-    payload.tool_choice = 'auto';
-  }
-
-  if (OPENROUTER_FORCE_WEB_TITLE_RESOLVER) {
-    // Legacy web plugin intentionally kept here because it runs one web pass every time.
-    // Server tools are still provided above, but the model may decide not to call them.
-    payload.plugins = [{ id: 'web', max_results: OPENROUTER_WEB_SEARCH_MAX_RESULTS }];
-    state.aiSearch.usedWebSearch = true;
-  }
+  // Важно: платные OpenRouter web_search/plugins намеренно НЕ добавляются.
+  // Интернет-контекст приходит из нашего бесплатного /title-resolver.
 
   const useVpnForAi = isRmpVpnEnabled();
   const headers = useVpnForAi
@@ -3426,6 +3616,8 @@ async function requestAiSearchPlan(query) {
   }
 
   try {
+    setAiSearchStatus('анализ', 'thinking');
+    appendAiSearchLog(`• ИИ ранжирует web-контекст: ${OPENROUTER_MODEL}`);
     const response = await fetch(useVpnForAi ? buildRmpWorkerUrl('/openrouter') : OPENROUTER_URL, {
       method: 'POST',
       headers,
@@ -3434,17 +3626,30 @@ async function requestAiSearchPlan(query) {
     });
 
     if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      if (firstResolver?.candidates?.length) {
+        stopAiSearchFallbackLog();
+        appendAiSearchLog(`• OpenRouter ${response.status}; использую проверенные результаты бесплатного web-resolver без ИИ`);
+        const fallbackPlan = buildFallbackAiPlanFromResolver(query, firstResolver);
+        state.aiSearch.plan = fallbackPlan;
+        state.aiSearch.lastRawResponse = errorText;
+        state.aiSearch.lastReasoning = [];
+        state.aiSearch.lastPlanGeneratedAt = Date.now();
+        setAiSearchStatus('готово', 'ready');
+        updateAiPlanPresentation(fallbackPlan);
+        return fallbackPlan;
+      }
+
       stopAiSearchFallbackLog();
       if (useVpnForAi) {
-        const proxyError = await parseRmpProxyError(response);
-        appendAiSearchLog(`• RMP VPN: ${getRmpVpnErrorText(proxyError)}`);
-        aiSearchSummary.textContent = getRmpVpnErrorText(proxyError);
+        const proxyError = new Error(`OpenRouter request failed: ${response.status} ${errorText.slice(0, 260)}`);
+        appendAiSearchLog(`• RMP VPN/OpenRouter: ${response.status}. ${errorText.slice(0, 260)}`);
+        aiSearchSummary.textContent = 'ИИ и бесплатный title-resolver не смогли найти рабочий результат.';
         setAiSearchStatus('ошибка', 'error');
         throw proxyError;
       }
-      const errorText = await response.text().catch(() => '');
       appendAiSearchLog(`• OpenRouter вернул ${response.status}. ${errorText.slice(0, 260)}`);
-      aiSearchSummary.textContent = 'ИИ не смог собрать план поиска. Проверь консоль и попробуй ещё раз.';
+      aiSearchSummary.textContent = 'ИИ не смог собрать план, а бесплатный title-resolver не нашёл проверенного кандидата.';
       setAiSearchStatus('ошибка', 'error');
       throw new Error(`OpenRouter request failed: ${response.status}`);
     }
@@ -3452,66 +3657,75 @@ async function requestAiSearchPlan(query) {
     let rawContent = '';
 
     if (response.body && typeof response.body.getReader === 'function') {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true }).replace(/\r/g, '');
-      const chunks = buffer.split('\n\n');
-      buffer = chunks.pop() || '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replace(/\r/g, '');
+        const chunks = buffer.split('\n\n');
+        buffer = chunks.pop() || '';
 
-      for (const chunk of chunks) {
-        const dataLines = chunk
-          .split('\n')
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trim())
-          .filter(Boolean);
+        for (const chunk of chunks) {
+          const dataLines = chunk
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim())
+            .filter(Boolean);
 
-        for (const dataLine of dataLines) {
-          if (dataLine === '[DONE]') continue;
-
-          let parsed;
-          try {
-            parsed = JSON.parse(dataLine);
-          } catch (error) {
-            continue;
-          }
-
-          const choice = parsed?.choices?.[0];
-          const delta = choice?.delta || {};
-
-          const annotations = Array.isArray(delta.annotations)
-            ? delta.annotations
-            : Array.isArray(choice?.message?.annotations)
-              ? choice.message.annotations
-              : [];
-
-          if ((Array.isArray(delta.tool_calls) && delta.tool_calls.length) || annotations.length) {
-            state.aiSearch.usedWebSearch = true;
-          }
-
-          const deltaContent = typeof delta.content === 'string'
-            ? delta.content
-            : Array.isArray(delta.content)
-              ? delta.content.map((entry) => entry?.text || '').join('')
-              : '';
-
-          if (deltaContent) {
-            rawContent += deltaContent;
+          for (const dataLine of dataLines) {
+            if (dataLine === '[DONE]') continue;
+            let parsed;
+            try {
+              parsed = JSON.parse(dataLine);
+            } catch (error) {
+              continue;
+            }
+            const choice = parsed?.choices?.[0];
+            const delta = choice?.delta || {};
+            const deltaContent = typeof delta.content === 'string'
+              ? delta.content
+              : Array.isArray(delta.content)
+                ? delta.content.map((entry) => entry?.text || '').join('')
+                : '';
+            if (deltaContent) rawContent += deltaContent;
           }
         }
       }
+    } else {
+      rawContent = await response.text();
     }
-  } else {
-    rawContent = await response.text();
-  }
 
     stopAiSearchFallbackLog();
     const parsedPlan = parseAiPlanPayload(rawContent);
-    const plan = normalizeAiSearchPlan(parsedPlan);
+    let plan = normalizeAiSearchPlan(parsedPlan);
+
+    let secondResolver = null;
+    const secondPassQueries = normalizeStringArray([
+      ...(plan.resolverQueries || []),
+      ...(plan.titleHints || []),
+      plan.textQuery
+    ], RMP_FREE_TITLE_RESOLVER_MAX_QUERIES)
+      .filter((entry) => !firstResolver?.searchedQueries?.some((searched) => normalizeSearchText(searched) === normalizeSearchText(entry)));
+
+    if (secondPassQueries.length) {
+      try {
+        setAiSearchStatus('проверка', 'working');
+        appendAiSearchLog(`• Второй бесплатный web-проход: ${secondPassQueries.slice(0, 3).join(' • ')}`);
+        secondResolver = await requestFreeTitleResolver(query, secondPassQueries, aiSearchAbortController.signal);
+        if (secondResolver?.evidence?.length || secondResolver?.candidates?.length) {
+          state.aiSearch.usedWebSearch = true;
+          appendAiSearchLog(`• Проверено через TMDb: ещё ${secondResolver.candidates.length} кандидатов`);
+        }
+      } catch (resolverError) {
+        console.warn('[AI free title resolver second pass]', resolverError);
+        appendAiSearchLog('• Второй web-проход не удался; использую первый проход и план модели');
+      }
+    }
+
+    plan = mergeFreeResolverCandidates(plan, firstResolver, secondResolver);
 
     state.aiSearch.plan = plan;
     state.aiSearch.lastRawResponse = rawContent;
@@ -4792,6 +5006,7 @@ function summarizeAiPlanForCache(plan) {
     textQuery: plan.textQuery || plan.query || '',
     mediaType: plan.mediaType || plan.type || '',
     titleHints: Array.isArray(plan.titleHints) ? [...plan.titleHints].sort() : [],
+    resolverQueries: Array.isArray(plan.resolverQueries) ? [...plan.resolverQueries].sort() : [],
     webTitleCandidates: Array.isArray(plan.webTitleCandidates)
       ? plan.webTitleCandidates.map((candidate) => ({
           title: candidate.title || '',
