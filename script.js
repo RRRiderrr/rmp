@@ -25,8 +25,10 @@ const EPISODE_CALENDAR_CONCURRENCY = 4;
 const EPISODE_CALENDAR_MAX_ITEMS = 24;
 const OPENROUTER_API_KEY = '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';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL = 'openai/gpt-oss-20b:free';
+const OPENROUTER_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
 const OPENROUTER_WEB_SEARCH_ENABLED = true;
+const OPENROUTER_FORCE_WEB_TITLE_RESOLVER = true;
+const OPENROUTER_WEB_SEARCH_MAX_RESULTS = 6;
 
 // === RMP VPN / Cloudflare Worker proxy ===
 // Вставь сюда URL своего бесплатного Cloudflare Worker, например:
@@ -2974,6 +2976,9 @@ function buildAiSearchSystemPrompt() {
     '  "search_strategy": "title-first" | "hybrid" | "discover-only",',
     '  "text_query": string,',
     '  "title_hints": string[],',
+    '  "web_title_candidates": [',
+    '    { "title": string, "original_title": string, "known_as": string[], "year": number | null, "media_type": "movie" | "tv" | "unknown", "tmdb_id": number | null, "imdb_id": string | null, "confidence": number, "why": string }',
+    '  ],',
     '  "include_genre_ids": number[],',
     '  "exclude_genre_ids": number[],',
     '  "primary_year_from": number | null,',
@@ -2988,8 +2993,10 @@ function buildAiSearchSystemPrompt() {
     '  "confidence": number,',
     '  "for_tv": { "only_currently_airing": boolean }',
     '}',
-    'If the user describes a known title, put it in text_query/title_hints and prefer title-first or hybrid.',
-    'If the user describes only vibe or plot fragments, prefer hybrid or discover-only and keep text_query concise.',
+    'Always perform a web-first title resolution step before returning JSON. Use web search to identify concrete movie/TV title candidates for the user request, especially when the request is in Russian/Ukrainian, vague, contains plot fragments, memes, actors, quotes, fresh releases, or partially remembered details.',
+    'For web_title_candidates, return the most likely titles found on the web. Include localized title, original title, known alternate titles, year, media type, and external ids when available. Prefer direct IMDb/TMDb ids because RMP can verify them more accurately than plain text. Prefer IMDb, TMDb, Wikipedia, official pages, streaming pages, Kinopoisk-like pages, reliable review databases, and news pages for fresh releases.',
+    'If the user describes a known title, put the strongest resolved candidate in text_query, include alternates in title_hints, and prefer title-first or hybrid.',
+    'If the user describes only vibe or plot fragments and web search still does not identify a specific title, prefer hybrid or discover-only and keep text_query concise.',
     'Do not include impossible years, fake languages, fake genre IDs, or commentary.'
   ].join('\n');
 }
@@ -2999,8 +3006,241 @@ function buildAiSearchUserPrompt(rawQuery) {
     `User request: ${rawQuery}`,
     buildAiHardConstraintText(),
     buildAiGenreReferenceText(),
-    'Use web search only when the user request depends on recent releases, current popularity, newly aired seasons, exact obscure title identification, or up-to-date context. Always return ONLY the JSON schema from the system prompt, even if web search was used.'
+    'Use internet search BEFORE answering to resolve the likely title candidates. Search the web for this exact request and likely English/Russian/Ukrainian title variants. Return ONLY the JSON schema from the system prompt, even if web search was used.'
   ].join('\n\n');
+}
+
+
+function normalizeAiWebTitleCandidates(value, limit = 7) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const candidates = [];
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const title = String(entry.title || '').trim();
+    const originalTitle = String(entry.original_title || entry.originalTitle || '').trim();
+    const knownAs = normalizeStringArray(entry.known_as || entry.knownAs || entry.also_known_as || entry.alsoKnownAs, 8);
+    const mediaType = ['movie', 'tv'].includes(entry.media_type) ? entry.media_type : 'unknown';
+    const year = normalizeOptionalYear(entry.year);
+    const tmdbId = normalizeOptionalInteger(entry.tmdb_id ?? entry.tmdbId, 1, 999999999);
+    const imdbId = normalizeImdbId(entry.imdb_id || entry.imdbId || '');
+    const confidence = normalizeOptionalNumber(entry.confidence, 0, 1, 2) ?? 0.5;
+    const why = String(entry.why || '').trim();
+    const key = normalizeSearchText(`${title} ${originalTitle} ${knownAs.join(' ')} ${year || ''} ${mediaType} ${tmdbId || ''} ${imdbId || ''}`);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    candidates.push({
+      title,
+      originalTitle,
+      knownAs,
+      year,
+      mediaType,
+      tmdbId,
+      imdbId,
+      confidence,
+      why
+    });
+    if (candidates.length >= limit) break;
+  }
+
+  return candidates;
+}
+
+function getAiCandidateQueryParts(candidate) {
+  if (!candidate || typeof candidate !== 'object') return [];
+  return [candidate.title, candidate.originalTitle, ...(Array.isArray(candidate.knownAs) ? candidate.knownAs : [])]
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean);
+}
+
+function normalizeImdbId(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/tt\d{5,12}/i);
+  return match ? match[0].toLowerCase() : '';
+}
+
+function buildAiTitleSearchQueries(plan) {
+  const queries = [];
+  const add = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const normalized = normalizeSearchText(text);
+    if (!normalized || queries.some((query) => normalizeSearchText(query) === normalized)) return;
+    queries.push(text);
+  };
+
+  for (const candidate of plan.webTitleCandidates || []) {
+    for (const part of getAiCandidateQueryParts(candidate)) add(part);
+  }
+
+  for (const hint of plan.titleHints || []) add(hint);
+  add(plan.textQuery);
+
+  if (!queries.length && plan.searchStrategy === 'title-first') {
+    add(state.query.trim());
+  }
+
+  return queries.slice(0, 8);
+}
+
+function resolveAiCandidateMediaTargets(plan, candidate = null) {
+  const forcedType = state.appliedFilters.type;
+  if (forcedType === 'movie' || forcedType === 'tv') return [forcedType];
+  if (candidate && (candidate.mediaType === 'movie' || candidate.mediaType === 'tv')) return [candidate.mediaType];
+  if (plan.mediaType === 'movie' || plan.mediaType === 'tv') return [plan.mediaType];
+  return ['movie', 'tv'];
+}
+
+function buildAiCandidateYearPlan(plan, candidate = null) {
+  if (!candidate || candidate.year === null) return plan;
+  if (plan.primaryYearFrom !== null || plan.primaryYearTo !== null) return plan;
+  return {
+    ...plan,
+    primaryYearFrom: candidate.year,
+    primaryYearTo: candidate.year
+  };
+}
+
+function hasAiResolvedTitleSignal(plan) {
+  if (!plan) return false;
+  if (Array.isArray(plan.webTitleCandidates) && plan.webTitleCandidates.length) return true;
+  if (plan.searchStrategy === 'title-first') return true;
+  const titleHints = Array.isArray(plan.titleHints) ? plan.titleHints.filter(Boolean) : [];
+  return titleHints.length > 0 && normalizeSearchText(plan.textQuery || '').length >= 4;
+}
+
+function getAiTitleIntentParts(plan, effectiveTextQuery = '') {
+  const parts = [];
+  const add = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const normalized = normalizeSearchText(text);
+    if (!normalized || normalized.length < 3) return;
+    if (parts.some((entry) => normalizeSearchText(entry) === normalized)) return;
+    parts.push(text);
+  };
+
+  for (const candidate of plan.webTitleCandidates || []) {
+    for (const part of getAiCandidateQueryParts(candidate)) add(part);
+  }
+  for (const hint of plan.titleHints || []) add(hint);
+  add(plan.textQuery);
+  add(effectiveTextQuery);
+  return parts;
+}
+
+function getSearchTokens(value) {
+  const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'for', 'to', 'in', 'on', 'film', 'movie', 'series', 'show', 'фильм', 'кино', 'сериал', 'про', 'для', 'или', 'и', 'о', 'об', 'на', 'в', 'во']);
+  return normalizeSearchText(value)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !stopWords.has(token));
+}
+
+function getTokenOverlapRatio(a, b) {
+  const left = Array.from(new Set(getSearchTokens(a)));
+  const right = Array.from(new Set(getSearchTokens(b)));
+  if (!left.length || !right.length) return 0;
+  const rightSet = new Set(right);
+  const matches = left.filter((token) => rightSet.has(token)).length;
+  return matches / Math.min(left.length, right.length);
+}
+
+function getItemTitleMatchScoreForPart(item, part) {
+  const candidate = normalizeSearchText(part);
+  if (!candidate || candidate.length < 3) return 0;
+
+  const itemTitles = [item.title, item.originalTitle]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+
+  let best = 0;
+  for (const title of itemTitles) {
+    const normalizedTitle = normalizeSearchText(title);
+    if (!normalizedTitle) continue;
+    if (normalizedTitle === candidate) best = Math.max(best, 900);
+    if (candidate.length >= 6 && (normalizedTitle.includes(candidate) || candidate.includes(normalizedTitle))) {
+      best = Math.max(best, 650);
+    }
+    const overlap = getTokenOverlapRatio(normalizedTitle, candidate);
+    if (overlap >= 0.88) best = Math.max(best, 560);
+    else if (overlap >= 0.72) best = Math.max(best, 430);
+    else if (overlap >= 0.5 && Math.min(getSearchTokens(normalizedTitle).length, getSearchTokens(candidate).length) >= 3) best = Math.max(best, 260);
+  }
+  return best;
+}
+
+function getAiTitleCandidateAffinity(item, plan, effectiveTextQuery = '') {
+  if (!item) return 0;
+  if (item.__aiDirectMatch) return 1200;
+
+  let best = 0;
+  const itemYear = getItemYear(item.releaseDate);
+
+  for (const candidate of plan.webTitleCandidates || []) {
+    const confidence = Math.max(0.35, Number(candidate.confidence || 0.5));
+    let candidateScore = 0;
+    for (const part of getAiCandidateQueryParts(candidate)) {
+      candidateScore = Math.max(candidateScore, getItemTitleMatchScoreForPart(item, part));
+    }
+    if (!candidateScore) continue;
+
+    if (candidate.mediaType === item.mediaType) candidateScore += 80;
+    if (candidate.mediaType === 'unknown') candidateScore += 25;
+    if (candidate.year !== null && itemYear !== null) {
+      candidateScore += Math.abs(itemYear - candidate.year) <= 1 ? 110 : -140;
+    }
+    best = Math.max(best, candidateScore * confidence);
+  }
+
+  for (const part of getAiTitleIntentParts(plan, effectiveTextQuery)) {
+    best = Math.max(best, getItemTitleMatchScoreForPart(item, part));
+  }
+
+  return best;
+}
+
+function matchesAiResolvedTitleIntent(item, plan, effectiveTextQuery = '') {
+  if (!hasAiResolvedTitleSignal(plan)) return matchesAiPlanFilters(item, plan);
+  const affinity = getAiTitleCandidateAffinity(item, plan, effectiveTextQuery);
+  if (affinity < 260) return false;
+
+  // UI-фильтры остаются жёсткими, но жанры/оценка, придуманные ИИ, не должны выбрасывать точно найденный тайтл.
+  if (plan.mediaType !== 'all' && state.appliedFilters.type === 'all' && item.mediaType !== plan.mediaType) {
+    const hasTypedCandidate = (plan.webTitleCandidates || []).some((candidate) => candidate.mediaType === item.mediaType || candidate.mediaType === 'unknown');
+    if (!hasTypedCandidate) return false;
+  }
+
+  return true;
+}
+
+function normalizeAiTaskResultItems(taskValue) {
+  const response = taskValue?.response || {};
+  const source = taskValue?.source || 'search';
+  const tag = (item) => ({
+    ...item,
+    __aiSource: source,
+    __aiQuery: taskValue?.query || '',
+    __aiDirectMatch: source === 'tmdb-id' || source === 'imdb-find',
+    __aiCandidateTitle: taskValue?.candidate?.title || taskValue?.candidate?.originalTitle || ''
+  });
+
+  if (source === 'tmdb-id') {
+    if (!response?.id) return [];
+    return [tag(normalizeItem(response, taskValue.mediaType))];
+  }
+
+  if (source === 'imdb-find') {
+    const items = [];
+    for (const entry of response.movie_results || []) items.push(tag(normalizeItem(entry, 'movie')));
+    for (const entry of response.tv_results || []) items.push(tag(normalizeItem(entry, 'tv')));
+    return items;
+  }
+
+  return (response.results || [])
+    .filter((entry) => entry?.media_type !== 'person')
+    .map((entry) => tag(normalizeItem(entry, taskValue.mediaType || entry.media_type || 'movie')));
 }
 
 function normalizeAiSearchPlan(rawPlan) {
@@ -3009,7 +3249,8 @@ function normalizeAiSearchPlan(rawPlan) {
   const strategy = ['title-first', 'hybrid', 'discover-only'].includes(source.search_strategy) ? source.search_strategy : 'hybrid';
   const includeGenres = normalizeNumericIdArray(source.include_genre_ids);
   const excludeGenres = normalizeNumericIdArray(source.exclude_genre_ids).filter((id) => !includeGenres.includes(id));
-  const titleHints = normalizeStringArray(source.title_hints, 5);
+  const titleHints = normalizeStringArray(source.title_hints, 7);
+  const webTitleCandidates = normalizeAiWebTitleCandidates(source.web_title_candidates, 7);
   const textQuery = String(source.text_query || '').trim();
   const mustMatchTerms = normalizeStringArray(source.must_match_terms, 8);
   const avoidTerms = normalizeStringArray(source.avoid_terms, 8);
@@ -3028,6 +3269,7 @@ function normalizeAiSearchPlan(rawPlan) {
     searchStrategy: strategy,
     textQuery,
     titleHints,
+    webTitleCandidates,
     includeGenreIds: includeGenres,
     excludeGenreIds: excludeGenres,
     primaryYearFrom: normalizedYearFrom,
@@ -3132,7 +3374,7 @@ async function requestAiSearchPlan(query) {
   syncAiSearchUi();
   aiSearchSummary.textContent = `Разбираю запрос: «${query}». Сейчас ИИ переведёт его в TMDb-фильтры и план поиска.`;
   aiSearchPlanChips.innerHTML = '';
-  aiSearchLog.textContent = `• Запускаю ИИ-поиск: ${OPENROUTER_MODEL}${OPENROUTER_WEB_SEARCH_ENABLED ? ' + web' : ''}`;
+  aiSearchLog.textContent = `• Запускаю ИИ-поиск: ${OPENROUTER_MODEL}${OPENROUTER_FORCE_WEB_TITLE_RESOLVER ? ' + forced web title resolver' : OPENROUTER_WEB_SEARCH_ENABLED ? ' + web' : ''}`;
   setAiSearchStatus('анализ', 'thinking');
   startAiSearchFallbackLog();
 
@@ -3148,8 +3390,23 @@ async function requestAiSearchPlan(query) {
   };
 
   if (OPENROUTER_WEB_SEARCH_ENABLED) {
-    payload.tools = [{ type: 'openrouter:web_search' }];
+    payload.tools = [{
+      type: 'openrouter:web_search',
+      parameters: {
+        engine: 'auto',
+        max_results: OPENROUTER_WEB_SEARCH_MAX_RESULTS,
+        max_total_results: OPENROUTER_WEB_SEARCH_MAX_RESULTS,
+        search_context_size: 'medium'
+      }
+    }];
     payload.tool_choice = 'auto';
+  }
+
+  if (OPENROUTER_FORCE_WEB_TITLE_RESOLVER) {
+    // Legacy web plugin intentionally kept here because it runs one web pass every time.
+    // Server tools are still provided above, but the model may decide not to call them.
+    payload.plugins = [{ id: 'web', max_results: OPENROUTER_WEB_SEARCH_MAX_RESULTS }];
+    state.aiSearch.usedWebSearch = true;
   }
 
   const useVpnForAi = isRmpVpnEnabled();
@@ -3276,8 +3533,19 @@ function parseAiPlanPayload(rawText) {
     throw new Error('AI search planner returned an empty response.');
   }
 
+  const extractFromOpenRouterEnvelope = (value) => {
+    const content = value?.choices?.[0]?.message?.content
+      || value?.choices?.[0]?.delta?.content
+      || value?.output_text
+      || '';
+    return typeof content === 'string' && content.trim() ? content.trim() : null;
+  };
+
   try {
-    return JSON.parse(cleaned);
+    const direct = JSON.parse(cleaned);
+    const nested = extractFromOpenRouterEnvelope(direct);
+    if (nested) return parseAiPlanPayload(nested);
+    return direct;
   } catch (error) {
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) {
@@ -3293,8 +3561,13 @@ function updateAiPlanPresentation(plan) {
     parts.push(plan.explanation);
   }
   parts.push(`Стратегия: ${resolveAiStrategyLabel(plan.searchStrategy)}.`);
+  if (Array.isArray(plan.webTitleCandidates) && plan.webTitleCandidates.length) {
+    const best = plan.webTitleCandidates[0];
+    const bestTitle = [best.title, best.year ? `(${best.year})` : ''].filter(Boolean).join(' ');
+    parts.push(`Веб-резолвер выбрал: ${bestTitle}.`);
+  }
   if (state.aiSearch.usedWebSearch) {
-    parts.push('Модель подтягивала веб-контекст для уточнения запроса.');
+    parts.push('Модель использовала интернет-контекст для поиска тайтла.');
   }
   aiSearchSummary.textContent = parts.join(' ');
   aiSearchModeLabel.textContent = `${resolveAiMediaTypeLabel(plan.mediaType)} • ${resolveAiStrategyLabel(plan.searchStrategy)}`;
@@ -3320,6 +3593,11 @@ function buildAiPlanChipsMarkup(plan) {
 
   if (plan.textQuery) {
     chips.push(renderAiPlanChip(`поисковая фраза: ${plan.textQuery}`, 'muted'));
+  }
+
+  for (const candidate of (plan.webTitleCandidates || []).slice(0, 4)) {
+    const title = [candidate.title || candidate.originalTitle, candidate.year ? `(${candidate.year})` : ''].filter(Boolean).join(' ');
+    if (title) chips.push(renderAiPlanChip(`web: ${title}`, 'accent'));
   }
 
   const includedGenres = resolveAiGenreLabels(plan.mediaType, plan.includeGenreIds);
@@ -3409,26 +3687,74 @@ function buildAiStatusText(count, plan) {
   const base = count ? `AI-поиск нашёл ${count} ${count === 1 ? 'тайтл' : count < 5 ? 'тайтла' : 'тайтлов'}.` : 'AI-поиск ничего не нашёл.';
   const extras = [];
   if (plan.textQuery) extras.push(`TMDb query: ${plan.textQuery}`);
+  if (Array.isArray(plan.webTitleCandidates) && plan.webTitleCandidates.length) {
+    const best = plan.webTitleCandidates[0];
+    const label = [best.title || best.originalTitle, best.year ? String(best.year) : ''].filter(Boolean).join(' ');
+    if (label) extras.push(`web-кандидат: ${label}`);
+  }
   if (plan.includeGenreIds.length) extras.push(`жанры: ${resolveAiGenreLabels(plan.mediaType, plan.includeGenreIds).join(', ')}`);
   if (plan.forTv.onlyCurrentlyAiring) extras.push('онгоинги');
   return [base, extras.join(' • ')].filter(Boolean).join(' ');
 }
 
 async function executeAiSearchPlan(plan, page) {
-  const mediaTargets = resolveAiMediaTargets(plan);
-  const effectiveTextQuery = plan.textQuery || plan.titleHints[0] || (plan.searchStrategy === 'title-first' ? state.query.trim() : '');
+  const webCandidates = Array.isArray(plan.webTitleCandidates) ? plan.webTitleCandidates : [];
+  const titleQueries = buildAiTitleSearchQueries(plan);
+  const effectiveTextQuery = titleQueries[0] || plan.textQuery || plan.titleHints[0] || (plan.searchStrategy === 'title-first' ? state.query.trim() : '');
+  const titleIntentMode = hasAiResolvedTitleSignal(plan);
+  const shouldUseCandidateSearch = titleQueries.length > 0;
+  const maxRawPages = titleIntentMode ? 2 : TMDB_MAX_FETCH_PAGE;
 
   return collectFilteredCatalogPage(page, async (rawPage) => {
     const tasks = [];
 
-    for (const mediaType of mediaTargets) {
-      if (effectiveTextQuery) {
+    if (rawPage === 1 && webCandidates.length) {
+      for (const candidate of webCandidates.slice(0, 7)) {
+        if (candidate.imdbId) {
+          tasks.push(apiFetch(`/find/${candidate.imdbId}`, {
+            external_source: 'imdb_id',
+            language: 'ru-RU'
+          }).then((response) => ({ source: 'imdb-find', candidate, response })));
+        }
+
+        if (candidate.tmdbId) {
+          const mediaTargets = candidate.mediaType === 'unknown'
+            ? ['movie', 'tv']
+            : resolveAiCandidateMediaTargets(plan, candidate);
+          for (const mediaType of mediaTargets) {
+            tasks.push(apiFetch(`/${mediaType}/${candidate.tmdbId}`, { language: 'ru-RU' })
+              .then((response) => ({ source: 'tmdb-id', mediaType, candidate, response })));
+          }
+        }
+      }
+    }
+
+    if (shouldUseCandidateSearch) {
+      const queriesForPage = rawPage === 1 ? titleQueries.slice(0, 8) : titleQueries.slice(0, 3);
+      for (const query of queriesForPage) {
+        const matchingCandidate = webCandidates.find((candidate) => getAiCandidateQueryParts(candidate)
+          .some((part) => normalizeSearchText(part) === normalizeSearchText(query)));
+        const yearPlan = buildAiCandidateYearPlan(plan, matchingCandidate);
+        const mediaTargets = resolveAiCandidateMediaTargets(plan, matchingCandidate);
+
+        for (const mediaType of mediaTargets) {
+          const endpoint = mediaType === 'movie' ? '/search/movie' : '/search/tv';
+          tasks.push(apiFetch(endpoint, buildAiSearchParams(mediaType, rawPage, query, yearPlan))
+            .then((response) => ({ source: 'web-title-search', mediaType, query, candidate: matchingCandidate || null, response })));
+        }
+      }
+    }
+
+    if (!titleIntentMode && ((!shouldUseCandidateSearch && effectiveTextQuery) || (plan.searchStrategy !== 'title-first' && rawPage <= 2 && effectiveTextQuery))) {
+      for (const mediaType of resolveAiMediaTargets(plan)) {
         const endpoint = mediaType === 'movie' ? '/search/movie' : '/search/tv';
         tasks.push(apiFetch(endpoint, buildAiSearchParams(mediaType, rawPage, effectiveTextQuery, plan))
-          .then((response) => ({ source: 'search', mediaType, response })));
+          .then((response) => ({ source: 'search', mediaType, query: effectiveTextQuery, response })));
       }
+    }
 
-      if (plan.searchStrategy !== 'title-first' || rawPage === 1 || !effectiveTextQuery) {
+    if (!titleIntentMode && (plan.searchStrategy !== 'title-first' || rawPage === 1 || !effectiveTextQuery)) {
+      for (const mediaType of resolveAiMediaTargets(plan)) {
         const endpoint = mediaType === 'movie' ? '/discover/movie' : '/discover/tv';
         tasks.push(apiFetch(endpoint, buildAiDiscoverParams(mediaType, rawPage, plan))
           .then((response) => ({ source: 'discover', mediaType, response })));
@@ -3450,20 +3776,20 @@ async function executeAiSearchPlan(plan, page) {
       if (item.status !== 'fulfilled') continue;
       const response = item.value.response || {};
       totalPages = Math.max(totalPages, Number(response.total_pages || 1));
-      const normalized = (response.results || []).map((entry) => normalizeItem(entry, item.value.mediaType));
-      collected.push(...normalized);
+      collected.push(...normalizeAiTaskResultItems(item.value));
     }
 
     return {
       items: collected,
-      totalPages
+      totalPages: titleIntentMode ? Math.min(totalPages, maxRawPages) : totalPages
     };
   }, {
-    extraFilter: (item) => matchesAiPlanFilters(item, plan),
+    extraFilter: (item) => matchesAiResolvedTitleIntent(item, plan, effectiveTextQuery),
     sorter: isDefaultCatalogSort()
       ? (a, b) => scoreAiCandidate(b, plan, effectiveTextQuery) - scoreAiCandidate(a, plan, effectiveTextQuery) || sortByPopularity(a, b)
       : getCatalogSorter(),
-    cacheKey: buildCatalogCollectionKey('ai-search', { plan: summarizeAiPlanForCache(plan), textQuery: effectiveTextQuery })
+    maxRawPages,
+    cacheKey: buildCatalogCollectionKey('ai-search', { plan: summarizeAiPlanForCache(plan), textQuery: effectiveTextQuery, titleQueries, titleIntentMode })
   });
 }
 
@@ -3605,6 +3931,9 @@ function matchesAiPlanFilters(item, plan) {
 
 function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
   let score = Number(item.popularity || 0) * 0.02 + Number(item.voteAverage || 0) * 4;
+  if (hasAiResolvedTitleSignal(plan)) {
+    score += getAiTitleCandidateAffinity(item, plan, effectiveTextQuery);
+  }
   const titleText = normalizeSearchText(`${item.title} ${item.originalTitle}`);
   const overviewText = normalizeSearchText(item.overview || '');
   const queryText = normalizeSearchText(effectiveTextQuery || state.query);
@@ -3626,6 +3955,20 @@ function scoreAiCandidate(item, plan, effectiveTextQuery = '') {
   if (queryText) {
     if (titleText.includes(queryText)) score += 220;
     else if (overviewText.includes(queryText)) score += 70;
+  }
+
+  for (const candidate of plan.webTitleCandidates || []) {
+    const candidateYear = candidate.year;
+    const candidateTypeMatch = candidate.mediaType === 'unknown' || candidate.mediaType === item.mediaType;
+    const confidenceBoost = Math.max(0.4, Number(candidate.confidence || 0.5));
+    for (const part of getAiCandidateQueryParts(candidate)) {
+      const normalizedCandidate = normalizeSearchText(part);
+      if (!normalizedCandidate) continue;
+      if (titleText.includes(normalizedCandidate)) score += 280 * confidenceBoost;
+      else if (overviewText.includes(normalizedCandidate)) score += 70 * confidenceBoost;
+    }
+    if (candidateTypeMatch) score += 35 * confidenceBoost;
+    if (candidateYear !== null && getItemYear(item.releaseDate) === candidateYear) score += 55 * confidenceBoost;
   }
 
   for (const hint of plan.titleHints) {
@@ -4445,13 +4788,25 @@ function buildCatalogCollectionKey(mode, extra = {}) {
 function summarizeAiPlanForCache(plan) {
   if (!plan || typeof plan !== 'object') return null;
   return {
-    strategy: plan.strategy || '',
-    query: plan.query || '',
+    strategy: plan.searchStrategy || plan.strategy || '',
+    textQuery: plan.textQuery || plan.query || '',
     mediaType: plan.mediaType || plan.type || '',
-    genres: Array.isArray(plan.genres) ? [...plan.genres].sort() : [],
-    keywords: Array.isArray(plan.keywords) ? [...plan.keywords].sort() : [],
-    years: plan.years || plan.yearRange || null,
-    rating: plan.rating || plan.ratingRange || null
+    titleHints: Array.isArray(plan.titleHints) ? [...plan.titleHints].sort() : [],
+    webTitleCandidates: Array.isArray(plan.webTitleCandidates)
+      ? plan.webTitleCandidates.map((candidate) => ({
+          title: candidate.title || '',
+          originalTitle: candidate.originalTitle || '',
+          year: candidate.year || null,
+          mediaType: candidate.mediaType || 'unknown',
+          tmdbId: candidate.tmdbId || null,
+          imdbId: candidate.imdbId || ''
+        }))
+      : [],
+    includeGenreIds: Array.isArray(plan.includeGenreIds) ? [...plan.includeGenreIds].sort() : [],
+    excludeGenreIds: Array.isArray(plan.excludeGenreIds) ? [...plan.excludeGenreIds].sort() : [],
+    yearFrom: plan.primaryYearFrom ?? null,
+    yearTo: plan.primaryYearTo ?? null,
+    rating: plan.voteAverageGte ?? null
   };
 }
 
@@ -4487,6 +4842,9 @@ async function collectFilteredCatalogPage(page, fetchRawPage, options = {}) {
   const extraFilter = typeof options.extraFilter === 'function' ? options.extraFilter : null;
   const sorter = typeof options.sorter === 'function' ? options.sorter : null;
   const cache = getCatalogPageCache(options.cacheKey || '', pageSize);
+  if (options.maxRawPages !== undefined && options.maxRawPages !== null) {
+    cache.maxRawPages = Math.min(cache.maxRawPages, normalizeSourceTotalPages(options.maxRawPages));
+  }
 
   while (!cache.reachedEnd && cache.items.length < end && cache.nextRawPage <= cache.maxRawPages && cache.nextRawPage <= TMDB_MAX_FETCH_PAGE) {
     const batchPages = [];
