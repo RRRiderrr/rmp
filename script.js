@@ -25,7 +25,8 @@ const EPISODE_CALENDAR_CONCURRENCY = 4;
 const EPISODE_CALENDAR_MAX_ITEMS = 24;
 const OPENROUTER_API_KEY = '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';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL = 'openai/gpt-oss-120b:free';
+const OPENROUTER_MODEL = 'google/gemma-4-31b-it:free';
+const OPENROUTER_WEB_SEARCH_ENABLED = true;
 
 // === RMP VPN / Cloudflare Worker proxy ===
 // Вставь сюда URL своего бесплатного Cloudflare Worker, например:
@@ -2998,7 +2999,7 @@ function buildAiSearchUserPrompt(rawQuery) {
     `User request: ${rawQuery}`,
     buildAiHardConstraintText(),
     buildAiGenreReferenceText(),
-    'No external tools are required. Focus on producing the most accurate TMDb retrieval plan from the user request and the provided genre reference.'
+    'Use web search only when the user request depends on recent releases, current popularity, newly aired seasons, exact obscure title identification, or up-to-date context. Always return ONLY the JSON schema from the system prompt, even if web search was used.'
   ].join('\n\n');
 }
 
@@ -3131,7 +3132,7 @@ async function requestAiSearchPlan(query) {
   syncAiSearchUi();
   aiSearchSummary.textContent = `Разбираю запрос: «${query}». Сейчас ИИ переведёт его в TMDb-фильтры и план поиска.`;
   aiSearchPlanChips.innerHTML = '';
-  aiSearchLog.textContent = '• Запускаю ИИ-поиск';
+  aiSearchLog.textContent = `• Запускаю ИИ-поиск: ${OPENROUTER_MODEL}${OPENROUTER_WEB_SEARCH_ENABLED ? ' + web' : ''}`;
   setAiSearchStatus('анализ', 'thinking');
   startAiSearchFallbackLog();
 
@@ -3145,6 +3146,11 @@ async function requestAiSearchPlan(query) {
     max_completion_tokens: 900,
     stream: true
   };
+
+  if (OPENROUTER_WEB_SEARCH_ENABLED) {
+    payload.tools = [{ type: 'openrouter:web_search' }];
+    payload.tool_choice = 'auto';
+  }
 
   const useVpnForAi = isRmpVpnEnabled();
   const headers = useVpnForAi
@@ -3220,7 +3226,13 @@ async function requestAiSearchPlan(query) {
           const choice = parsed?.choices?.[0];
           const delta = choice?.delta || {};
 
-          if (Array.isArray(delta.tool_calls) && delta.tool_calls.length) {
+          const annotations = Array.isArray(delta.annotations)
+            ? delta.annotations
+            : Array.isArray(choice?.message?.annotations)
+              ? choice.message.annotations
+              : [];
+
+          if ((Array.isArray(delta.tool_calls) && delta.tool_calls.length) || annotations.length) {
             state.aiSearch.usedWebSearch = true;
           }
 
