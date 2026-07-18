@@ -3778,42 +3778,76 @@ async function requestAiSearchPlan(query) {
     }
 
     stopAiSearchFallbackLog();
-    const parsedPlan = parseAiPlanPayload(rawContent);
-    let plan = normalizeAiSearchPlan(parsedPlan);
+    try {
+      const parsedPlan = parseAiPlanPayload(rawContent);
+      let plan = normalizeAiSearchPlan(parsedPlan);
 
-    let secondResolver = null;
-    const secondPassQueries = normalizeStringArray([
-      ...(plan.resolverQueries || []),
-      ...(plan.titleHints || []),
-      plan.textQuery
-    ], RMP_FREE_TITLE_RESOLVER_MAX_QUERIES)
-      .filter((entry) => !firstResolver?.searchedQueries?.some((searched) => normalizeSearchText(searched) === normalizeSearchText(entry)));
+      let secondResolver = null;
+      const secondPassQueries = normalizeStringArray([
+        ...(plan.resolverQueries || []),
+        ...(plan.titleHints || []),
+        plan.textQuery
+      ], RMP_FREE_TITLE_RESOLVER_MAX_QUERIES)
+        .filter((entry) => !firstResolver?.searchedQueries?.some((searched) => normalizeSearchText(searched) === normalizeSearchText(entry)));
 
-    if (secondPassQueries.length) {
+      if (secondPassQueries.length) {
+        try {
+          setAiSearchStatus('проверка', 'working');
+          appendAiSearchLog(`• Второй бесплатный web-проход: ${secondPassQueries.slice(0, 3).join(' • ')}`);
+          secondResolver = await requestFreeTitleResolver(query, secondPassQueries, aiSearchAbortController.signal);
+          if (secondResolver?.evidence?.length || secondResolver?.candidates?.length) {
+            state.aiSearch.usedWebSearch = true;
+            appendAiSearchLog(`• Проверено через TMDb: ещё ${secondResolver.candidates.length} кандидатов`);
+          }
+        } catch (resolverError) {
+          console.warn('[AI free title resolver second pass]', resolverError);
+          appendAiSearchLog('• Второй web-проход не удался; использую первый проход и план модели');
+        }
+      }
+
+      plan = mergeFreeResolverCandidates(plan, firstResolver, secondResolver);
+
+      state.aiSearch.plan = plan;
+      state.aiSearch.lastRawResponse = rawContent;
+      state.aiSearch.lastReasoning = [];
+      state.aiSearch.lastPlanGeneratedAt = Date.now();
+
+      setAiSearchStatus('готово', 'ready');
+      updateAiPlanPresentation(plan);
+      return plan;
+    } catch (planError) {
+      // Free-модель иногда возвращает пустой, обрезанный или невалидный JSON даже с HTTP 200.
+      // Это не должно убивать уже успешный бесплатный web-resolver: если он нашёл и
+      // подтвердил тайтл через TMDb, продолжаем поиск только по этим кандидатам.
+      console.warn('[AI planner parse/finalize fallback]', planError);
+      appendAiSearchLog('• Ответ бесплатной модели оказался пустым/невалидным — использую проверенный web-resolver без LLM');
+
+      let recoveryResolver = firstResolver;
       try {
-        setAiSearchStatus('проверка', 'working');
-        appendAiSearchLog(`• Второй бесплатный web-проход: ${secondPassQueries.slice(0, 3).join(' • ')}`);
-        secondResolver = await requestFreeTitleResolver(query, secondPassQueries, aiSearchAbortController.signal);
-        if (secondResolver?.evidence?.length || secondResolver?.candidates?.length) {
-          state.aiSearch.usedWebSearch = true;
-          appendAiSearchLog(`• Проверено через TMDb: ещё ${secondResolver.candidates.length} кандидатов`);
+        const deterministicQueries = buildDeterministicResolverQueries(query);
+        const retryResolver = await requestFreeTitleResolver(query, deterministicQueries, aiSearchAbortController.signal);
+        if ((retryResolver?.candidates?.length || 0) > (recoveryResolver?.candidates?.length || 0)) {
+          recoveryResolver = retryResolver;
         }
       } catch (resolverError) {
-        console.warn('[AI free title resolver second pass]', resolverError);
-        appendAiSearchLog('• Второй web-проход не удался; использую первый проход и план модели');
+        console.warn('[AI resolver recovery after invalid model response]', resolverError);
       }
+
+      const fallbackPlan = buildFallbackAiPlanFromResolver(query, recoveryResolver || { candidates: [] });
+      state.aiSearch.plan = fallbackPlan;
+      state.aiSearch.lastRawResponse = rawContent;
+      state.aiSearch.lastReasoning = [];
+      state.aiSearch.lastPlanGeneratedAt = Date.now();
+
+      if (fallbackPlan.webTitleCandidates?.length) {
+        appendAiSearchLog(`• Продолжаю по ${fallbackPlan.webTitleCandidates.length} TMDb-подтверждённым кандидату(ам); жанровую выдачу не подмешиваю`);
+      } else {
+        appendAiSearchLog('• Web-resolver тоже не подтвердил тайтл; случайную жанровую выдачу не показываю');
+      }
+      setAiSearchStatus('готово', 'ready');
+      updateAiPlanPresentation(fallbackPlan);
+      return fallbackPlan;
     }
-
-    plan = mergeFreeResolverCandidates(plan, firstResolver, secondResolver);
-
-    state.aiSearch.plan = plan;
-    state.aiSearch.lastRawResponse = rawContent;
-    state.aiSearch.lastReasoning = [];
-    state.aiSearch.lastPlanGeneratedAt = Date.now();
-
-    setAiSearchStatus('готово', 'ready');
-    updateAiPlanPresentation(plan);
-    return plan;
   } finally {
     stopAiSearchFallbackLog();
     aiSearchAbortController = null;
